@@ -17,3 +17,7 @@ Unity 6000.6.4f1 用の試作です。Unity Hub でこのフォルダをプロ�
 キャラクターは図形を組み合わせた仮モデルです。アニメーション、実モデル、効果音、ゲームパッド対応は今後の作業です。
 
 シーンを再生成する場合は Unity のバッチモードで `-executeMethod CreateDemo.BuildScene` を使用します。
+
+コードを読む順序は `BeltBrawler.cs`（ゲーム全体）→ `Fighter.cs`（キャラクターの更新・戦闘）がおすすめです。
+採用する命名・書式は `CODING_STYLE.md` に記載し、対応 IDE 向けに `.editorconfig` を用意しています。
+戦闘ルールの自動検証は `-batchmode -nographics -executeMethod CombatValidation.Run` で実行できます。

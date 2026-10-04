@@ -17,7 +17,10 @@ public static class CreateDemo
         System.IO.Directory.CreateDirectory("Assets/Scenes");
         EditorSceneManager.SaveScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene(), "Assets/Scenes/NeonStreet.unity");
         // シーンを有効なビルド対象として登録し、R キーでの再読み込みを可能にします。
-        EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene("Assets/Scenes/NeonStreet.unity", true) };
+        EditorBuildSettings.scenes = new[]
+        {
+            new EditorBuildSettingsScene("Assets/Scenes/NeonStreet.unity", true)
+        };
         AssetDatabase.SaveAssets();
     }
 }
