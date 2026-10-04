@@ -1,1 +1,40 @@
-# BeltScrollActionPractice_Unity
+# Neon Street — 3D Belt Brawler Prototype
+
+Unity 6000.6.4f1 用の試作です。Unity Hub でこのフォルダをプロジェクトとして追加します。
+`Assets/Scenes/NeonStreet.unity` を開き、Play を押してください。
+
+- WASD / 矢印: 左右・奥行き移動
+- J / Space: 通常攻撃（続けて押すと3段コンボ）
+- 左 Shift: 回避ダッシュ（方向入力がなければ向いている方向へ移動）
+- K 長押し: 盾ガード（正面の攻撃だけ防ぎます）
+- R: リスタート
+
+ゲームパッド操作（Input System が Gamepad として認識する機種）：
+- 左スティック／十字キー：移動。スティックは倒した量に応じて速度が変わります。
+- X（Xbox）／□（PlayStation）：通常攻撃。
+- A（Xbox）／×（PlayStation）、または RB／R1：回避ダッシュ。
+- LB／L1 または LT／L2 長押し：盾ガード。ガード中は移動・通常攻撃を止めます。
+- Start／Options：リスタート。
+
+パッドは実行中の接続・取り外しに対応し、キーボードも引き続き使えます。
+汎用 HID ジョイスティックなど Gamepad として認識されない機種には、別途レイアウト設定が必要です。
+入力は `BrawlerInput.cs` に集約しています。Input System 1.20.0 を導入し、Active Input Handling は Input System に設定しています。
+両方の入力が効かない場合は、Play を停止して `Tools > Neon Street > Apply Input Settings and Restart` を実行してください。
+このメニューは Unity 内で入力設定を適用し、編集中のシーンを保存する機会を設けてからエディターを再起動します。
+再起動後は Game ビューをクリックして入力フォーカスを与えてください。
+
+敵を倒すと次のウェーブが登場します。HP がゼロになると敗北します。
+敵が黄色になり「!」が出たら攻撃の予告です。奥行き移動や無敵付きの回避ダッシュで避けられます。
+予告中に攻撃を当てると敵の攻撃を中断できます。3段目は強い吹き飛ばしになります。
+通常攻撃には0.2秒の入力先行受付があり、攻撃終了の少し前に押しても次につながります。
+2秒以内に続けて命中させると連続ヒットが増え、獲得スコアが上がります。被ダメージで連続ヒットはリセットされます。
+全滅後は次のウェーブ開始時にHPが15回復します。敵の頭上に残りHPを表示します。
+キャラクターは図形を組み合わせた仮モデルです。アニメーション、実モデル、効果音、ゲームパッド対応は今後の作業です。
+
+シーンを再生成する場合は Unity のバッチモードで `-executeMethod CreateDemo.BuildScene` を使用します。
+
+コードを読む順序は `BeltBrawler.cs`（ゲーム全体）→ `Fighter.cs`（キャラクターの更新・戦闘）がおすすめです。
+`Combatant.cs` は HP の初期化・回復・減少を担当する抽象基底クラスで、`Fighter` が継承しています。
+3段目は敵を転倒させ、約0.7秒後に起き上がります。ガード成立時は緑に点滅し、背後からの攻撃は防げません。
+採用する命名・書式は `CODING_STYLE.md` に記載し、対応 IDE 向けに `.editorconfig` を用意しています。
+戦闘ルールの自動検証は `-batchmode -nographics -executeMethod CombatValidation.Run` で実行できます。
