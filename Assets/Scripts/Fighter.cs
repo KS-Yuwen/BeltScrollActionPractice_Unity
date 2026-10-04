@@ -35,6 +35,8 @@ public sealed class Fighter : Combatant
     private MaterialPropertyBlock _flashProperties;
     private float _downRemaining;
     private float _blockFlashRemaining;
+    private bool _isDashAttack;
+    private float _dashAttackMovementRemaining;
 
     // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
     public bool IsGuarding { get; private set; }
@@ -42,6 +44,8 @@ public sealed class Fighter : Combatant
     public bool IsDowned => _downRemaining > 0;
 
     public int ComboStep => _comboStep;
+
+    public bool IsDashAttacking => _isDashAttack && _attackRemaining > 0;
 
     // 状態の読み取りは公開し、変更はこのクラスのメソッドを通して行います。
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
@@ -115,10 +119,11 @@ public sealed class Fighter : Combatant
         if (IsPlayer)
         {
             input = BrawlerInput.ReadMovement();
+            bool attackPressed = BrawlerInput.WasAttackPressed();
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
                 && _attackRemaining <= 0 && _dashRemaining <= 0;
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
-            if (BrawlerInput.WasAttackPressed() && !IsGuarding)
+            if (attackPressed && !IsGuarding)
             {
                 _attackBufferRemaining = 0.2f;
             }
@@ -130,9 +135,17 @@ public sealed class Fighter : Combatant
                 _dashRemaining = 0.2f;
                 _dashCooldown = 0.85f;
                 _attackRemaining = 0;
+                _isDashAttack = false;
+                _dashAttackMovementRemaining = 0;
                 _attackBufferRemaining = 0;
                 _knockbackVelocity = Vector3.zero;
                 IsGuarding = false;
+            }
+            // 回避＋攻撃の同時押しも、回避中に攻撃を追加する操作も受け付けます。
+            // 無敵の回避を攻撃へ変換するため、発動後は被ダメージを受けるようになります。
+            if (attackPressed && _dashRemaining > 0 && _stunRemaining <= 0)
+            {
+                StartDashAttack();
             }
         }
         return input;
@@ -227,6 +240,12 @@ public sealed class Fighter : Combatant
             transform.position += _dashDirection * 13 * Mathf.Min(deltaTime, _dashRemaining);
             _dashRemaining = Mathf.Max(0, _dashRemaining - deltaTime);
         }
+        // 回避より速度を落とした短い踏み込みです。通常移動と同時には発生しません。
+        if (_dashAttackMovementRemaining > 0)
+        {
+            transform.position += _dashDirection * 8 * Mathf.Min(deltaTime, _dashAttackMovementRemaining);
+            _dashAttackMovementRemaining = Mathf.Max(0, _dashAttackMovementRemaining - deltaTime);
+        }
         Vector3 position = transform.position;
         // ステージの端で位置を制限し、高さは常に床の Y = 0 に固定します。
         transform.position = new Vector3(Mathf.Clamp(position.x, -22, 22), 0, Mathf.Clamp(position.z, -3, 3));
@@ -249,17 +268,20 @@ public sealed class Fighter : Combatant
         {
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
-            _attackArm.localRotation = Quaternion.Euler(0, 0, 90);
-            _attackArm.localPosition = new Vector3(0.65f, 1.35f, -0.1f);
+            _attackArm.localRotation = Quaternion.Euler(0, 0, _isDashAttack ? 110 : 90);
+            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            if (!_hasDealtHit && _attackRemaining < 0.16f)
+            float hitTiming = _isDashAttack ? 0.24f : 0.16f;
+            if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                _game.Hit(this, IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10);
+                int damage = _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
+                _game.Hit(this, damage);
             }
         }
         else
         {
+            _isDashAttack = false;
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -296,6 +318,7 @@ public sealed class Fighter : Combatant
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     private void Attack()
     {
+        _isDashAttack = false;
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
         // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
         _comboStep = Time.time - _lastAttackTime < 0.85f ? _comboStep % 3 + 1 : 1;
@@ -304,6 +327,25 @@ public sealed class Fighter : Combatant
         // プレイヤーは 3 段目の後に長めの隙を作り、敵は攻撃間隔を長くして避けやすくします。
         _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : 1.2f;
         _hasDealtHit = false;
+    }
+
+    // 回避を攻撃へ変換します。通常コンボとは別の技として、コンボ段数をリセットします。
+    private void StartDashAttack()
+    {
+        if (Mathf.Abs(_dashDirection.x) > 0.01f)
+        {
+            Facing = Mathf.Sign(_dashDirection.x);
+        }
+        _dashRemaining = 0;
+        _isDashAttack = true;
+        _dashAttackMovementRemaining = 0.18f;
+        _attackRemaining = 0.3f;
+        _attackCooldown = 0.6f;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+        _hasDealtHit = false;
+        IsGuarding = false;
     }
 
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
@@ -326,6 +368,9 @@ public sealed class Fighter : Combatant
         _stunRemaining = 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
+        _isDashAttack = false;
+        _dashAttackMovementRemaining = 0;
+        _attackBufferRemaining = 0;
         // 予告中に殴れば敵の攻撃を止められます。
         _windupRemaining = 0;
         _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? 0.25f : 0.6f);

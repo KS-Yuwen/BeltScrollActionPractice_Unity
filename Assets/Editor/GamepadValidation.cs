@@ -70,6 +70,16 @@ public static class GamepadValidation
             Require(BrawlerInput.WasDashPressed(), "下側のフェイスボタンで回避");
             UpdatePlayer(player);
             Require(ReadPlayerTimer(player, "_dashRemaining") > 0, "パッドの回避入力が戦闘処理へ到達");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.IsDashAttacking && ReadPlayerTimer(player, "_dashRemaining") == 0,
+                "回避中の攻撃でダッシュ攻撃へ変換し、回避無敵を終了");
+            int healthBeforeDashAttackHit = player.Health;
+            player.TakeDamage(10, 1);
+            Require(player.Health == healthBeforeDashAttackHit - 10 && !player.IsDashAttacking,
+                "ダッシュ攻撃は被ダメージで中断される");
+            player.RestoreHealth(10);
+            SetPlayerTimer(player, "_stunRemaining", 0);
             SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
@@ -80,6 +90,9 @@ public static class GamepadValidation
             InputSystem.Update();
             Require(Mathf.Approximately(BrawlerInput.ReadMovement().magnitude, 1), "キーボードの斜め移動は速度を制限");
             Require(BrawlerInput.WasAttackPressed() && BrawlerInput.WasDashPressed() && BrawlerInput.WasRestartPressed(), "キーボードの操作も維持");
+            SetPlayerTimer(player, "_dashCooldown", 0);
+            UpdatePlayer(player);
+            Require(player.IsDashAttacking, "キーボードの回避と攻撃の同時押しでもダッシュ攻撃");
 
             InputSystem.RemoveDevice(pad);
             Require(BrawlerInput.ReadMovement().sqrMagnitude > 0, "パッドを取り外してもキーボード移動が可能");
