@@ -37,12 +37,35 @@ public static class GamepadValidation
 
             SendState(pad, new GamepadState().WithButton(GamepadButton.DpadUp));
             Require(BrawlerInput.ReadMovement().z > 0.9f, "十字キーの上を奥行きへ変換");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
+            UpdatePlayer(player);
+            Require(player.IsGuarding, "左ショルダーを押している間ガード");
+            int guardedHealth = player.Health;
+            player.TakeDamage(10, -player.Facing);
+            Require(player.Health == guardedHealth, "正面の攻撃をガード");
+            player.TakeDamage(10, player.Facing);
+            Require(player.Health == guardedHealth - 10 && !player.IsGuarding, "背後の攻撃は防げない");
+            // 次の検証に被ダメージ硬直を持ち越さないようにします。
+            player.RestoreHealth(10);
+            SetPlayerTimer(player, "_stunRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             Require(BrawlerInput.WasAttackPressed(), "左側のフェイスボタンで攻撃");
             UpdatePlayer(player);
             Require(ReadPlayerTimer(player, "_attackRemaining") > 0, "パッドの攻撃入力が戦闘処理へ到達");
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             Require(!BrawlerInput.WasAttackPressed(), "押しっぱなしでは攻撃を再入力しない");
+            // コンボの後隙では入力を覚えるだけにし、硬直が終わると次の段が出ることを確認します。
+            SendState(pad, new GamepadState());
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.ComboStep == 1, "攻撃中は次の段を即座に発動しない");
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            SendState(pad, new GamepadState());
+            UpdatePlayer(player);
+            Require(player.ComboStep == 2, "先行入力した攻撃が次の段へつながる");
             SendState(pad, new GamepadState().WithButton(GamepadButton.South));
             Require(BrawlerInput.WasDashPressed(), "下側のフェイスボタンで回避");
             UpdatePlayer(player);
@@ -90,6 +113,11 @@ public static class GamepadValidation
     private static float ReadPlayerTimer(Fighter player, string fieldName)
     {
         return (float)player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+    }
+
+    private static void SetPlayerTimer(Fighter player, string fieldName, float value)
+    {
+        player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, value);
     }
 
     private static void Require(bool condition, string message)

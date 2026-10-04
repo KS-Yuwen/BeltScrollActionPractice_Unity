@@ -6,12 +6,14 @@ Unity 6000.6.4f1 用の試作です。Unity Hub でこのフォルダをプロ�
 - WASD / 矢印: 左右・奥行き移動
 - J / Space: 通常攻撃（続けて押すと3段コンボ）
 - 左 Shift: 回避ダッシュ（方向入力がなければ向いている方向へ移動）
+- K 長押し: 盾ガード（正面の攻撃だけ防ぎます）
 - R: リスタート
 
 ゲームパッド操作（Input System が Gamepad として認識する機種）：
 - 左スティック／十字キー：移動。スティックは倒した量に応じて速度が変わります。
 - X（Xbox）／□（PlayStation）：通常攻撃。
 - A（Xbox）／×（PlayStation）、または RB／R1：回避ダッシュ。
+- LB／L1 または LT／L2 長押し：盾ガード。ガード中は移動・通常攻撃を止めます。
 - Start／Options：リスタート。
 
 パッドは実行中の接続・取り外しに対応し、キーボードも引き続き使えます。
@@ -32,5 +34,7 @@ Unity 6000.6.4f1 用の試作です。Unity Hub でこのフォルダをプロ�
 シーンを再生成する場合は Unity のバッチモードで `-executeMethod CreateDemo.BuildScene` を使用します。
 
 コードを読む順序は `BeltBrawler.cs`（ゲーム全体）→ `Fighter.cs`（キャラクターの更新・戦闘）がおすすめです。
+`Combatant.cs` は HP の初期化・回復・減少を担当する抽象基底クラスで、`Fighter` が継承しています。
+3段目は敵を転倒させ、約0.7秒後に起き上がります。ガード成立時は緑に点滅し、背後からの攻撃は防げません。
 採用する命名・書式は `CODING_STYLE.md` に記載し、対応 IDE 向けに `.editorconfig` を用意しています。
 戦闘ルールの自動検証は `-batchmode -nographics -executeMethod CombatValidation.Run` で実行できます。

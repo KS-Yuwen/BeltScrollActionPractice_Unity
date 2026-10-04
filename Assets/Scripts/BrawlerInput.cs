@@ -77,4 +77,13 @@ public static class BrawlerInput
         return (keyboard != null && keyboard.rKey.wasPressedThisFrame)
             || (pad != null && pad.startButton.wasPressedThisFrame);
     }
+
+    // ガードだけは押した瞬間ではなく、押している間ずっと継続する操作です。
+    public static bool IsGuardHeld()
+    {
+        Keyboard keyboard = Keyboard.current;
+        Gamepad pad = Gamepad.current;
+        return (keyboard != null && keyboard.kKey.isPressed)
+            || (pad != null && (pad.leftShoulder.isPressed || pad.leftTrigger.isPressed));
+    }
 }

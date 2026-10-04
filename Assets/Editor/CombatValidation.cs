@@ -89,6 +89,7 @@ public static class CombatValidation
             Require(game.HitChain == 1, "硬直中の重複ダメージを拒否");
             SetPrivateField(enemy, "_stunRemaining", 0f);
             enemy.TakeDamage(30, 1);
+            Require(enemy.IsDowned, "強い攻撃で敵が転倒");
             Require(((Vector3)GetPrivateField(enemy, "_knockbackVelocity")).x == 9, "最終段の強い吹き飛ばし");
             SetPrivateField(player, "_stunRemaining", 0f);
             player.TakeDamage(10, 1);

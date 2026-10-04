@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // キャラクター単体の管理役。入力または AI、移動、攻撃演出、被ダメージを担当します。
-public sealed class Fighter : MonoBehaviour
+public sealed class Fighter : Combatant
 {
     private BeltBrawler _game;
     private Transform _visual;
@@ -33,14 +33,19 @@ public sealed class Fighter : MonoBehaviour
     private float _attackBufferRemaining;
     private Renderer[] _bodyRenderers;
     private MaterialPropertyBlock _flashProperties;
+    private float _downRemaining;
+    private float _blockFlashRemaining;
+
+    // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
+    public bool IsGuarding { get; private set; }
+
+    public bool IsDowned => _downRemaining > 0;
+
+    public int ComboStep => _comboStep;
 
     // 状態の読み取りは公開し、変更はこのクラスのメソッドを通して行います。
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
     public bool IsPlayer { get; private set; }
-
-    public int Health { get; private set; }
-
-    public int MaxHealth { get; private set; }
 
     // 右向きは +1、左向きは -1。見た目と攻撃判定で共用します。
     public float Facing { get; private set; } = 1;
@@ -56,18 +61,11 @@ public sealed class Fighter : MonoBehaviour
     {
         _game = game;
         IsPlayer = isPlayer;
-        MaxHealth = maxHealth;
-        Health = maxHealth;
+        InitializeHealth(maxHealth);
         _visual = visual;
         _attackArm = attackArm;
         _rightLeg = rightLeg;
         _leftLeg = leftLeg;
-    }
-
-    // HP の変更を Fighter 内に集約し、最大 HP を超えないという約束を守ります。
-    public void RestoreHealth(int amount)
-    {
-        Health = Mathf.Min(MaxHealth, Health + amount);
     }
 
     private void Start()
@@ -106,6 +104,8 @@ public sealed class Fighter : MonoBehaviour
         _dashCooldown -= deltaTime;
         _flashRemaining -= deltaTime;
         _attackBufferRemaining = Mathf.Max(0, _attackBufferRemaining - deltaTime);
+        _downRemaining = Mathf.Max(0, _downRemaining - deltaTime);
+        _blockFlashRemaining = Mathf.Max(0, _blockFlashRemaining - deltaTime);
     }
 
     // 入力の読み取りと先行受付だけを担当し、通常移動に使う方向を返します。
@@ -115,8 +115,10 @@ public sealed class Fighter : MonoBehaviour
         if (IsPlayer)
         {
             input = BrawlerInput.ReadMovement();
+            IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
+                && _attackRemaining <= 0 && _dashRemaining <= 0;
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
-            if (BrawlerInput.WasAttackPressed())
+            if (BrawlerInput.WasAttackPressed() && !IsGuarding)
             {
                 _attackBufferRemaining = 0.2f;
             }
@@ -130,6 +132,7 @@ public sealed class Fighter : MonoBehaviour
                 _attackRemaining = 0;
                 _attackBufferRemaining = 0;
                 _knockbackVelocity = Vector3.zero;
+                IsGuarding = false;
             }
         }
         return input;
@@ -168,12 +171,24 @@ public sealed class Fighter : MonoBehaviour
         {
             if (IsPlayer)
             {
+                // ガード中は足を止め、向きを維持します。解除直後の勝手な攻撃も防ぎます。
+                if (IsGuarding)
+                {
+                    _attackBufferRemaining = 0;
+                    return Vector3.zero;
+                }
                 // 入力の縦方向は Y ではなく Z に対応させます。
                 // 入力側で長さを最大 1 に制限し、アナログの倒し具合も維持しています。
                 movement = input;
                 // 記憶した入力を一度消費して攻撃します。押しっぱなしで自動連打にはなりません。
                 if (_attackCooldown <= 0 && _attackBufferRemaining > 0)
                 {
+                    // 反対方向＋攻撃を同時に入力したとき、攻撃開始前に向きを更新します。
+                    // 攻撃開始後は向きを固定し、途中で判定だけが裏返らないようにします。
+                    if (Mathf.Abs(input.x) > 0.01f)
+                    {
+                        Facing = Mathf.Sign(input.x);
+                    }
                     Attack();
                     _attackBufferRemaining = 0;
                     movement = Vector3.zero;
@@ -246,22 +261,29 @@ public sealed class Fighter : MonoBehaviour
         else
         {
             // 回転なしの状態に戻します。
-            _attackArm.localRotation = Quaternion.identity;
+            _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
         }
     }
 
     private void UpdateVisualFeedback()
     {
+        // 生存中の転倒は一定時間で起き上がります。死亡姿勢は Update の早期終了で保持します。
+        _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         _visual.localPosition = new Vector3(0, _stunRemaining > 0 ? 0.08f : 0, 0);
         // 被ダメージは白、回避中は水色、敵の攻撃予告は黄色で見分けられるようにします。
         // SetPropertyBlock(null) で上書きを解除すると、元の各パーツの色に戻ります。
         foreach (var body in _bodyRenderers)
         {
-            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0)
+            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0 || IsGuarding || _blockFlashRemaining > 0)
             {
-                _flashProperties.SetColor("_Color", _flashRemaining > 0 ? Color.white : _dashRemaining > 0 ? Color.cyan : Color.yellow);
+                // 防御の成立は緑、防御姿勢は青。攻撃予告の黄と見分けます。
+                Color feedbackColor = _flashRemaining > 0 ? Color.white
+                    : _blockFlashRemaining > 0 ? Color.green
+                    : IsGuarding ? new Color(0.3f, 0.5f, 1)
+                    : _dashRemaining > 0 ? Color.cyan : Color.yellow;
+                _flashProperties.SetColor("_Color", feedbackColor);
                 body.SetPropertyBlock(_flashProperties);
             }
             else
@@ -292,7 +314,15 @@ public sealed class Fighter : MonoBehaviour
         {
             return;
         }
-        Health = Mathf.Max(0, Health - amount);
+        // direction は攻撃者の向き。自分と逆向きなら相手は正面にいると判定できます。
+        if (IsGuarding && direction * Facing < 0)
+        {
+            _blockFlashRemaining = 0.15f;
+            _knockbackVelocity = new Vector3(direction * 1.5f, 0, 0);
+            return;
+        }
+        IsGuarding = false;
+        ReduceHealth(amount);
         _stunRemaining = 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
@@ -300,6 +330,12 @@ public sealed class Fighter : MonoBehaviour
         _windupRemaining = 0;
         _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? 0.25f : 0.6f);
         _flashRemaining = 0.12f;
+        // 最終段で敵を転倒させます。硬直時間と合わせて、起き上がるまで行動を止めます。
+        if (!IsPlayer && amount >= 30 && Health > 0)
+        {
+            _downRemaining = 0.7f;
+            _stunRemaining = _downRemaining;
+        }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
         _game.RegisterDamage(this);

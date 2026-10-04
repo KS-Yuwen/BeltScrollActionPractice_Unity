@@ -100,6 +100,13 @@ public sealed class BeltBrawler : MonoBehaviour
         CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
         var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
+        if (isPlayer)
+        {
+            // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
+            Transform mace = CreateBodyPart("Mace", new Vector3(0.4f, 1.65f, -0.1f), new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
+            mace.SetParent(attackArm, true);
+            CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
+        }
         fighter.Initialize(this, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);
         return fighter;
     }
@@ -219,12 +226,15 @@ public sealed class BeltBrawler : MonoBehaviour
     private bool IsInAttackRange(Fighter attacker, Fighter target)
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
+        // プレイヤーの左右方向のリーチだけを従来の 1.5 倍にします（1.65 × 1.5 = 2.475）。
+        // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
+        float attackReach = attacker.IsPlayer ? 2.475f : 1.65f;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
         return target.Health > 0
             && Mathf.Abs(delta.z) < 0.8f
-            && Mathf.Abs(delta.x) < 1.65f
+            && Mathf.Abs(delta.x) < attackReach
             && delta.x * attacker.Facing > -0.25f;
     }
 
@@ -242,8 +252,8 @@ public sealed class BeltBrawler : MonoBehaviour
         string dashHint = BrawlerInput.IsGamepadConnected ? "A / Cross / RB: Dash" : "Shift: Dash";
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
         string controls = BrawlerInput.IsGamepadConnected
-            ? "Stick / D-pad: Move    X / Square: Attack    A / Cross / RB: Dash    Start: Restart"
-            : "WASD / Arrows: Move    J / Space: Attack    Shift: Dodge dash    R: Restart";
+            ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"
+            : "WASD / Arrows: Move   J / Space: Attack   Shift: Dash   K: Guard   R: Restart";
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
