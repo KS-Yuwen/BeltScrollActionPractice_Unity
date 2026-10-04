@@ -14,6 +14,11 @@ public sealed class BeltBrawler : MonoBehaviour
     int wave; // 現在の敵グループの番号。出現のたびに増えます。
     float nextWave; // 全滅後、次の出現までに経過した秒数。
     Material floor, blue, red, skin;
+    int score, hitChain;
+    float chainTime, cameraShake;
+
+    // 続けて命中させた回数。攻撃の「3段コンボ」とは別で、敵への命中を数えます。
+    public int HitChain => hitChain;
 
     // このコンポーネントの最初の Update より前に、一度だけ呼ばれる初期化処理です。
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
@@ -107,6 +112,8 @@ public sealed class BeltBrawler : MonoBehaviour
     void SpawnWave()
     {
         wave++;
+        // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
+        if (wave > 1) player.health = Mathf.Min(player.maxHealth, player.health + 15);
         for (int i = 0; i < Mathf.Min(2 + wave, 7); i++)
             enemies.Add(CreateFighter("Enemy", new Vector3(Mathf.Clamp(player.transform.position.x + 7 + i, -22, 22), 0, Random.Range(-2.5f, 2.5f)), false));
     }
@@ -116,6 +123,10 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         enemies.RemoveAll(enemy => enemy == null);
+        // 2 秒間命中がなければ連続ヒットをリセット。スコア自体は残ります。
+        chainTime -= Time.deltaTime;
+        if (chainTime <= 0) hitChain = 0;
+        cameraShake = Mathf.Max(0, cameraShake - Time.deltaTime);
         if (player.health > 0 && enemies.Count == 0)
         {
             // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
@@ -133,9 +144,28 @@ public sealed class BeltBrawler : MonoBehaviour
         var focus = new Vector3(Mathf.Clamp(player.transform.position.x, -16, 16), 1, 0);
         view.transform.position = focus + new Vector3(0, 6, -13);
         view.transform.LookAt(focus);
+        // 一瞬だけカメラをずらし、攻撃が命中した重さを表現します。
+        // 毎フレーム基準位置から計算するため、揺れが積み重なって位置がずれることはありません。
+        if (cameraShake > 0) view.transform.position += Random.insideUnitSphere * cameraShake * .7f;
     }
 
     public Fighter Target => player; // 敵 AI にプレイヤーを公開する読み取り専用プロパティです。
+
+    // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
+    public void RegisterDamage(Fighter victim)
+    {
+        cameraShake = .16f;
+        if (victim.isPlayer)
+        {
+            hitChain = 0;
+            chainTime = 0;
+            return;
+        }
+        hitChain++;
+        chainTime = 2;
+        score += 10 * Mathf.Min(hitChain, 10);
+        if (victim.health == 0) score += 100;
+    }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
     public void Hit(Fighter attacker, int damage)
@@ -167,9 +197,24 @@ public sealed class BeltBrawler : MonoBehaviour
         // 現在 HP / 最大 HP の割合を、満タン時の幅 300 ピクセルに掛けます。
         GUI.Box(new Rect(24, 65, 300f * Mathf.Max(0, player.health) / player.maxHealth, 24), "HP " + player.health);
         GUI.color = Color.white;
-        GUI.Label(new Rect(24, Screen.height - 48, 1000, 40), "WASD / Arrows: Move    J / Space: Combo attack    R: Restart", style);
+        GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + score + "   |   " + hitChain + " HITS", style);
+        GUI.Label(new Rect(24, 138, 700, 40), player.DashReady ? "DASH READY — Shift" : "DASH RECHARGING", style);
+        GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), "WASD / Arrows: Move    J / Space: Attack    Shift: Dodge dash    R: Restart", style);
+        // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
+        // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
+        foreach (var enemy in enemies)
+        {
+            if (enemy == null || enemy.health <= 0) continue;
+            Vector3 screen = view.WorldToScreenPoint(enemy.transform.position + Vector3.up * 2.3f);
+            if (screen.z <= 0) continue;
+            float y = Screen.height - screen.y;
+            GUI.color = enemy.IsWindingUp ? Color.yellow : new Color(1, .35f, .35f);
+            GUI.Box(new Rect(screen.x - 35, y, 70f * enemy.health / enemy.maxHealth, 10), "");
+            if (enemy.IsWindingUp) GUI.Label(new Rect(screen.x - 12, y - 35, 40, 35), "!", style);
+        }
+        GUI.color = Color.white;
         if (player.health <= 0) GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 400, 50), "DEFEATED — Press R", style);
-        else if (enemies.Count == 0) GUI.Label(new Rect(Screen.width / 2 - 120, 100, 400, 50), "WAVE CLEAR!", style);
+        else if (enemies.Count == 0) GUI.Label(new Rect(Screen.width / 2 - 120, 200, 400, 50), "WAVE CLEAR!  HP +15", style);
     }
 }
 
@@ -188,6 +233,23 @@ public sealed class Fighter : MonoBehaviour
     int combo; // 現在のコンボ段数（1～3）。
     bool dealtHit; // 1 回の攻撃でダメージ判定を繰り返さないためのフラグ。
     Vector3 knockback; // 被ダメージ時に押し戻される速度。
+    // ダッシュ中だけ入力方向に高速移動し、ダメージを無効にします。
+    // 再使用の待ち時間を設け、回避を連打するだけにならないようにしています。
+    float dashTime, dashCooldown, windup, flashTime;
+    Vector3 dashDirection;
+    float attackBuffer;
+    Renderer[] bodyRenderers;
+    MaterialPropertyBlock flashProperties;
+    public bool DashReady => dashCooldown <= 0;
+    public bool IsWindingUp => windup > 0;
+
+    void Start()
+    {
+        // Unity のネイティブ機能を使うオブジェクトはフィールド初期化では作らず、Start で作ります。
+        flashProperties = new MaterialPropertyBlock();
+        // パーツ生成後に Renderer を集めます。素材を複製せず、個体ごとに色を上書きします。
+        bodyRenderers = visual.GetComponentsInChildren<Renderer>();
+    }
 
     void Update()
     {
@@ -195,20 +257,48 @@ public sealed class Fighter : MonoBehaviour
         float dt = Time.deltaTime;
         cooldown -= dt;
         stun -= dt;
+        dashCooldown -= dt;
+        flashTime -= dt;
+        attackBuffer = Mathf.Max(0, attackBuffer - dt);
+        Vector3 input = Vector3.zero;
+        if (isPlayer)
+        {
+            input = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical")).normalized;
+            // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
+            if (Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(KeyCode.Space)) attackBuffer = .2f;
+            // 攻撃の後隙からも回避できますが、被ダメージ硬直中は回避できません。
+            if (Input.GetKeyDown(KeyCode.LeftShift) && DashReady && stun <= 0)
+            {
+                dashDirection = input.sqrMagnitude > 0 ? input : new Vector3(facing, 0, 0);
+                dashTime = .2f;
+                dashCooldown = .85f;
+                attackTime = 0;
+                attackBuffer = 0;
+                knockback = Vector3.zero;
+            }
+        }
+        // 敵は 0.55 秒の予告中に足を止め、攻撃方向を固定します。
+        // プレイヤーが奥行き方向へ逃げれば、その場所に空振りさせられます。
+        bool wasWindingUp = windup > 0;
+        if (wasWindingUp)
+        {
+            windup -= dt;
+            if (windup <= 0 && game.Target.health > 0) Attack();
+        }
         // 速度に経過秒数を掛けて移動量へ変換し、ノックバック速度を徐々にゼロへ近づけます。
         transform.position += knockback * dt;
         knockback = Vector3.Lerp(knockback, Vector3.zero, dt * 12);
         Vector3 movement = Vector3.zero;
         // 攻撃中・被ダメージ硬直中は、新しい操作や AI の行動を受け付けません。
-        if (stun <= 0 && attackTime <= 0)
+        if (stun <= 0 && attackTime <= 0 && dashTime <= 0 && !wasWindingUp)
         {
             if (isPlayer)
             {
                 // 入力の縦方向は Y ではなく Z に対応させます。
                 // normalized で長さを 1 にそろえ、斜め移動だけ速くなることを防ぎます。
-                movement = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical")).normalized;
-                // GetKeyDown は押した瞬間だけ true。押しっぱなしで自動連打にはなりません。
-                if (cooldown <= 0 && (Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(KeyCode.Space))) Attack();
+                movement = input;
+                // 記憶した入力を一度消費して攻撃します。押しっぱなしで自動連打にはなりません。
+                if (cooldown <= 0 && attackBuffer > 0) { Attack(); attackBuffer = 0; movement = Vector3.zero; }
             }
             else if (game.Target.health > 0)
             {
@@ -216,12 +306,18 @@ public sealed class Fighter : MonoBehaviour
                 var delta = game.Target.transform.position - transform.position;
                 facing = delta.x >= 0 ? 1 : -1;
                 if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > .5f) movement = delta.normalized;
-                else if (cooldown <= 0) Attack();
+                else if (cooldown <= 0) { windup = .55f; movement = Vector3.zero; }
             }
         }
         // 奥行きだけの移動では向きを維持し、左右に動いた場合だけ向きを変更します。
         if (Mathf.Abs(movement.x) > .01f) facing = Mathf.Sign(movement.x);
         transform.position += movement * (isPlayer ? 5 : 2.2f) * dt;
+        // 最終フレームの移動量を残り時間で制限し、FPS が低いときの飛びすぎを防ぎます。
+        if (dashTime > 0)
+        {
+            transform.position += dashDirection * 13 * Mathf.Min(dt, dashTime);
+            dashTime = Mathf.Max(0, dashTime - dt);
+        }
         Vector3 p = transform.position;
         // ステージの端で位置を制限し、高さは常に床の Y = 0 に固定します。
         transform.position = new Vector3(Mathf.Clamp(p.x, -22, 22), 0, Mathf.Clamp(p.z, -3, 3));
@@ -246,13 +342,24 @@ public sealed class Fighter : MonoBehaviour
         }
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         visual.localPosition = new Vector3(0, stun > 0 ? .08f : 0, 0);
+        // 被ダメージは白、回避中は水色、敵の攻撃予告は黄色で見分けられるようにします。
+        // SetPropertyBlock(null) で上書きを解除すると、元の各パーツの色に戻ります。
+        foreach (var body in bodyRenderers)
+        {
+            if (flashTime > 0 || dashTime > 0 || windup > 0)
+            {
+                flashProperties.SetColor("_Color", flashTime > 0 ? Color.white : dashTime > 0 ? Color.cyan : Color.yellow);
+                body.SetPropertyBlock(flashProperties);
+            }
+            else body.SetPropertyBlock(null);
+        }
     }
 
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     void Attack()
     {
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
-        // 剰余演算 % によって、3 段目の次は 1 段目になります。入力の先行受付はありません。
+        // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
         combo = Time.time - lastAttack < .85f ? combo % 3 + 1 : 1;
         lastAttack = Time.time;
         attackTime = .3f;
@@ -265,11 +372,16 @@ public sealed class Fighter : MonoBehaviour
     public void Damage(int amount, float direction)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (health <= 0 || stun > 0) return;
+        if (health <= 0 || stun > 0 || dashTime > 0) return;
         health = Mathf.Max(0, health - amount);
         stun = .25f;
         attackTime = 0; // 被ダメージによって進行中の攻撃を中断します。
-        knockback = new Vector3(direction * 5, 0, 0);
+        windup = 0; // 予告中に殴れば敵の攻撃を止められます。
+        cooldown = Mathf.Max(cooldown, isPlayer ? .25f : .6f);
+        flashTime = .12f;
+        // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
+        knockback = new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
+        game.RegisterDamage(this);
         if (health == 0)
         {
             // 仮の倒れる演出。敵だけ 0.5 秒後に消し、プレイヤーは敗北表示のため残します。
