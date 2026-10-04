@@ -114,16 +114,17 @@ public sealed class Fighter : MonoBehaviour
         Vector3 input = Vector3.zero;
         if (IsPlayer)
         {
-            input = new Vector3(Input.GetAxisRaw("Horizontal"), 0, Input.GetAxisRaw("Vertical")).normalized;
+            input = BrawlerInput.ReadMovement();
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
-            if (Input.GetKeyDown(KeyCode.J) || Input.GetKeyDown(KeyCode.Space))
+            if (BrawlerInput.WasAttackPressed())
             {
                 _attackBufferRemaining = 0.2f;
             }
             // 攻撃の後隙からも回避できますが、被ダメージ硬直中は回避できません。
-            if (Input.GetKeyDown(KeyCode.LeftShift) && DashReady && _stunRemaining <= 0)
+            if (BrawlerInput.WasDashPressed() && DashReady && _stunRemaining <= 0)
             {
-                _dashDirection = input.sqrMagnitude > 0 ? input : new Vector3(Facing, 0, 0);
+                // 回避距離はスティックの倒し具合によらず一定にするため、回避方向だけ正規化します。
+                _dashDirection = input.sqrMagnitude > 0 ? input.normalized : new Vector3(Facing, 0, 0);
                 _dashRemaining = 0.2f;
                 _dashCooldown = 0.85f;
                 _attackRemaining = 0;
@@ -168,7 +169,7 @@ public sealed class Fighter : MonoBehaviour
             if (IsPlayer)
             {
                 // 入力の縦方向は Y ではなく Z に対応させます。
-                // normalized で長さを 1 にそろえ、斜め移動だけ速くなることを防ぎます。
+                // 入力側で長さを最大 1 に制限し、アナログの倒し具合も維持しています。
                 movement = input;
                 // 記憶した入力を一度消費して攻撃します。押しっぱなしで自動連打にはなりません。
                 if (_attackCooldown <= 0 && _attackBufferRemaining > 0)

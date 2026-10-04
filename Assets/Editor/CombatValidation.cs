@@ -71,6 +71,7 @@ public static class CombatValidation
                 return;
             }
             var player = game.Target;
+            GamepadValidation.RunChecks(player);
 
             // 回避中の無敵と、回避終了後にダメージを受けることを両方確認します。
             SetPrivateField(player, "_dashRemaining", 0.2f);

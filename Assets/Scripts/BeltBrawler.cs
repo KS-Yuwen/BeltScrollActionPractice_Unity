@@ -153,7 +153,7 @@ public sealed class BeltBrawler : MonoBehaviour
             }
         }
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
-        if (Input.GetKeyDown(KeyCode.R))
+        if (BrawlerInput.WasRestartPressed())
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
@@ -239,8 +239,12 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Box(new Rect(24, 65, 300f * Mathf.Max(0, _player.Health) / _player.MaxHealth, 24), "HP " + _player.Health);
         GUI.color = Color.white;
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
-        GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? "DASH READY — Shift" : "DASH RECHARGING", style);
-        GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), "WASD / Arrows: Move    J / Space: Attack    Shift: Dodge dash    R: Restart", style);
+        string dashHint = BrawlerInput.IsGamepadConnected ? "A / Cross / RB: Dash" : "Shift: Dash";
+        GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
+        string controls = BrawlerInput.IsGamepadConnected
+            ? "Stick / D-pad: Move    X / Square: Attack    A / Cross / RB: Dash    Start: Restart"
+            : "WASD / Arrows: Move    J / Space: Attack    Shift: Dodge dash    R: Restart";
+        GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
         foreach (var enemy in _enemies)
@@ -263,9 +267,14 @@ public sealed class BeltBrawler : MonoBehaviour
             }
         }
         GUI.color = Color.white;
+        if (!BrawlerInput.HasInputDevice)
+        {
+            GUI.Label(new Rect(24, 180, 1100, 40), "No input devices — Apply Input Settings and Restart from Tools / Neon Street", style);
+        }
         if (_player.Health <= 0)
         {
-            GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 400, 50), "DEFEATED — Press R", style);
+            string restartHint = BrawlerInput.IsGamepadConnected ? "Start" : "R";
+            GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 450, 50), $"DEFEATED — Press {restartHint}", style);
         }
         else if (_enemies.Count == 0)
         {
