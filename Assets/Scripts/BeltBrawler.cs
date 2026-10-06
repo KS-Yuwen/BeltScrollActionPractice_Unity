@@ -32,6 +32,12 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _impactMaterial;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
+    private BrawlerAudio _audio;
+
+    public void PlaySound(BrawlerSound sound)
+    {
+        _audio.Play(sound);
+    }
 
     // 続けて命中させた回数。攻撃の「3段コンボ」とは別で、敵への命中を数えます。
     public int HitChain => _hitChain;
@@ -40,6 +46,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
     private void Start()
     {
+        _audio = gameObject.AddComponent<BrawlerAudio>();
         // 色別のマテリアルを作り、同じ色のパーツで共有します。
         _floorMaterial = CreateMaterial(new Color(0.10f, 0.15f, 0.23f));
         _playerMaterial = CreateMaterial(new Color(0.1f, 0.65f, 1));
@@ -65,6 +72,11 @@ public sealed class BeltBrawler : MonoBehaviour
         // 正投影カメラでは遠近によるサイズ変化がなく、横スクロールの距離感をつかみやすくなります。
         _camera = new GameObject("Side Camera").AddComponent<Camera>();
         _camera.tag = "MainCamera";
+        // 実行時に作るカメラに耳を置きます。既存リスナーがある場合は重複させません。
+        if (FindAnyObjectByType<AudioListener>() == null)
+        {
+            _camera.gameObject.AddComponent<AudioListener>();
+        }
         _camera.orthographic = true;
         // 映る範囲の縦方向の半分。大きくすると広い範囲が映ります。
         _camera.orthographicSize = 6;
@@ -239,6 +251,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
     public void RegisterDamage(Fighter victim, int attackDamage = 18)
     {
+        PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
         CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
         if (!victim.IsPlayer)
         {
@@ -326,7 +339,7 @@ public sealed class BeltBrawler : MonoBehaviour
             _potionMaterial, potionObject.transform);
         CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
             _skinMaterial, potionObject.transform);
-        potionObject.AddComponent<HealingPotion>().Initialize(_player);
+        potionObject.AddComponent<HealingPotion>().Initialize(_player, _audio);
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。

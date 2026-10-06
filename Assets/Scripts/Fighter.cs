@@ -446,6 +446,7 @@ public class Fighter : Combatant
         // direction は攻撃者の向き。自分と逆向きなら相手は正面にいると判定できます。
         if (IsGuarding && direction * Facing < 0)
         {
+            _game.PlaySound(BrawlerSound.Guard);
             _blockFlashRemaining = 0.15f;
             _counterWindowRemaining = 0.45f;
             _knockbackVelocity = new Vector3(direction * 1.5f, 0, 0);

@@ -8,10 +8,12 @@ public sealed class HealingPotion : MonoBehaviour
     private Fighter _player;
     private float _remainingLifetime = 20;
     private bool _wasCollected;
+    private BrawlerAudio _audio;
 
-    public void Initialize(Fighter player)
+    public void Initialize(Fighter player, BrawlerAudio audio)
     {
         _player = player;
+        _audio = audio;
     }
 
     private void Update()
@@ -43,6 +45,7 @@ public sealed class HealingPotion : MonoBehaviour
         }
         _wasCollected = true;
         _player.RestoreHealth(HealingAmount);
+        _audio.Play(BrawlerSound.Pickup);
         Destroy(gameObject);
         return true;
     }

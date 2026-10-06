@@ -66,6 +66,7 @@ public sealed class ClericFighter : Fighter
             return false;
         }
         ProtectionUsesRemaining--;
+        Game.PlaySound(BrawlerSound.Protection);
         _protectionRemaining = ProtectionDuration;
         // 発動直後は回復と同じ 0.6 秒の隙。効果自体はその場で発生します。
         _recoveryRemaining = RecoveryDuration;
@@ -83,6 +84,7 @@ public sealed class ClericFighter : Fighter
         }
         RestoreHealth(HealingAmount);
         HealingUsesRemaining--;
+        Game.PlaySound(BrawlerSound.Heal);
         _recoveryRemaining = RecoveryDuration;
         ReleaseDefenseForSpecialAction();
         return true;

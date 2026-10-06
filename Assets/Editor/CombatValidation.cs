@@ -226,6 +226,22 @@ public static class CombatValidation
             Require(Time.timeScale == 1, "停止中の無効化でゲーム時間を復元");
             game.enabled = true;
 
+            // バッチモードでは聴感は確認できないため、生成された音声の有効性を検証します。
+            var audio = UnityEngine.Object.FindAnyObjectByType<BrawlerAudio>();
+            Require(audio != null && UnityEngine.Object.FindAnyObjectByType<AudioListener>() != null, "音声再生役とリスナーを生成");
+            var clips = (System.Collections.Generic.Dictionary<BrawlerSound, AudioClip>)GetPrivateField(audio, "_clips");
+            Require(clips.Count == 6, "6種類の効果音を生成");
+            foreach (AudioClip clip in clips.Values)
+            {
+                var samples = new float[clip.samples];
+                Require(clip.GetData(samples, 0), "音声サンプルを読み取れる");
+                Require(Array.Exists(samples, sample => Mathf.Abs(sample) > 0.01f), "効果音が無音ではない");
+                Require(Array.TrueForAll(samples, sample => !float.IsNaN(sample) && !float.IsInfinity(sample) && Mathf.Abs(sample) <= 1),
+                    "音声に非数や範囲外の振幅がない");
+            }
+            var source = (AudioSource)GetPrivateField(audio, "_source");
+            Require(source.spatialBlend == 0 && source.ignoreListenerPause, "2D音声として停止から独立して再生");
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
