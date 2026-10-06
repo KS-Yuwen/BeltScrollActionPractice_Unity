@@ -43,13 +43,31 @@ public static class GamepadValidation
             int guardedHealth = player.Health;
             player.TakeDamage(10, -player.Facing);
             Require(player.Health == guardedHealth, "正面の攻撃をガード");
+            Require(player.CanCounter, "防御成功時だけ反撃受付が開く");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder).WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.IsCounterAttacking && !player.CanCounter && !player.IsGuarding,
+                "ガードを押したまま反撃し、受付を一度だけ消費");
+            // 防御姿勢に戻して、背面からの攻撃も引き続き検証します。
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
+            UpdatePlayer(player);
+            player.TakeDamage(10, -player.Facing);
+            SetPlayerTimer(player, "_counterWindowRemaining", 0);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder).WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.IsGuarding && !player.IsCounterAttacking, "受付時間終了後はガード中に反撃できない");
             player.TakeDamage(10, player.Facing);
             Require(player.Health == guardedHealth - 10 && !player.IsGuarding, "背後の攻撃は防げない");
+            Require(!player.CanCounter, "被ダメージで反撃受付を解除");
             // 次の検証に被ダメージ硬直を持ち越さないようにします。
             player.RestoreHealth(10);
             SetPlayerTimer(player, "_stunRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
 
+            // 反撃検証で押した攻撃ボタンを離し、次の通常攻撃を新しい押下として送ります。
+            SendState(pad, new GamepadState());
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             Require(BrawlerInput.WasAttackPressed(), "左側のフェイスボタンで攻撃");
             UpdatePlayer(player);
@@ -84,6 +102,14 @@ public static class GamepadValidation
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
             Require(BrawlerInput.WasRestartPressed(), "Start でリスタート");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.North));
+            Require(BrawlerInput.WasHealPressed(), "Y・三角ボタンで回復入力");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.North));
+            Require(!BrawlerInput.WasHealPressed(), "回復ボタンの長押しでは再入力しない");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.East));
+            Require(BrawlerInput.WasProtectionPressed(), "B・丸ボタンで補助魔法入力");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.East));
+            Require(!BrawlerInput.WasProtectionPressed(), "補助魔法の長押しでは再入力しない");
 
             SendState(pad, new GamepadState());
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D, Key.J, Key.LeftShift, Key.R));
@@ -96,6 +122,12 @@ public static class GamepadValidation
 
             InputSystem.RemoveDevice(pad);
             Require(BrawlerInput.ReadMovement().sqrMagnitude > 0, "パッドを取り外してもキーボード移動が可能");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.L));
+            InputSystem.Update();
+            Require(BrawlerInput.WasHealPressed(), "L キーで回復入力");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.I));
+            InputSystem.Update();
+            Require(BrawlerInput.WasProtectionPressed(), "I キーで補助魔法入力");
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -125,12 +157,12 @@ public static class GamepadValidation
 
     private static float ReadPlayerTimer(Fighter player, string fieldName)
     {
-        return (float)player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+        return (float)typeof(Fighter).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
     }
 
     private static void SetPlayerTimer(Fighter player, string fieldName, float value)
     {
-        player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, value);
+        typeof(Fighter).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, value);
     }
 
     private static void Require(bool condition, string message)

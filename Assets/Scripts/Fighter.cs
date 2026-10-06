@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // キャラクター単体の管理役。入力または AI、移動、攻撃演出、被ダメージを担当します。
-public sealed class Fighter : Combatant
+public class Fighter : Combatant
 {
     private BeltBrawler _game;
     private Transform _visual;
@@ -37,6 +37,9 @@ public sealed class Fighter : Combatant
     private float _blockFlashRemaining;
     private bool _isDashAttack;
     private float _dashAttackMovementRemaining;
+    // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
+    private float _counterWindowRemaining;
+    private bool _isCounterAttack;
 
     // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
     public bool IsGuarding { get; private set; }
@@ -47,12 +50,46 @@ public sealed class Fighter : Combatant
 
     public bool IsDashAttacking => _isDashAttack && _attackRemaining > 0;
 
+    public bool CanCounter => _counterWindowRemaining > 0 && _stunRemaining <= 0
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && Health > 0;
+
+    public bool IsCounterAttacking => _isCounterAttack && _attackRemaining > 0;
+
     // 状態の読み取りは公開し、変更はこのクラスのメソッドを通して行います。
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
     public bool IsPlayer { get; private set; }
 
     // 右向きは +1、左向きは -1。見た目と攻撃判定で共用します。
-    public float Facing { get; private set; } = 1;
+    public float Facing { get; protected set; } = 1;
+
+    // 派生クラスには必要な参照と判断だけを公開し、タイマー本体は非公開に保ちます。
+    protected BeltBrawler Game => _game;
+
+    protected bool CanStartEnemyAttack => _attackCooldown <= 0;
+
+    protected virtual float EnemyAttackInterval => 1.2f;
+
+    // 職業固有の行動は派生クラスが担当し、共通の戦闘状態はここで管理します。
+    protected virtual bool IsUsingSpecialAction => false;
+
+    protected virtual Color? SpecialFeedbackColor => null;
+
+    protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0;
+
+    protected virtual bool UpdateSpecialAction() => false;
+
+    // 防御成立・回避無敵の判定後に、職業固有のダメージ軽減だけを差し替えます。
+    protected virtual int CalculateReceivedDamage(int amount) => amount;
+
+    protected void ReleaseDefenseForSpecialAction()
+    {
+        IsGuarding = false;
+        _counterWindowRemaining = 0;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+    }
 
     public bool DashReady => _dashCooldown <= 0;
 
@@ -72,7 +109,7 @@ public sealed class Fighter : Combatant
         _leftLeg = leftLeg;
     }
 
-    private void Start()
+    protected virtual void Start()
     {
         // Unity のネイティブ機能を使うオブジェクトはフィールド初期化では作らず、Start で作ります。
         _flashProperties = new MaterialPropertyBlock();
@@ -80,7 +117,7 @@ public sealed class Fighter : Combatant
         _bodyRenderers = _visual.GetComponentsInChildren<Renderer>();
     }
 
-    private void Update()
+    protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
         if (Health <= 0)
@@ -110,6 +147,7 @@ public sealed class Fighter : Combatant
         _attackBufferRemaining = Mathf.Max(0, _attackBufferRemaining - deltaTime);
         _downRemaining = Mathf.Max(0, _downRemaining - deltaTime);
         _blockFlashRemaining = Mathf.Max(0, _blockFlashRemaining - deltaTime);
+        _counterWindowRemaining = Mathf.Max(0, _counterWindowRemaining - deltaTime);
     }
 
     // 入力の読み取りと先行受付だけを担当し、通常移動に使う方向を返します。
@@ -118,6 +156,11 @@ public sealed class Fighter : Combatant
         Vector3 input = Vector3.zero;
         if (IsPlayer)
         {
+            // 固有行動が成立したフレームは、同時押しの攻撃・回避より優先します。
+            if (UpdateSpecialAction())
+            {
+                return Vector3.zero;
+            }
             input = BrawlerInput.ReadMovement();
             bool attackPressed = BrawlerInput.WasAttackPressed();
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
@@ -136,6 +179,8 @@ public sealed class Fighter : Combatant
                 _dashCooldown = 0.85f;
                 _attackRemaining = 0;
                 _isDashAttack = false;
+                _isCounterAttack = false;
+                _counterWindowRemaining = 0;
                 _dashAttackMovementRemaining = 0;
                 _attackBufferRemaining = 0;
                 _knockbackVelocity = Vector3.zero;
@@ -147,13 +192,18 @@ public sealed class Fighter : Combatant
             {
                 StartDashAttack();
             }
+            else if (attackPressed && CanCounter && _attackCooldown <= 0)
+            {
+                // ガードを押したままでも反撃可能。防御していた向きのまま攻撃します。
+                StartCounterAttack();
+            }
         }
         return input;
     }
 
     private bool UpdateAttackWindup(float deltaTime)
     {
-        // 敵は 0.55 秒の予告中に足を止め、攻撃方向を固定します。
+        // 敵は種類ごとの予告時間中に足を止め、攻撃方向を固定します。
         // プレイヤーが奥行き方向へ逃げれば、その場所に空振りさせられます。
         bool wasWindingUp = _windupRemaining > 0;
         if (wasWindingUp)
@@ -180,7 +230,7 @@ public sealed class Fighter : Combatant
     {
         Vector3 movement = Vector3.zero;
         // 攻撃中・被ダメージ硬直中は、新しい操作や AI の行動を受け付けません。
-        if (_stunRemaining <= 0 && _attackRemaining <= 0 && _dashRemaining <= 0 && !wasWindingUp)
+        if (_stunRemaining <= 0 && _attackRemaining <= 0 && _dashRemaining <= 0 && !wasWindingUp && !IsUsingSpecialAction)
         {
             if (IsPlayer)
             {
@@ -209,21 +259,37 @@ public sealed class Fighter : Combatant
             }
             else if (_game.Target.Health > 0)
             {
-                // 敵はプレイヤーへの差分ベクトルを求め、十分に近づいたら攻撃します。
-                Vector3 delta = _game.Target.transform.position - transform.position;
-                Facing = delta.x >= 0 ? 1 : -1;
-                if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > 0.5f)
-                {
-                    movement = delta.normalized;
-                }
-                else if (_attackCooldown <= 0)
-                {
-                    _windupRemaining = 0.55f;
-                    movement = Vector3.zero;
-                }
+                movement = GetEnemyMovement();
             }
         }
         return movement;
+    }
+
+    // 近接型の標準 AI。遠距離型はこの判断だけを上書きし、硬直・転倒・演出は共用します。
+    protected virtual Vector3 GetEnemyMovement()
+    {
+        Vector3 delta = _game.Target.transform.position - transform.position;
+        Facing = delta.x >= 0 ? 1 : -1;
+        if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > 0.5f)
+        {
+            return delta.normalized;
+        }
+        if (CanStartEnemyAttack)
+        {
+            BeginAttackWindup(0.55f);
+        }
+        return Vector3.zero;
+    }
+
+    protected void BeginAttackWindup(float duration)
+    {
+        _windupRemaining = duration;
+    }
+
+    // 発射や直接攻撃など、実際の命中処理だけを派生クラスで差し替えられます。
+    protected virtual void DealAttackDamage(int damage)
+    {
+        _game.Hit(this, damage);
     }
 
     private void Move(Vector3 movement, float deltaTime)
@@ -271,17 +337,18 @@ public sealed class Fighter : Combatant
             _attackArm.localRotation = Quaternion.Euler(0, 0, _isDashAttack ? 110 : 90);
             _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            float hitTiming = _isDashAttack ? 0.24f : 0.16f;
+            float hitTiming = _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
-                _game.Hit(this, damage);
+                int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
+                DealAttackDamage(damage);
             }
         }
         else
         {
             _isDashAttack = false;
+            _isCounterAttack = false;
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -298,13 +365,13 @@ public sealed class Fighter : Combatant
         // SetPropertyBlock(null) で上書きを解除すると、元の各パーツの色に戻ります。
         foreach (var body in _bodyRenderers)
         {
-            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0 || IsGuarding || _blockFlashRemaining > 0)
+            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0 || IsGuarding || _blockFlashRemaining > 0 || SpecialFeedbackColor.HasValue)
             {
                 // 防御の成立は緑、防御姿勢は青。攻撃予告の黄と見分けます。
                 Color feedbackColor = _flashRemaining > 0 ? Color.white
                     : _blockFlashRemaining > 0 ? Color.green
                     : IsGuarding ? new Color(0.3f, 0.5f, 1)
-                    : _dashRemaining > 0 ? Color.cyan : Color.yellow;
+                    : _dashRemaining > 0 ? Color.cyan : SpecialFeedbackColor ?? Color.yellow;
                 _flashProperties.SetColor("_Color", feedbackColor);
                 body.SetPropertyBlock(_flashProperties);
             }
@@ -319,19 +386,23 @@ public sealed class Fighter : Combatant
     private void Attack()
     {
         _isDashAttack = false;
+        _isCounterAttack = false;
+        _counterWindowRemaining = 0;
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
         // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
         _comboStep = Time.time - _lastAttackTime < 0.85f ? _comboStep % 3 + 1 : 1;
         _lastAttackTime = Time.time;
         _attackRemaining = 0.3f;
         // プレイヤーは 3 段目の後に長めの隙を作り、敵は攻撃間隔を長くして避けやすくします。
-        _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : 1.2f;
+        _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : EnemyAttackInterval;
         _hasDealtHit = false;
     }
 
     // 回避を攻撃へ変換します。通常コンボとは別の技として、コンボ段数をリセットします。
     private void StartDashAttack()
     {
+        _isCounterAttack = false;
+        _counterWindowRemaining = 0;
         if (Mathf.Abs(_dashDirection.x) > 0.01f)
         {
             Facing = Mathf.Sign(_dashDirection.x);
@@ -348,6 +419,22 @@ public sealed class Fighter : Combatant
         IsGuarding = false;
     }
 
+    // 反撃には無敵を付けず、防御から攻撃へ移る判断にリスクを残します。
+    private void StartCounterAttack()
+    {
+        _counterWindowRemaining = 0;
+        _isCounterAttack = true;
+        _isDashAttack = false;
+        _attackRemaining = 0.3f;
+        _attackCooldown = 0.5f;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+        _hasDealtHit = false;
+        _knockbackVelocity = Vector3.zero;
+        IsGuarding = false;
+    }
+
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
     public void TakeDamage(int amount, float direction)
     {
@@ -359,16 +446,20 @@ public sealed class Fighter : Combatant
         // direction は攻撃者の向き。自分と逆向きなら相手は正面にいると判定できます。
         if (IsGuarding && direction * Facing < 0)
         {
+            _game.PlaySound(BrawlerSound.Guard);
             _blockFlashRemaining = 0.15f;
+            _counterWindowRemaining = 0.45f;
             _knockbackVelocity = new Vector3(direction * 1.5f, 0, 0);
             return;
         }
         IsGuarding = false;
-        ReduceHealth(amount);
+        ReduceHealth(CalculateReceivedDamage(amount));
         _stunRemaining = 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
         _isDashAttack = false;
+        _isCounterAttack = false;
+        _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;
         _attackBufferRemaining = 0;
         // 予告中に殴れば敵の攻撃を止められます。
@@ -383,7 +474,7 @@ public sealed class Fighter : Combatant
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
-        _game.RegisterDamage(this);
+        _game.RegisterDamage(this, amount);
         if (Health == 0)
         {
             // 仮の倒れる演出。敵だけ 0.5 秒後に消し、プレイヤーは敗北表示のため残します。

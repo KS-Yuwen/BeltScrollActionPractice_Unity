@@ -19,10 +19,25 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _playerMaterial;
     private Material _enemyMaterial;
     private Material _skinMaterial;
+    private Material _rangedEnemyMaterial;
+    private Material _potionMaterial;
+    private int _defeatedEnemyCount;
     private int _score;
     private int _hitChain;
     private float _hitChainRemaining;
     private float _cameraShakeRemaining;
+    // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
+    private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
+    private float _spawnWarningRemaining;
+    private Material _impactMaterial;
+    private float _hitStopRemaining;
+    private float _timeScaleBeforeHitStop = 1;
+    private BrawlerAudio _audio;
+
+    public void PlaySound(BrawlerSound sound)
+    {
+        _audio.Play(sound);
+    }
 
     // 続けて命中させた回数。攻撃の「3段コンボ」とは別で、敵への命中を数えます。
     public int HitChain => _hitChain;
@@ -31,11 +46,17 @@ public sealed class BeltBrawler : MonoBehaviour
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
     private void Start()
     {
+        _audio = gameObject.AddComponent<BrawlerAudio>();
         // 色別のマテリアルを作り、同じ色のパーツで共有します。
         _floorMaterial = CreateMaterial(new Color(0.10f, 0.15f, 0.23f));
         _playerMaterial = CreateMaterial(new Color(0.1f, 0.65f, 1));
         _enemyMaterial = CreateMaterial(new Color(1, 0.25f, 0.25f));
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
+        _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
+        _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        // 発光風の色を、照明に左右されない素材で描きます。
+        _impactMaterial = new Material(Shader.Find("Unlit/Color"));
+        _impactMaterial.color = new Color(1, 0.85f, 0.25f);
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -51,6 +72,11 @@ public sealed class BeltBrawler : MonoBehaviour
         // 正投影カメラでは遠近によるサイズ変化がなく、横スクロールの距離感をつかみやすくなります。
         _camera = new GameObject("Side Camera").AddComponent<Camera>();
         _camera.tag = "MainCamera";
+        // 実行時に作るカメラに耳を置きます。既存リスナーがある場合は重複させません。
+        if (FindAnyObjectByType<AudioListener>() == null)
+        {
+            _camera.gameObject.AddComponent<AudioListener>();
+        }
         _camera.orthographic = true;
         // 映る範囲の縦方向の半分。大きくすると広い範囲が映ります。
         _camera.orthographicSize = 6;
@@ -82,18 +108,19 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // プレイヤーと敵は同じ Fighter を使い、isPlayer によって操作方法を切り替えます。
-    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer)
+    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false)
     {
         var root = new GameObject(label);
         root.transform.position = position;
-        var fighter = root.AddComponent<Fighter>();
+        Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+            : isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
         int maxHealth = isPlayer ? 100 : 55 + _wave * 5;
         // 移動を担う親と、見た目を担う Model を分離します。
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : _enemyMaterial;
+        var bodyMaterial = isPlayer ? _playerMaterial : isRanged ? _rangedEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
         var attackArm = CreateBodyPart("Punch arm", new Vector3(0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
@@ -122,7 +149,7 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // 敵の人数はウェーブごとに増えますが、最大 7 体で止めます。
-    // X はプレイヤーの右側、Z はランダム。Clamp でステージ内に収めます。
+    // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
         _wave++;
@@ -133,15 +160,52 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         for (int i = 0; i < Mathf.Min(2 + _wave, 7); i++)
         {
-            _enemies.Add(CreateFighter("Enemy", new Vector3(Mathf.Clamp(_player.transform.position.x + 7 + i, -22, 22), 0, Random.Range(-2.5f, 2.5f)), false));
+            _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
         }
+        _spawnWarningRemaining = 1.5f;
+    }
+
+    private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
+    {
+        float side = wave >= 2 && index % 2 == 1 ? -1 : 1;
+        float x = Mathf.Clamp(playerPosition.x + side * (7 + index), -22, 22);
+        // 端では反対側に回し、プレイヤーのすぐ上に突然出現することを防ぎます。
+        if (Mathf.Abs(x - playerPosition.x) < 4)
+        {
+            x = Mathf.Clamp(playerPosition.x - side * (7 + index), -22, 22);
+        }
+        return new Vector3(x, 0, Random.Range(-2.5f, 2.5f));
+    }
+
+    private void UpdateSpawnWarning(float deltaTime)
+    {
+        if (_pendingSpawnPositions.Count == 0 || _player.Health <= 0)
+        {
+            return;
+        }
+        _spawnWarningRemaining = Mathf.Max(0, _spawnWarningRemaining - deltaTime);
+        if (_spawnWarningRemaining > 0)
+        {
+            return;
+        }
+        for (int i = 0; i < _pendingSpawnPositions.Count; i++)
+        {
+            // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
+            bool isRanged = i % 3 == 2;
+            _enemies.Add(CreateFighter(isRanged ? "Ranged Enemy" : "Melee Enemy",
+                _pendingSpawnPositions[i], false, isRanged));
+        }
+        _pendingSpawnPositions.Clear();
     }
 
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
     private void Update()
     {
+        // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
+        UpdateHitStop(Time.unscaledDeltaTime);
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         _enemies.RemoveAll(enemy => enemy == null);
+        UpdateSpawnWarning(Time.deltaTime);
         // 2 秒間命中がなければ連続ヒットをリセット。スコア自体は残ります。
         _hitChainRemaining -= Time.deltaTime;
         if (_hitChainRemaining <= 0)
@@ -149,7 +213,7 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
-        if (_player.Health > 0 && _enemies.Count == 0)
+        if (_player.Health > 0 && _enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
         {
             // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
             _nextWaveElapsed += Time.deltaTime;
@@ -185,8 +249,14 @@ public sealed class BeltBrawler : MonoBehaviour
     public Fighter Target => _player;
 
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
-    public void RegisterDamage(Fighter victim)
+    public void RegisterDamage(Fighter victim, int attackDamage = 18)
     {
+        PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
+        CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
+        if (!victim.IsPlayer)
+        {
+            BeginHitStop(attackDamage >= 30 ? 0.08f : 0.04f);
+        }
         _cameraShakeRemaining = 0.16f;
         if (victim.IsPlayer)
         {
@@ -200,7 +270,76 @@ public sealed class BeltBrawler : MonoBehaviour
         if (victim.Health == 0)
         {
             _score += 100;
+            // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
+            // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
+            _defeatedEnemyCount++;
+            if (_defeatedEnemyCount % 3 == 0)
+            {
+                DropPotion(victim.transform.position);
+            }
         }
+    }
+
+    private void BeginHitStop(float duration)
+    {
+        if (_hitStopRemaining <= 0)
+        {
+            _timeScaleBeforeHitStop = Time.timeScale;
+        }
+        // 複数の敵に同時命中しても秒数を足しません。最も長い停止だけを採用します。
+        _hitStopRemaining = Mathf.Max(_hitStopRemaining, duration);
+        Time.timeScale = 0;
+    }
+
+    private void UpdateHitStop(float deltaTime)
+    {
+        if (_hitStopRemaining <= 0)
+        {
+            return;
+        }
+        _hitStopRemaining = Mathf.Max(0, _hitStopRemaining - deltaTime);
+        if (_hitStopRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeHitStop;
+        }
+    }
+
+    private void OnDisable()
+    {
+        // リスタートやPlay終了が停止中でも、次のシーンに timeScale=0 を残しません。
+        if (_hitStopRemaining > 0)
+        {
+            Time.timeScale = _timeScaleBeforeHitStop;
+            _hitStopRemaining = 0;
+        }
+    }
+
+    private void CreateHitImpact(Vector3 position, bool isStrong)
+    {
+        var impactObject = new GameObject("Hit Impact");
+        impactObject.transform.position = position;
+        // 横向きカメラから見える XY 平面に、6 本の短い光線を並べます。
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * 60;
+            Vector3 direction = Quaternion.Euler(0, 0, angle) * Vector3.right;
+            Transform ray = CreateBodyPart("Impact ray", direction * 0.3f,
+                new Vector3(0.3f, 0.06f, 0.06f), _impactMaterial, impactObject.transform);
+            ray.localRotation = Quaternion.Euler(0, 0, angle);
+        }
+        impactObject.AddComponent<HitImpact>().Initialize(isStrong ? 1.4f : 1);
+    }
+
+    private void DropPotion(Vector3 position)
+    {
+        var potionObject = new GameObject("Healing Potion");
+        potionObject.transform.position = new Vector3(position.x, 0, position.z);
+        // 瓶の本体と口を作ります。見た目の高さと、床上の拾得位置は分離します。
+        CreateBodyPart("Bottle", new Vector3(0, 0.3f, 0), new Vector3(0.35f, 0.4f, 0.35f),
+            _potionMaterial, potionObject.transform);
+        CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
+            _skinMaterial, potionObject.transform);
+        potionObject.AddComponent<HealingPotion>().Initialize(_player, _audio);
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
@@ -251,10 +390,25 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
         string dashHint = BrawlerInput.IsGamepadConnected ? "A / Cross / RB: Dash" : "Shift: Dash";
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
+        if (_player.CanCounter)
+        {
+            GUI.Label(new Rect(24, 175, 700, 40), "COUNTER READY — Press Attack", style);
+        }
         string controls = BrawlerInput.IsGamepadConnected
             ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"
             : "WASD / Arrows: Move   J / Space: Attack   Shift: Dash   K: Guard   R: Restart";
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
+        if (_player is ClericFighter cleric)
+        {
+            string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
+            GUI.Label(new Rect(24, 212, 900, 40),
+                $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"
+                + (cleric.IsRecoveringFromHeal ? "  RECOVERING" : ""), style);
+            string protectionButton = BrawlerInput.IsGamepadConnected ? "B / Circle" : "I";
+            GUI.Label(new Rect(24, 249, 1000, 40),
+                $"PROTECTION {cleric.ProtectionUsesRemaining}/2 — {protectionButton}"
+                + (cleric.IsProtected ? $"  ACTIVE {cleric.ProtectionSecondsRemaining:F1}s" : "  8s: Half Damage"), style);
+        }
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
         foreach (var enemy in _enemies)
@@ -285,6 +439,22 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             string restartHint = BrawlerInput.IsGamepadConnected ? "Start" : "R";
             GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 450, 50), $"DEFEATED — Press {restartHint}", style);
+        }
+        else if (_pendingSpawnPositions.Count > 0)
+        {
+            GUI.color = Color.yellow;
+            GUI.Label(new Rect(24, 286, 900, 40), $"ENEMIES INCOMING — {_spawnWarningRemaining:F1}s", style);
+            foreach (Vector3 position in _pendingSpawnPositions)
+            {
+                Vector3 screen = _camera.WorldToScreenPoint(position + Vector3.up * 0.3f);
+                // 画面外の出現も端の矢印で知らせます。画面内では実際の出現位置に表示します。
+                bool offLeft = screen.x < 70;
+                bool offRight = screen.x > Screen.width - 70;
+                float x = Mathf.Clamp(screen.x, 70, Mathf.Max(70, Screen.width - 70));
+                float y = Mathf.Clamp(Screen.height - screen.y, 335, Mathf.Max(335, Screen.height - 90));
+                GUI.Label(new Rect(x - 60, y, 160, 40), offLeft ? "< INCOMING" : offRight ? "INCOMING >" : "! SPAWN", style);
+            }
+            GUI.color = Color.white;
         }
         else if (_enemies.Count == 0)
         {

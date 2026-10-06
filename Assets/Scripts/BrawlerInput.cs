@@ -78,6 +78,20 @@ public static class BrawlerInput
             || (pad != null && pad.startButton.wasPressedThisFrame);
     }
 
+    // 回復は押した瞬間だけ発動します。長押しで使用回数を消費し続けません。
+    public static bool WasHealPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.lKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame);
+    }
+
+    // 回復と独立したボタンにし、場面に応じて補助魔法を使い分けられるようにします。
+    public static bool WasProtectionPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.iKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame);
+    }
+
     // ガードだけは押した瞬間ではなく、押している間ずっと継続する操作です。
     public static bool IsGuardHeld()
     {
