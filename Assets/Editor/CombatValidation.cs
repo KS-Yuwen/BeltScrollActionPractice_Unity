@@ -186,6 +186,28 @@ public static class CombatValidation
             Require(!potion.TryCollect() && player.Health == 85, "同フレームの二重取得を防止");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
 
+            // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
+            player.transform.position = Vector3.zero;
+            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+            var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
+            Require(pending.Exists(p => p.x < 0) && pending.Exists(p => p.x > 0), "第2ウェーブは左右に出現を予約");
+            Vector3 reservedPosition = pending[0];
+            int beforeSpawn = UnityEngine.Object.FindObjectsByType<Fighter>().Length;
+            MethodInfo updateWarning = typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic);
+            updateWarning.Invoke(game, new object[] { 0.5f });
+            Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn, "予告中には出現しない");
+            player.transform.position = Vector3.left * 5;
+            updateWarning.Invoke(game, new object[] { 1.1f });
+            Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4,
+                "予告終了で4体を一度だけ生成");
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && f.transform.position == reservedPosition),
+                "移動後も予約した位置に出現");
+            updateWarning.Invoke(game, new object[] { 2f });
+            Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4, "予告終了後は重複生成しない");
+            MethodInfo calculatePosition = typeof(BeltBrawler).GetMethod("CalculateSpawnPosition", BindingFlags.Static | BindingFlags.NonPublic);
+            Vector3 edgeSpawn = (Vector3)calculatePosition.Invoke(null, new object[] { Vector3.right * 22, 0, 2 });
+            Require(edgeSpawn.x <= 18 && edgeSpawn.x >= -22, "ステージ端で近すぎる出現を避ける");
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

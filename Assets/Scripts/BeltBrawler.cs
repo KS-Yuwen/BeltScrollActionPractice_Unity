@@ -26,6 +26,9 @@ public sealed class BeltBrawler : MonoBehaviour
     private int _hitChain;
     private float _hitChainRemaining;
     private float _cameraShakeRemaining;
+    // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
+    private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
+    private float _spawnWarningRemaining;
 
     // 続けて命中させた回数。攻撃の「3段コンボ」とは別で、敵への命中を数えます。
     public int HitChain => _hitChain;
@@ -128,7 +131,7 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // 敵の人数はウェーブごとに増えますが、最大 7 体で止めます。
-    // X はプレイヤーの右側、Z はランダム。Clamp でステージ内に収めます。
+    // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
         _wave++;
@@ -139,11 +142,42 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         for (int i = 0; i < Mathf.Min(2 + _wave, 7); i++)
         {
+            _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
+        }
+        _spawnWarningRemaining = 1.5f;
+    }
+
+    private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
+    {
+        float side = wave >= 2 && index % 2 == 1 ? -1 : 1;
+        float x = Mathf.Clamp(playerPosition.x + side * (7 + index), -22, 22);
+        // 端では反対側に回し、プレイヤーのすぐ上に突然出現することを防ぎます。
+        if (Mathf.Abs(x - playerPosition.x) < 4)
+        {
+            x = Mathf.Clamp(playerPosition.x - side * (7 + index), -22, 22);
+        }
+        return new Vector3(x, 0, Random.Range(-2.5f, 2.5f));
+    }
+
+    private void UpdateSpawnWarning(float deltaTime)
+    {
+        if (_pendingSpawnPositions.Count == 0 || _player.Health <= 0)
+        {
+            return;
+        }
+        _spawnWarningRemaining = Mathf.Max(0, _spawnWarningRemaining - deltaTime);
+        if (_spawnWarningRemaining > 0)
+        {
+            return;
+        }
+        for (int i = 0; i < _pendingSpawnPositions.Count; i++)
+        {
             // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
             bool isRanged = i % 3 == 2;
             _enemies.Add(CreateFighter(isRanged ? "Ranged Enemy" : "Melee Enemy",
-                new Vector3(Mathf.Clamp(_player.transform.position.x + 7 + i, -22, 22), 0, Random.Range(-2.5f, 2.5f)), false, isRanged));
+                _pendingSpawnPositions[i], false, isRanged));
         }
+        _pendingSpawnPositions.Clear();
     }
 
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
@@ -151,6 +185,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         _enemies.RemoveAll(enemy => enemy == null);
+        UpdateSpawnWarning(Time.deltaTime);
         // 2 秒間命中がなければ連続ヒットをリセット。スコア自体は残ります。
         _hitChainRemaining -= Time.deltaTime;
         if (_hitChainRemaining <= 0)
@@ -158,7 +193,7 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
-        if (_player.Health > 0 && _enemies.Count == 0)
+        if (_player.Health > 0 && _enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
         {
             // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
             _nextWaveElapsed += Time.deltaTime;
@@ -328,6 +363,22 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             string restartHint = BrawlerInput.IsGamepadConnected ? "Start" : "R";
             GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 450, 50), $"DEFEATED — Press {restartHint}", style);
+        }
+        else if (_pendingSpawnPositions.Count > 0)
+        {
+            GUI.color = Color.yellow;
+            GUI.Label(new Rect(24, 286, 900, 40), $"ENEMIES INCOMING — {_spawnWarningRemaining:F1}s", style);
+            foreach (Vector3 position in _pendingSpawnPositions)
+            {
+                Vector3 screen = _camera.WorldToScreenPoint(position + Vector3.up * 0.3f);
+                // 画面外の出現も端の矢印で知らせます。画面内では実際の出現位置に表示します。
+                bool offLeft = screen.x < 70;
+                bool offRight = screen.x > Screen.width - 70;
+                float x = Mathf.Clamp(screen.x, 70, Mathf.Max(70, Screen.width - 70));
+                float y = Mathf.Clamp(Screen.height - screen.y, 335, Mathf.Max(335, Screen.height - 90));
+                GUI.Label(new Rect(x - 60, y, 160, 40), offLeft ? "< INCOMING" : offRight ? "INCOMING >" : "! SPAWN", style);
+            }
+            GUI.color = Color.white;
         }
         else if (_enemies.Count == 0)
         {
