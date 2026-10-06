@@ -102,6 +102,10 @@ public static class GamepadValidation
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
             Require(BrawlerInput.WasRestartPressed(), "Start でリスタート");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.North));
+            Require(BrawlerInput.WasHealPressed(), "Y・三角ボタンで回復入力");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.North));
+            Require(!BrawlerInput.WasHealPressed(), "回復ボタンの長押しでは再入力しない");
 
             SendState(pad, new GamepadState());
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D, Key.J, Key.LeftShift, Key.R));
@@ -114,6 +118,9 @@ public static class GamepadValidation
 
             InputSystem.RemoveDevice(pad);
             Require(BrawlerInput.ReadMovement().sqrMagnitude > 0, "パッドを取り外してもキーボード移動が可能");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.L));
+            InputSystem.Update();
+            Require(BrawlerInput.WasHealPressed(), "L キーで回復入力");
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -143,12 +150,12 @@ public static class GamepadValidation
 
     private static float ReadPlayerTimer(Fighter player, string fieldName)
     {
-        return (float)player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+        return (float)typeof(Fighter).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
     }
 
     private static void SetPlayerTimer(Fighter player, string fieldName, float value)
     {
-        player.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, value);
+        typeof(Fighter).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, value);
     }
 
     private static void Require(bool condition, string message)

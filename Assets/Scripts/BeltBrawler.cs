@@ -88,7 +88,8 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         var root = new GameObject(label);
         root.transform.position = position;
-        Fighter fighter = isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
+        Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+            : isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
         int maxHealth = isPlayer ? 100 : 55 + _wave * 5;
         // 移動を担う親と、見た目を担う Model を分離します。
@@ -264,6 +265,13 @@ public sealed class BeltBrawler : MonoBehaviour
             ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"
             : "WASD / Arrows: Move   J / Space: Attack   Shift: Dash   K: Guard   R: Restart";
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
+        if (_player is ClericFighter cleric)
+        {
+            string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
+            GUI.Label(new Rect(24, 212, 900, 40),
+                $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"
+                + (cleric.IsRecoveringFromHeal ? "  RECOVERING" : ""), style);
+        }
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
         foreach (var enemy in _enemies)

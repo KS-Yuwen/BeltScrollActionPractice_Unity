@@ -120,6 +120,32 @@ public static class CombatValidation
             Require(UnityEngine.Object.FindAnyObjectByType<EnemyProjectile>() != null
                 && player.Health == healthBeforeShot, "遠距離攻撃は発射時に即時ダメージを与えない");
 
+            // 回復魔法の回数制限・上限・行動制限を、実際のプレイヤーで確認します。
+            var cleric = player as ClericFighter;
+            Require(cleric != null, "プレイヤーはクレリックを使用");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(!cleric.TryHeal() && cleric.HealingUsesRemaining == 3, "満タンでは回数を消費しない");
+            player.TakeDamage(45, player.Facing);
+            Require(!cleric.TryHeal(), "被ダメージ硬直中は回復できない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(cleric.TryHeal() && player.Health == 85 && cleric.HealingUsesRemaining == 2, "HP を30回復し1回消費");
+            Require(!cleric.TryHeal(), "回復後の隙では再使用不可");
+            player.TakeDamage(5, player.Facing);
+            Require(player.Health == 80, "回復中も無敵にはならない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            Require(cleric.TryHeal() && player.Health == 100, "回復は最大HPで止まる");
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            player.TakeDamage(40, player.Facing);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(cleric.TryHeal() && cleric.HealingUsesRemaining == 0, "3回目で残り0回");
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            Require(!cleric.TryHeal(), "回数を使い切ると発動できない");
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

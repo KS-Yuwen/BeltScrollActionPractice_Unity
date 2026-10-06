@@ -69,6 +69,25 @@ public class Fighter : Combatant
 
     protected virtual float EnemyAttackInterval => 1.2f;
 
+    // 職業固有の行動は派生クラスが担当し、共通の戦闘状態はここで管理します。
+    protected virtual bool IsUsingSpecialAction => false;
+
+    protected virtual Color? SpecialFeedbackColor => null;
+
+    protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0;
+
+    protected virtual bool UpdateSpecialAction() => false;
+
+    protected void ReleaseDefenseForSpecialAction()
+    {
+        IsGuarding = false;
+        _counterWindowRemaining = 0;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+    }
+
     public bool DashReady => _dashCooldown <= 0;
 
     public bool IsWindingUp => _windupRemaining > 0;
@@ -134,6 +153,11 @@ public class Fighter : Combatant
         Vector3 input = Vector3.zero;
         if (IsPlayer)
         {
+            // 固有行動が成立したフレームは、同時押しの攻撃・回避より優先します。
+            if (UpdateSpecialAction())
+            {
+                return Vector3.zero;
+            }
             input = BrawlerInput.ReadMovement();
             bool attackPressed = BrawlerInput.WasAttackPressed();
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
@@ -176,7 +200,7 @@ public class Fighter : Combatant
 
     private bool UpdateAttackWindup(float deltaTime)
     {
-    // 敵は種類ごとの予告時間中に足を止め、攻撃方向を固定します。
+        // 敵は種類ごとの予告時間中に足を止め、攻撃方向を固定します。
         // プレイヤーが奥行き方向へ逃げれば、その場所に空振りさせられます。
         bool wasWindingUp = _windupRemaining > 0;
         if (wasWindingUp)
@@ -203,7 +227,7 @@ public class Fighter : Combatant
     {
         Vector3 movement = Vector3.zero;
         // 攻撃中・被ダメージ硬直中は、新しい操作や AI の行動を受け付けません。
-        if (_stunRemaining <= 0 && _attackRemaining <= 0 && _dashRemaining <= 0 && !wasWindingUp)
+        if (_stunRemaining <= 0 && _attackRemaining <= 0 && _dashRemaining <= 0 && !wasWindingUp && !IsUsingSpecialAction)
         {
             if (IsPlayer)
             {
@@ -338,13 +362,13 @@ public class Fighter : Combatant
         // SetPropertyBlock(null) で上書きを解除すると、元の各パーツの色に戻ります。
         foreach (var body in _bodyRenderers)
         {
-            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0 || IsGuarding || _blockFlashRemaining > 0)
+            if (_flashRemaining > 0 || _dashRemaining > 0 || _windupRemaining > 0 || IsGuarding || _blockFlashRemaining > 0 || SpecialFeedbackColor.HasValue)
             {
                 // 防御の成立は緑、防御姿勢は青。攻撃予告の黄と見分けます。
                 Color feedbackColor = _flashRemaining > 0 ? Color.white
                     : _blockFlashRemaining > 0 ? Color.green
                     : IsGuarding ? new Color(0.3f, 0.5f, 1)
-                    : _dashRemaining > 0 ? Color.cyan : Color.yellow;
+                    : _dashRemaining > 0 ? Color.cyan : SpecialFeedbackColor ?? Color.yellow;
                 _flashProperties.SetColor("_Color", feedbackColor);
                 body.SetPropertyBlock(_flashProperties);
             }
