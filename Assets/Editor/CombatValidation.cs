@@ -208,6 +208,24 @@ public static class CombatValidation
             Vector3 edgeSpawn = (Vector3)calculatePosition.Invoke(null, new object[] { Vector3.right * 22, 0, 2 });
             Require(edgeSpawn.x <= 18 && edgeSpawn.x >= -22, "ステージ端で近すぎる出現を避ける");
 
+            // 実時間で停止が解除され、複数命中やリスタートで停止が残らないことを検証します。
+            MethodInfo updateStop = typeof(BeltBrawler).GetMethod("UpdateHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo beginStop = typeof(BeltBrawler).GetMethod("BeginHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+            updateStop.Invoke(game, new object[] { 1f });
+            Require(Time.timeScale == 1, "実時間が経過するとヒットストップ解除");
+            Require(UnityEngine.Object.FindAnyObjectByType<HitImpact>() != null, "受理された命中で打撃エフェクトを生成");
+            beginStop.Invoke(game, new object[] { 0.04f });
+            Require(Time.timeScale == 0, "命中時にゲーム時間を停止");
+            beginStop.Invoke(game, new object[] { 0.08f });
+            beginStop.Invoke(game, new object[] { 0.04f });
+            Require((float)GetPrivateField(game, "_hitStopRemaining") == 0.08f, "同時命中の停止時間を加算しない");
+            updateStop.Invoke(game, new object[] { 0.09f });
+            Require(Time.timeScale == 1, "強い命中後も停止を解除");
+            beginStop.Invoke(game, new object[] { 0.08f });
+            game.enabled = false;
+            Require(Time.timeScale == 1, "停止中の無効化でゲーム時間を復元");
+            game.enabled = true;
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

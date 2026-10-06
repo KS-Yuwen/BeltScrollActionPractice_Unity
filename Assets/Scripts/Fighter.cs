@@ -473,7 +473,7 @@ public class Fighter : Combatant
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
-        _game.RegisterDamage(this);
+        _game.RegisterDamage(this, amount);
         if (Health == 0)
         {
             // 仮の倒れる演出。敵だけ 0.5 秒後に消し、プレイヤーは敗北表示のため残します。

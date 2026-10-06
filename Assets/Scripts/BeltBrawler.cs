@@ -29,6 +29,9 @@ public sealed class BeltBrawler : MonoBehaviour
     // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
+    private Material _impactMaterial;
+    private float _hitStopRemaining;
+    private float _timeScaleBeforeHitStop = 1;
 
     // 続けて命中させた回数。攻撃の「3段コンボ」とは別で、敵への命中を数えます。
     public int HitChain => _hitChain;
@@ -44,6 +47,9 @@ public sealed class BeltBrawler : MonoBehaviour
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
         _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        // 発光風の色を、照明に左右されない素材で描きます。
+        _impactMaterial = new Material(Shader.Find("Unlit/Color"));
+        _impactMaterial.color = new Color(1, 0.85f, 0.25f);
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -183,6 +189,8 @@ public sealed class BeltBrawler : MonoBehaviour
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
     private void Update()
     {
+        // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
+        UpdateHitStop(Time.unscaledDeltaTime);
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         _enemies.RemoveAll(enemy => enemy == null);
         UpdateSpawnWarning(Time.deltaTime);
@@ -229,8 +237,13 @@ public sealed class BeltBrawler : MonoBehaviour
     public Fighter Target => _player;
 
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
-    public void RegisterDamage(Fighter victim)
+    public void RegisterDamage(Fighter victim, int attackDamage = 18)
     {
+        CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
+        if (!victim.IsPlayer)
+        {
+            BeginHitStop(attackDamage >= 30 ? 0.08f : 0.04f);
+        }
         _cameraShakeRemaining = 0.16f;
         if (victim.IsPlayer)
         {
@@ -252,6 +265,56 @@ public sealed class BeltBrawler : MonoBehaviour
                 DropPotion(victim.transform.position);
             }
         }
+    }
+
+    private void BeginHitStop(float duration)
+    {
+        if (_hitStopRemaining <= 0)
+        {
+            _timeScaleBeforeHitStop = Time.timeScale;
+        }
+        // 複数の敵に同時命中しても秒数を足しません。最も長い停止だけを採用します。
+        _hitStopRemaining = Mathf.Max(_hitStopRemaining, duration);
+        Time.timeScale = 0;
+    }
+
+    private void UpdateHitStop(float deltaTime)
+    {
+        if (_hitStopRemaining <= 0)
+        {
+            return;
+        }
+        _hitStopRemaining = Mathf.Max(0, _hitStopRemaining - deltaTime);
+        if (_hitStopRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeHitStop;
+        }
+    }
+
+    private void OnDisable()
+    {
+        // リスタートやPlay終了が停止中でも、次のシーンに timeScale=0 を残しません。
+        if (_hitStopRemaining > 0)
+        {
+            Time.timeScale = _timeScaleBeforeHitStop;
+            _hitStopRemaining = 0;
+        }
+    }
+
+    private void CreateHitImpact(Vector3 position, bool isStrong)
+    {
+        var impactObject = new GameObject("Hit Impact");
+        impactObject.transform.position = position;
+        // 横向きカメラから見える XY 平面に、6 本の短い光線を並べます。
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * 60;
+            Vector3 direction = Quaternion.Euler(0, 0, angle) * Vector3.right;
+            Transform ray = CreateBodyPart("Impact ray", direction * 0.3f,
+                new Vector3(0.3f, 0.06f, 0.06f), _impactMaterial, impactObject.transform);
+            ray.localRotation = Quaternion.Euler(0, 0, angle);
+        }
+        impactObject.AddComponent<HitImpact>().Initialize(isStrong ? 1.4f : 1);
     }
 
     private void DropPotion(Vector3 position)
