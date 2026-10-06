@@ -106,6 +106,10 @@ public static class GamepadValidation
             Require(BrawlerInput.WasHealPressed(), "Y・三角ボタンで回復入力");
             SendState(pad, new GamepadState().WithButton(GamepadButton.North));
             Require(!BrawlerInput.WasHealPressed(), "回復ボタンの長押しでは再入力しない");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.East));
+            Require(BrawlerInput.WasProtectionPressed(), "B・丸ボタンで補助魔法入力");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.East));
+            Require(!BrawlerInput.WasProtectionPressed(), "補助魔法の長押しでは再入力しない");
 
             SendState(pad, new GamepadState());
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D, Key.J, Key.LeftShift, Key.R));
@@ -121,6 +125,9 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.L));
             InputSystem.Update();
             Require(BrawlerInput.WasHealPressed(), "L キーで回復入力");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.I));
+            InputSystem.Update();
+            Require(BrawlerInput.WasProtectionPressed(), "I キーで補助魔法入力");
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

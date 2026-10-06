@@ -146,6 +146,31 @@ public static class CombatValidation
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryHeal(), "回数を使い切ると発動できない");
 
+            // 回復の使用回数を使い切っても、補助魔法は独立した回数で使えます。
+            Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "補助魔法は回復と独立した回数");
+            Require(!cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中の再使用は消費しない");
+            int beforeProtectionHit = player.Health;
+            player.TakeDamage(9, player.Facing);
+            Require(player.Health == beforeProtectionHit - 5, "奇数ダメージは半減して切り上げ");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            player.TakeDamage(8, player.Facing);
+            Require(player.Health == beforeProtectionHit - 9, "弾の8ダメージも4に軽減");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            // エディターの検証コールバックでは deltaTime が0の場合があるため、経過時間を明示します。
+            typeof(ClericFighter).GetMethod("UpdateProtection", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(cleric, new object[] { 8.1f });
+            Require(!cleric.IsProtected, "通常更新で効果時間が終了");
+            int beforeExpiredHit = player.Health;
+            player.TakeDamage(8, player.Facing);
+            Require(player.Health == beforeExpiredHit - 8, "効果終了後は通常ダメージ");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == 0, "2回目で補助魔法を使い切る");
+            SetPrivateField(cleric, "_protectionRemaining", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            Require(!cleric.TryProtection(), "回数0では補助魔法を使用できない");
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

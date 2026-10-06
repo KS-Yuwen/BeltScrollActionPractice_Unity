@@ -271,6 +271,10 @@ public sealed class BeltBrawler : MonoBehaviour
             GUI.Label(new Rect(24, 212, 900, 40),
                 $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"
                 + (cleric.IsRecoveringFromHeal ? "  RECOVERING" : ""), style);
+            string protectionButton = BrawlerInput.IsGamepadConnected ? "B / Circle" : "I";
+            GUI.Label(new Rect(24, 249, 1000, 40),
+                $"PROTECTION {cleric.ProtectionUsesRemaining}/2 — {protectionButton}"
+                + (cleric.IsProtected ? $"  ACTIVE {cleric.ProtectionSecondsRemaining:F1}s" : "  8s: Half Damage"), style);
         }
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。

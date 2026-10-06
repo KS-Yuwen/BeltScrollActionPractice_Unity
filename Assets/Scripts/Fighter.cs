@@ -79,6 +79,9 @@ public class Fighter : Combatant
 
     protected virtual bool UpdateSpecialAction() => false;
 
+    // 防御成立・回避無敵の判定後に、職業固有のダメージ軽減だけを差し替えます。
+    protected virtual int CalculateReceivedDamage(int amount) => amount;
+
     protected void ReleaseDefenseForSpecialAction()
     {
         IsGuarding = false;
@@ -449,7 +452,7 @@ public class Fighter : Combatant
             return;
         }
         IsGuarding = false;
-        ReduceHealth(amount);
+        ReduceHealth(CalculateReceivedDamage(amount));
         _stunRemaining = 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
