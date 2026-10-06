@@ -43,13 +43,31 @@ public static class GamepadValidation
             int guardedHealth = player.Health;
             player.TakeDamage(10, -player.Facing);
             Require(player.Health == guardedHealth, "正面の攻撃をガード");
+            Require(player.CanCounter, "防御成功時だけ反撃受付が開く");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder).WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.IsCounterAttacking && !player.CanCounter && !player.IsGuarding,
+                "ガードを押したまま反撃し、受付を一度だけ消費");
+            // 防御姿勢に戻して、背面からの攻撃も引き続き検証します。
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
+            UpdatePlayer(player);
+            player.TakeDamage(10, -player.Facing);
+            SetPlayerTimer(player, "_counterWindowRemaining", 0);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder).WithButton(GamepadButton.West));
+            UpdatePlayer(player);
+            Require(player.IsGuarding && !player.IsCounterAttacking, "受付時間終了後はガード中に反撃できない");
             player.TakeDamage(10, player.Facing);
             Require(player.Health == guardedHealth - 10 && !player.IsGuarding, "背後の攻撃は防げない");
+            Require(!player.CanCounter, "被ダメージで反撃受付を解除");
             // 次の検証に被ダメージ硬直を持ち越さないようにします。
             player.RestoreHealth(10);
             SetPlayerTimer(player, "_stunRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
 
+            // 反撃検証で押した攻撃ボタンを離し、次の通常攻撃を新しい押下として送ります。
+            SendState(pad, new GamepadState());
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             Require(BrawlerInput.WasAttackPressed(), "左側のフェイスボタンで攻撃");
             UpdatePlayer(player);

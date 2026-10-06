@@ -251,6 +251,10 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
         string dashHint = BrawlerInput.IsGamepadConnected ? "A / Cross / RB: Dash" : "Shift: Dash";
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
+        if (_player.CanCounter)
+        {
+            GUI.Label(new Rect(24, 175, 700, 40), "COUNTER READY — Press Attack", style);
+        }
         string controls = BrawlerInput.IsGamepadConnected
             ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"
             : "WASD / Arrows: Move   J / Space: Attack   Shift: Dash   K: Guard   R: Restart";
