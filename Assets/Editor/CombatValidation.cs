@@ -109,6 +109,17 @@ public static class CombatValidation
             enemy.TakeDamage(1000, 1);
             Require((int)GetPrivateField(game, "_score") == previousScore + 110, "撃破スコアの二重加算を防止");
 
+            // 低 FPS でも弾がすり抜けず、奥行き移動では射線から逃げられることを確認します。
+            Require(EnemyProjectile.TouchesTarget(Vector3.left * 3, Vector3.right * 3, Vector3.zero), "高速の弾の通過を検出");
+            Require(!EnemyProjectile.TouchesTarget(Vector3.left * 3, Vector3.right * 3, Vector3.forward), "射線の奥行きから離れて回避");
+            var ranged = UnityEngine.Object.FindAnyObjectByType<RangedFighter>();
+            Require(ranged != null, "初期ウェーブに遠距離型が出現");
+            int healthBeforeShot = player.Health;
+            typeof(RangedFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(ranged, new object[] { 8 });
+            Require(UnityEngine.Object.FindAnyObjectByType<EnemyProjectile>() != null
+                && player.Health == healthBeforeShot, "遠距離攻撃は発射時に即時ダメージを与えない");
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
@@ -136,7 +147,12 @@ public static class CombatValidation
 
     private static FieldInfo FindPrivateField(object target, string fieldName)
     {
-        FieldInfo field = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+        // 派生した敵でも、基底クラスが保持する private 状態を検証できるようにします。
+        FieldInfo field = null;
+        for (Type type = target.GetType(); type != null && field == null; type = type.BaseType)
+        {
+            field = type.GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+        }
         if (field == null)
         {
             throw new InvalidOperationException($"検証対象のフィールドが見つかりません：{fieldName}");

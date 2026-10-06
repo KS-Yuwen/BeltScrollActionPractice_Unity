@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // キャラクター単体の管理役。入力または AI、移動、攻撃演出、被ダメージを担当します。
-public sealed class Fighter : Combatant
+public class Fighter : Combatant
 {
     private BeltBrawler _game;
     private Transform _visual;
@@ -60,7 +60,14 @@ public sealed class Fighter : Combatant
     public bool IsPlayer { get; private set; }
 
     // 右向きは +1、左向きは -1。見た目と攻撃判定で共用します。
-    public float Facing { get; private set; } = 1;
+    public float Facing { get; protected set; } = 1;
+
+    // 派生クラスには必要な参照と判断だけを公開し、タイマー本体は非公開に保ちます。
+    protected BeltBrawler Game => _game;
+
+    protected bool CanStartEnemyAttack => _attackCooldown <= 0;
+
+    protected virtual float EnemyAttackInterval => 1.2f;
 
     public bool DashReady => _dashCooldown <= 0;
 
@@ -80,7 +87,7 @@ public sealed class Fighter : Combatant
         _leftLeg = leftLeg;
     }
 
-    private void Start()
+    protected virtual void Start()
     {
         // Unity のネイティブ機能を使うオブジェクトはフィールド初期化では作らず、Start で作ります。
         _flashProperties = new MaterialPropertyBlock();
@@ -88,7 +95,7 @@ public sealed class Fighter : Combatant
         _bodyRenderers = _visual.GetComponentsInChildren<Renderer>();
     }
 
-    private void Update()
+    protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
         if (Health <= 0)
@@ -169,7 +176,7 @@ public sealed class Fighter : Combatant
 
     private bool UpdateAttackWindup(float deltaTime)
     {
-        // 敵は 0.55 秒の予告中に足を止め、攻撃方向を固定します。
+    // 敵は種類ごとの予告時間中に足を止め、攻撃方向を固定します。
         // プレイヤーが奥行き方向へ逃げれば、その場所に空振りさせられます。
         bool wasWindingUp = _windupRemaining > 0;
         if (wasWindingUp)
@@ -225,21 +232,37 @@ public sealed class Fighter : Combatant
             }
             else if (_game.Target.Health > 0)
             {
-                // 敵はプレイヤーへの差分ベクトルを求め、十分に近づいたら攻撃します。
-                Vector3 delta = _game.Target.transform.position - transform.position;
-                Facing = delta.x >= 0 ? 1 : -1;
-                if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > 0.5f)
-                {
-                    movement = delta.normalized;
-                }
-                else if (_attackCooldown <= 0)
-                {
-                    _windupRemaining = 0.55f;
-                    movement = Vector3.zero;
-                }
+                movement = GetEnemyMovement();
             }
         }
         return movement;
+    }
+
+    // 近接型の標準 AI。遠距離型はこの判断だけを上書きし、硬直・転倒・演出は共用します。
+    protected virtual Vector3 GetEnemyMovement()
+    {
+        Vector3 delta = _game.Target.transform.position - transform.position;
+        Facing = delta.x >= 0 ? 1 : -1;
+        if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > 0.5f)
+        {
+            return delta.normalized;
+        }
+        if (CanStartEnemyAttack)
+        {
+            BeginAttackWindup(0.55f);
+        }
+        return Vector3.zero;
+    }
+
+    protected void BeginAttackWindup(float duration)
+    {
+        _windupRemaining = duration;
+    }
+
+    // 発射や直接攻撃など、実際の命中処理だけを派生クラスで差し替えられます。
+    protected virtual void DealAttackDamage(int damage)
+    {
+        _game.Hit(this, damage);
     }
 
     private void Move(Vector3 movement, float deltaTime)
@@ -292,7 +315,7 @@ public sealed class Fighter : Combatant
             {
                 _hasDealtHit = true;
                 int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
-                _game.Hit(this, damage);
+                DealAttackDamage(damage);
             }
         }
         else
@@ -344,7 +367,7 @@ public sealed class Fighter : Combatant
         _lastAttackTime = Time.time;
         _attackRemaining = 0.3f;
         // プレイヤーは 3 段目の後に長めの隙を作り、敵は攻撃間隔を長くして避けやすくします。
-        _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : 1.2f;
+        _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : EnemyAttackInterval;
         _hasDealtHit = false;
     }
 

@@ -19,6 +19,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _playerMaterial;
     private Material _enemyMaterial;
     private Material _skinMaterial;
+    private Material _rangedEnemyMaterial;
     private int _score;
     private int _hitChain;
     private float _hitChainRemaining;
@@ -36,6 +37,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _playerMaterial = CreateMaterial(new Color(0.1f, 0.65f, 1));
         _enemyMaterial = CreateMaterial(new Color(1, 0.25f, 0.25f));
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
+        _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -82,18 +84,18 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // プレイヤーと敵は同じ Fighter を使い、isPlayer によって操作方法を切り替えます。
-    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer)
+    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false)
     {
         var root = new GameObject(label);
         root.transform.position = position;
-        var fighter = root.AddComponent<Fighter>();
+        Fighter fighter = isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
         int maxHealth = isPlayer ? 100 : 55 + _wave * 5;
         // 移動を担う親と、見た目を担う Model を分離します。
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : _enemyMaterial;
+        var bodyMaterial = isPlayer ? _playerMaterial : isRanged ? _rangedEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
         var attackArm = CreateBodyPart("Punch arm", new Vector3(0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
@@ -133,7 +135,10 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         for (int i = 0; i < Mathf.Min(2 + _wave, 7); i++)
         {
-            _enemies.Add(CreateFighter("Enemy", new Vector3(Mathf.Clamp(_player.transform.position.x + 7 + i, -22, 22), 0, Random.Range(-2.5f, 2.5f)), false));
+            // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
+            bool isRanged = i % 3 == 2;
+            _enemies.Add(CreateFighter(isRanged ? "Ranged Enemy" : "Melee Enemy",
+                new Vector3(Mathf.Clamp(_player.transform.position.x + 7 + i, -22, 22), 0, Random.Range(-2.5f, 2.5f)), false, isRanged));
         }
     }
 
