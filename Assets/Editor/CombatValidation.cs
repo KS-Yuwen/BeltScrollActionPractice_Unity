@@ -104,10 +104,14 @@ public static class CombatValidation
             // ダメージ量が HP を超えても負にならず、一度だけ撃破ボーナスを加算します。
             SetPrivateField(enemy, "_stunRemaining", 0f);
             int previousScore = (int)GetPrivateField(game, "_score");
+            SetPrivateField(game, "_defeatedEnemyCount", 2);
             enemy.TakeDamage(1000, 1);
+            var potion = UnityEngine.Object.FindAnyObjectByType<HealingPotion>();
+            Require(potion != null, "3体目の撃破でポーションを生成");
             Require(enemy.Health == 0 && (int)GetPrivateField(game, "_score") == previousScore + 110, "撃破時のスコアと HP 下限");
             enemy.TakeDamage(1000, 1);
             Require((int)GetPrivateField(game, "_score") == previousScore + 110, "撃破スコアの二重加算を防止");
+            Require(UnityEngine.Object.FindObjectsByType<HealingPotion>().Length == 1, "同じ敵の撃破ではドロップを増やさない");
 
             // 低 FPS でも弾がすり抜けず、奥行き移動では射線から逃げられることを確認します。
             Require(EnemyProjectile.TouchesTarget(Vector3.left * 3, Vector3.right * 3, Vector3.zero), "高速の弾の通過を検出");
@@ -170,6 +174,17 @@ public static class CombatValidation
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryProtection(), "回数0では補助魔法を使用できない");
+
+            player.RestoreHealth(100);
+            potion.transform.position = player.transform.position;
+            Require(!potion.TryCollect(), "満タンではポーションを残す");
+            player.TakeDamage(35, player.Facing);
+            potion.transform.position = player.transform.position + Vector3.forward;
+            Require(!potion.TryCollect(), "奥行きが離れたポーションを拾わない");
+            potion.transform.position = player.transform.position;
+            Require(potion.TryCollect() && player.Health == 85, "近づくとHPを20回復");
+            Require(!potion.TryCollect() && player.Health == 85, "同フレームの二重取得を防止");
+            Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
 
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);

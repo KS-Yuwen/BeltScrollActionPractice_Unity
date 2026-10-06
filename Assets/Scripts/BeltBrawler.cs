@@ -20,6 +20,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _enemyMaterial;
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
+    private Material _potionMaterial;
+    private int _defeatedEnemyCount;
     private int _score;
     private int _hitChain;
     private float _hitChainRemaining;
@@ -38,6 +40,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _enemyMaterial = CreateMaterial(new Color(1, 0.25f, 0.25f));
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
         _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
+        _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -206,7 +209,26 @@ public sealed class BeltBrawler : MonoBehaviour
         if (victim.Health == 0)
         {
             _score += 100;
+            // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
+            // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
+            _defeatedEnemyCount++;
+            if (_defeatedEnemyCount % 3 == 0)
+            {
+                DropPotion(victim.transform.position);
+            }
         }
+    }
+
+    private void DropPotion(Vector3 position)
+    {
+        var potionObject = new GameObject("Healing Potion");
+        potionObject.transform.position = new Vector3(position.x, 0, position.z);
+        // 瓶の本体と口を作ります。見た目の高さと、床上の拾得位置は分離します。
+        CreateBodyPart("Bottle", new Vector3(0, 0.3f, 0), new Vector3(0.35f, 0.4f, 0.35f),
+            _potionMaterial, potionObject.transform);
+        CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
+            _skinMaterial, potionObject.transform);
+        potionObject.AddComponent<HealingPotion>().Initialize(_player);
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
