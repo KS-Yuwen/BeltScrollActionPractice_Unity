@@ -361,6 +361,41 @@ public sealed class BeltBrawler : MonoBehaviour
         }
     }
 
+    public Fighter FindGroundAttackTarget(Fighter attacker)
+    {
+        Fighter closest = null;
+        float closestDistance = float.MaxValue;
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy != null && enemy.CanReceiveGroundHit && IsInGroundAttackRange(attacker, enemy))
+            {
+                float distance = (enemy.transform.position - attacker.transform.position).sqrMagnitude;
+                if (distance < closestDistance)
+                {
+                    closest = enemy;
+                    closestDistance = distance;
+                }
+            }
+        }
+        return closest;
+    }
+
+    public void HitGroundTarget(Fighter attacker, Fighter target, int damage)
+    {
+        if (target != null && IsInGroundAttackRange(attacker, target))
+        {
+            target.TryTakeGroundHit(damage, attacker.Facing);
+        }
+    }
+
+    private static bool IsInGroundAttackRange(Fighter attacker, Fighter target)
+    {
+        Vector3 delta = target.transform.position - attacker.transform.position;
+        // 追撃は通常攻撃より短いリーチで、向いている側の倒れた敵を狙います。
+        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < 1.8f
+            && Mathf.Abs(delta.z) < 0.8f && delta.x * attacker.Facing > -0.25f;
+    }
+
     // コライダーではなく、攻撃者と対象の位置の差から当たり判定を作ります。
     private bool IsInAttackRange(Fighter attacker, Fighter target)
     {
@@ -393,6 +428,10 @@ public sealed class BeltBrawler : MonoBehaviour
         if (_player.CanCounter)
         {
             GUI.Label(new Rect(24, 175, 700, 40), "COUNTER READY — Press Attack", style);
+        }
+        else if (FindGroundAttackTarget(_player) != null)
+        {
+            GUI.Label(new Rect(24, 175, 700, 40), "GROUND ATTACK — Press Attack", style);
         }
         string controls = BrawlerInput.IsGamepadConnected
             ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"

@@ -40,6 +40,14 @@ public class Fighter : Combatant
     // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
     private float _counterWindowRemaining;
     private bool _isCounterAttack;
+    private bool _isGroundAttack;
+    private Fighter _groundAttackTarget;
+    private bool _hasReceivedGroundHit;
+
+    public bool IsGroundAttacking => _isGroundAttack && _attackRemaining > 0;
+
+    // 通常の硬直無敵とは別に、1回のダウンにつき追撃を一度だけ許可します。
+    public bool CanReceiveGroundHit => !IsPlayer && Health > 0 && IsDowned && !_hasReceivedGroundHit;
 
     // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
     public bool IsGuarding { get; private set; }
@@ -178,6 +186,8 @@ public class Fighter : Combatant
                 _dashRemaining = 0.2f;
                 _dashCooldown = 0.85f;
                 _attackRemaining = 0;
+                _isGroundAttack = false;
+                _groundAttackTarget = null;
                 _isDashAttack = false;
                 _isCounterAttack = false;
                 _counterWindowRemaining = 0;
@@ -252,7 +262,15 @@ public class Fighter : Combatant
                     {
                         Facing = Mathf.Sign(input.x);
                     }
-                    Attack();
+                    Fighter groundTarget = _game.FindGroundAttackTarget(this);
+                    if (groundTarget != null)
+                    {
+                        StartGroundAttack(groundTarget);
+                    }
+                    else
+                    {
+                        Attack();
+                    }
                     _attackBufferRemaining = 0;
                     movement = Vector3.zero;
                 }
@@ -334,21 +352,31 @@ public class Fighter : Combatant
         {
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
-            _attackArm.localRotation = Quaternion.Euler(0, 0, _isDashAttack ? 110 : 90);
-            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, 1.35f, -0.1f);
+            _attackArm.localRotation = Quaternion.Euler(0, 0, _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
+            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, _isGroundAttack ? 0.65f : 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            float hitTiming = _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
+            float hitTiming = _isGroundAttack ? 0.23f : _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
                 int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
-                DealAttackDamage(damage);
+                if (_isGroundAttack)
+                {
+                    // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
+                    _game.HitGroundTarget(this, _groundAttackTarget, 24);
+                }
+                else
+                {
+                    DealAttackDamage(damage);
+                }
             }
         }
         else
         {
             _isDashAttack = false;
             _isCounterAttack = false;
+            _isGroundAttack = false;
+            _groundAttackTarget = null;
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -385,6 +413,8 @@ public class Fighter : Combatant
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     private void Attack()
     {
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
         _isDashAttack = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
@@ -401,6 +431,8 @@ public class Fighter : Combatant
     // 回避を攻撃へ変換します。通常コンボとは別の技として、コンボ段数をリセットします。
     private void StartDashAttack()
     {
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
         if (Mathf.Abs(_dashDirection.x) > 0.01f)
@@ -422,6 +454,8 @@ public class Fighter : Combatant
     // 反撃には無敵を付けず、防御から攻撃へ移る判断にリスクを残します。
     private void StartCounterAttack()
     {
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
         _counterWindowRemaining = 0;
         _isCounterAttack = true;
         _isDashAttack = false;
@@ -433,6 +467,33 @@ public class Fighter : Combatant
         _hasDealtHit = false;
         _knockbackVelocity = Vector3.zero;
         IsGuarding = false;
+    }
+
+    private void StartGroundAttack(Fighter target)
+    {
+        _isGroundAttack = true;
+        _groundAttackTarget = target;
+        _isDashAttack = false;
+        _isCounterAttack = false;
+        _counterWindowRemaining = 0;
+        _attackRemaining = 0.35f;
+        _attackCooldown = 0.55f;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+        _hasDealtHit = false;
+        IsGuarding = false;
+    }
+
+    public bool TryTakeGroundHit(int amount, float direction)
+    {
+        if (!CanReceiveGroundHit || amount <= 0)
+        {
+            return false;
+        }
+        _hasReceivedGroundHit = true;
+        ApplyDamage(amount, direction, true);
+        return true;
     }
 
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
@@ -452,11 +513,18 @@ public class Fighter : Combatant
             _knockbackVelocity = new Vector3(direction * 1.5f, 0, 0);
             return;
         }
+        ApplyDamage(amount, direction, false);
+    }
+
+    private void ApplyDamage(int amount, float direction, bool isGroundHit)
+    {
         IsGuarding = false;
         ReduceHealth(CalculateReceivedDamage(amount));
-        _stunRemaining = 0.25f;
+        _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
         _isDashAttack = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
@@ -467,13 +535,14 @@ public class Fighter : Combatant
         _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? 0.25f : 0.6f);
         _flashRemaining = 0.12f;
         // 最終段で敵を転倒させます。硬直時間と合わせて、起き上がるまで行動を止めます。
-        if (!IsPlayer && amount >= 30 && Health > 0)
+        if (!isGroundHit && !IsPlayer && amount >= 30 && Health > 0)
         {
+            _hasReceivedGroundHit = false;
             _downRemaining = 0.7f;
             _stunRemaining = _downRemaining;
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
-        _knockbackVelocity = new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
+        _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
         _game.RegisterDamage(this, amount);
         if (Health == 0)
         {

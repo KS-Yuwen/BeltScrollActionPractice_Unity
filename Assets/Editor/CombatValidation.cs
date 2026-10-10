@@ -242,6 +242,49 @@ public static class CombatValidation
             var source = (AudioSource)GetPrivateField(audio, "_source");
             Require(source.spatialBlend == 0 && source.ignoreListenerPause, "2D音声として停止から独立して再生");
 
+            // 専用追撃は通常の入力受付から開始し、ダウン中の硬直を越えて一度だけ命中します。
+            updateStop.Invoke(game, new object[] { 1f });
+            player.transform.position = Vector3.zero;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+            ranged.transform.position = Vector3.right;
+            ranged.RestoreHealth(100);
+            SetPrivateField(ranged, "_stunRemaining", 0f);
+            SetPrivateField(ranged, "_downRemaining", 0f);
+            ranged.TakeDamage(30, 1);
+            int downedHealth = ranged.Health;
+            ranged.TakeDamage(18, 1);
+            Require(ranged.Health == downedHealth, "通常攻撃はダウン中の硬直無敵を無視しない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(player, "_attackBufferRemaining", 0.2f);
+            typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { Vector3.zero, false });
+            Require(player.IsGroundAttacking, "攻撃受付から近くのダウン敵への追撃を開始");
+            float beforeGroundDownTime = (float)GetPrivateField(ranged, "_downRemaining");
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { 0.13f });
+            Require(ranged.Health == downedHealth - 24 && !ranged.CanReceiveGroundHit, "追撃は24ダメージで一度だけ命中");
+            Require((float)GetPrivateField(ranged, "_downRemaining") == beforeGroundDownTime, "追撃で起き上がりを延長しない");
+            Require(!ranged.TryTakeGroundHit(24, 1), "同じダウン中の二度目の追撃を拒否");
+
+            ranged.RestoreHealth(100);
+            SetPrivateField(ranged, "_stunRemaining", 0f);
+            SetPrivateField(ranged, "_downRemaining", 0f);
+            ranged.TakeDamage(30, 1);
+            Require(ranged.CanReceiveGroundHit, "再ダウンでは追撃を再受付");
+            ranged.transform.position = new Vector3(1, 0, 1);
+            int beforeMiss = ranged.Health;
+            game.HitGroundTarget(player, ranged, 24);
+            Require(ranged.Health == beforeMiss, "奥行きが離れた追撃は空振り");
+            ranged.transform.position = Vector3.right;
+            SetPrivateField(ranged, "_downRemaining", 0f);
+            game.HitGroundTarget(player, ranged, 24);
+            Require(ranged.Health == beforeMiss, "起き上がった相手への追撃は空振り");
+            player.TakeDamage(5, player.Facing);
+            Require(!player.IsGroundAttacking, "被ダメージで追撃を中断");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
