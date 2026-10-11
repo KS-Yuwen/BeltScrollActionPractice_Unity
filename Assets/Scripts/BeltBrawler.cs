@@ -15,6 +15,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private int _wave;
     // 全滅後、次の出現までに経過した秒数。
     private float _nextWaveElapsed;
+    private readonly WaveBanner _waveBanner = new WaveBanner();
+    private bool _waveClearAnnounced;
     private Material _floorMaterial;
     private Material _playerMaterial;
     private Material _enemyMaterial;
@@ -210,6 +212,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private void SpawnWave()
     {
         _wave++;
+        _waveClearAnnounced = false;
+        _waveBanner.ShowStart(_wave);
         // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
         if (_wave > 1)
         {
@@ -219,7 +223,7 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
         }
-        _spawnWarningRemaining = 1.5f;
+        _spawnWarningRemaining = BrawlerBalance.SpawnWarningSeconds;
     }
 
     private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
@@ -263,6 +267,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
+        _waveBanner.Advance(Time.deltaTime);
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         _enemies.RemoveAll(enemy => enemy == null);
         UpdateSpawnWarning(Time.deltaTime);
@@ -273,20 +278,36 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
-        if (_player.Health > 0 && _enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
-        {
-            // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
-            _nextWaveElapsed += Time.deltaTime;
-            if (_nextWaveElapsed > 2)
-            {
-                _nextWaveElapsed = 0;
-                SpawnWave();
-            }
-        }
+        UpdateWaveProgress(Time.deltaTime);
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
         if (BrawlerInput.WasRestartPressed())
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+        }
+    }
+
+    private void UpdateWaveProgress(float deltaTime)
+    {
+        if (_player.Health <= 0)
+        {
+            _waveBanner.Clear();
+            return;
+        }
+        if (_enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
+        {
+            // 空の状態が続いても通知を再生成せず、このウェーブにつき一度だけ表示します。
+            if (!_waveClearAnnounced)
+            {
+                _waveClearAnnounced = true;
+                _waveBanner.ShowClear();
+            }
+            // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
+            _nextWaveElapsed += deltaTime;
+            if (_nextWaveElapsed > BrawlerBalance.NextWaveDelaySeconds)
+            {
+                _nextWaveElapsed = 0;
+                SpawnWave();
+            }
         }
     }
 
@@ -754,9 +775,9 @@ public sealed class BeltBrawler : MonoBehaviour
             }
             GUI.color = Color.white;
         }
-        else if (_enemies.Count == 0)
+        if (_player.Health > 0)
         {
-            GUI.Label(new Rect(Screen.width / 2 - 120, 200, 400, 50), "WAVE CLEAR!  HP +15", style);
+            _waveBanner.Draw();
         }
     }
 }

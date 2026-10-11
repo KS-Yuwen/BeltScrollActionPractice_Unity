@@ -3,6 +3,14 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
+    public const float NextWaveDelaySeconds = 2f;
+    public const float SpawnWarningSeconds = 1.5f;
+    public const float WaveBannerSeconds = 1.2f;
+    public const float WaveBannerFadeSeconds = 0.3f;
+    public const float WaveBannerWidth = 600f;
+    public const float WaveBannerHeight = 80f;
+    public const int WaveBannerFontSize = 44;
     // 選択UI。小さい画面では四つの枠をまとめて縮小し、操作説明の上へ配置します。
     public const float SelectionHudMargin = 24f;
     public const float SelectionCardWidth = 154f;

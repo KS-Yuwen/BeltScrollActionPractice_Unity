@@ -980,6 +980,36 @@ public static class CombatValidation
             Require(fadeTarget.GetComponents<EnemyDefeatFade>().Length == 1, "撃破済みへの追加攻撃で演出を二重生成しない");
             defeatFade.Advance(BrawlerBalance.EnemyRemovalSeconds);
             Require(defeatFade.Alpha == 0, "既存の消滅時間で透明になり破棄される");
+            // 全滅通知は一度だけ出し、次の出現予告中をクリアと誤認しないことを確認します。
+            var banner = (WaveBanner)GetPrivateField(game, "_waveBanner");
+            var bannerPending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
+            turnEnemies.Clear();
+            bannerPending.Clear();
+            SetPrivateField(game, "_waveClearAnnounced", false);
+            SetPrivateField(game, "_nextWaveElapsed", 0f);
+            banner.Clear();
+            MethodInfo waveProgress = typeof(BeltBrawler).GetMethod("UpdateWaveProgress", BindingFlags.Instance | BindingFlags.NonPublic);
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(banner.Text == "WAVE CLEAR", "全滅時に中央クリア通知を開始");
+            banner.Advance(BrawlerBalance.WaveBannerSeconds / 2);
+            float bannerRemaining = banner.RemainingSeconds;
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(banner.RemainingSeconds == bannerRemaining, "空の状態が続いても通知の時間をリセットしない");
+            banner.Advance(BrawlerBalance.WaveBannerSeconds);
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(banner.Text == string.Empty, "消えたクリア通知を同じウェーブで再表示しない");
+            int waveBeforeBanner = (int)GetPrivateField(game, "_wave");
+            waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+            Require(banner.Text == "WAVE " + (waveBeforeBanner + 1) && bannerPending.Count > 0,
+                "次の出現予告と同時にウェーブ番号を表示");
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(banner.Text != "WAVE CLEAR", "出現待ちの敵がいる間はクリア通知しない");
+            banner.Advance(BrawlerBalance.WaveBannerSeconds - BrawlerBalance.WaveBannerFadeSeconds / 2);
+            Require(Mathf.Abs(banner.Alpha - 0.5f) < 0.01f, "終了前にウェーブ通知をフェード");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            player.TakeDamage(1000, player.Facing);
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(banner.Text == string.Empty, "敗北時は中央ウェーブ通知を消す");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
