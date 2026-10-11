@@ -67,7 +67,14 @@ public static class BrawlerInput
         Keyboard keyboard = Keyboard.current;
         Gamepad pad = Gamepad.current;
         return (keyboard != null && keyboard.leftShiftKey.wasPressedThisFrame)
-            || (pad != null && (pad.buttonSouth.wasPressedThisFrame || pad.rightShoulder.wasPressedThisFrame));
+            || (pad != null && pad.rightShoulder.wasPressedThisFrame);
+    }
+
+    // 資料の B（ジャンプ）はパッド下側、キーボードでは U に対応させます。
+    public static bool WasJumpPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.uKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
     }
 
     public static bool WasRestartPressed()

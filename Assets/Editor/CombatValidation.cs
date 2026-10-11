@@ -312,6 +312,44 @@ public static class CombatValidation
             Require(heavy.CanReceiveGroundHit && heavy.TryTakeGroundHit(24, 1), "重装型も転倒と追撃が有効");
             updateStop.Invoke(game, new object[] { 1f });
 
+            // 床の位置を動かさずジャンプし、着地後は再び地上攻撃を受けることを確認します。
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            MethodInfo startJump = typeof(Fighter).GetMethod("StartJump", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo updateJump = typeof(Fighter).GetMethod("UpdateJump", BindingFlags.Instance | BindingFlags.NonPublic);
+            startJump.Invoke(player, new object[] { Vector3.zero });
+            updateJump.Invoke(player, new object[] { 0.12f });
+            Require(player.IsAirborne && player.JumpHeight > 0.6f && player.transform.position.y == 0, "ジャンプの高さを床位置と分離");
+            int airborneHealth = player.Health;
+            player.TakeDamage(10, 1);
+            Require(player.Health == airborneHealth, "十分な高さでは地上攻撃を回避");
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            heavy.transform.position = Vector3.right;
+            int beforeAirHit = heavy.Health;
+            typeof(Fighter).GetMethod("StartAirAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { false });
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.15f });
+            Require(player.IsAirAttacking && heavy.Health == beforeAirHit - 20, "空中攻撃が20ダメージで命中");
+            updateJump.Invoke(player, new object[] { 1f });
+            Require(!player.IsAirborne && player.JumpHeight == 0 && !player.IsAirAttacking, "着地で空中状態を解除");
+            player.TakeDamage(10, 1);
+            Require(player.Health == airborneHealth - 10, "着地後は地上攻撃を受ける");
+            startJump.Invoke(player, new object[] { Vector3.forward });
+            Require((float)GetPrivateField(player, "_jumpVelocity") == 9, "上入力は大ジャンプ");
+            updateJump.Invoke(player, new object[] { 1f });
+            SetPrivateField(player, "_dashRemaining", 0.2f);
+            SetPrivateField(player, "_dashDirection", Vector3.right);
+            startJump.Invoke(player, new object[] { Vector3.zero });
+            Require((Vector3)GetPrivateField(player, "_jumpDrift") == Vector3.right * 4
+                && (float)GetPrivateField(player, "_dashRemaining") == 0, "ダッシュジャンプは慣性を残して回避無敵を終了");
+            updateJump.Invoke(player, new object[] { 0.2f });
+            typeof(Fighter).GetMethod("StartAirAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { true });
+            Require((float)GetPrivateField(player, "_jumpVelocity") < 0, "下突きで降下を開始");
+            updateJump.Invoke(player, new object[] { 1f });
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

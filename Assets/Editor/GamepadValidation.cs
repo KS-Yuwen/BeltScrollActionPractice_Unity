@@ -84,8 +84,8 @@ public static class GamepadValidation
             SendState(pad, new GamepadState());
             UpdatePlayer(player);
             Require(player.ComboStep == 2, "先行入力した攻撃が次の段へつながる");
-            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
-            Require(BrawlerInput.WasDashPressed(), "下側のフェイスボタンで回避");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
+            Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンで回避");
             UpdatePlayer(player);
             Require(ReadPlayerTimer(player, "_dashRemaining") > 0, "パッドの回避入力が戦闘処理へ到達");
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
@@ -100,6 +100,8 @@ public static class GamepadValidation
             SetPlayerTimer(player, "_stunRemaining", 0);
             SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            Require(BrawlerInput.WasJumpPressed() && !BrawlerInput.WasDashPressed(), "パッド下側はジャンプ専用");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
             Require(BrawlerInput.WasRestartPressed(), "Start でリスタート");
             SendState(pad, new GamepadState().WithButton(GamepadButton.North));
@@ -128,6 +130,9 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.I));
             InputSystem.Update();
             Require(BrawlerInput.WasProtectionPressed(), "I キーで補助魔法入力");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            Require(BrawlerInput.WasJumpPressed(), "Uキーでジャンプ入力");
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

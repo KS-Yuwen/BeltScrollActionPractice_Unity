@@ -436,7 +436,7 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Box(new Rect(24, 65, 300f * Mathf.Max(0, _player.Health) / _player.MaxHealth, 24), "HP " + _player.Health);
         GUI.color = Color.white;
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
-        string dashHint = BrawlerInput.IsGamepadConnected ? "A / Cross / RB: Dash" : "Shift: Dash";
+        string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
         if (_player.CanCounter)
         {
@@ -447,8 +447,8 @@ public sealed class BeltBrawler : MonoBehaviour
             GUI.Label(new Rect(24, 175, 700, 40), "GROUND ATTACK — Press Attack", style);
         }
         string controls = BrawlerInput.IsGamepadConnected
-            ? "Stick: Move  X / Square: Attack  A / RB: Dash  LB / LT: Guard  Start: Restart"
-            : "WASD / Arrows: Move   J / Space: Attack   Shift: Dash   K: Guard   R: Restart";
+            ? "Stick: Move  X / Square: Attack  A / Cross: Jump  RB: Dash  LB / LT: Guard"
+            : "WASD / Arrows: Move   J / Space: Attack   U: Jump   Shift: Dash   K: Guard   R: Restart";
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         if (_player is ClericFighter cleric)
         {

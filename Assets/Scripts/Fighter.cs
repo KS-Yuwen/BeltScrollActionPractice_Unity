@@ -43,6 +43,18 @@ public class Fighter : Combatant
     private bool _isGroundAttack;
     private Fighter _groundAttackTarget;
     private bool _hasReceivedGroundHit;
+    private float _jumpHeight;
+    private float _jumpVelocity;
+    private Vector3 _jumpDrift;
+    private bool _isAirAttack;
+    private bool _isDownThrust;
+
+    // 攻撃距離の基準位置は床に残し、見た目の高さだけ別に管理します。
+    public float JumpHeight => _jumpHeight;
+
+    public bool IsAirborne => _jumpHeight > 0 || _jumpVelocity > 0;
+
+    public bool IsAirAttacking => _isAirAttack && _attackRemaining > 0;
 
     public bool IsGroundAttacking => _isGroundAttack && _attackRemaining > 0;
 
@@ -90,7 +102,7 @@ public class Fighter : Combatant
     protected virtual Color? SpecialFeedbackColor => null;
 
     protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
-        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0;
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne;
 
     protected virtual bool UpdateSpecialAction() => false;
 
@@ -143,6 +155,7 @@ public class Fighter : Combatant
         // 更新順もゲームの挙動の一部です。元の順序を維持し、担当する処理ごとに分けます。
         UpdateTimers(deltaTime);
         Vector3 input = ReadPlayerInput();
+        UpdateJump(deltaTime);
         bool wasWindingUp = UpdateAttackWindup(deltaTime);
         ApplyKnockback(deltaTime);
         Vector3 movement = GetMovement(input, wasWindingUp);
@@ -178,6 +191,21 @@ public class Fighter : Combatant
             }
             input = BrawlerInput.ReadMovement();
             bool attackPressed = BrawlerInput.WasAttackPressed();
+            if (BrawlerInput.WasJumpPressed() && !IsAirborne && _stunRemaining <= 0
+                && _attackRemaining <= 0 && !IsUsingSpecialAction)
+            {
+                StartJump(input);
+            }
+            if (IsAirborne)
+            {
+                IsGuarding = false;
+                // 空中では攻撃ボタンを1回押して発動。奥行きの下入力＋攻撃で下突きに変化します。
+                if (attackPressed && _attackRemaining <= 0 && _attackCooldown <= 0 && _stunRemaining <= 0)
+                {
+                    StartAirAttack(input.z < -0.5f);
+                }
+                return input;
+            }
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
                 && _attackRemaining <= 0 && _dashRemaining <= 0;
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
@@ -245,6 +273,11 @@ public class Fighter : Combatant
     // プレイヤー入力か敵 AI のどちらかから、そのフレームの通常移動方向を決めます。
     private Vector3 GetMovement(Vector3 input, bool wasWindingUp)
     {
+        if (IsPlayer && IsAirborne)
+        {
+            // 空中攻撃中も方向入力で着地点を調整できます。被ダメージ時は操作を止めます。
+            return _stunRemaining <= 0 ? input : Vector3.zero;
+        }
         Vector3 movement = Vector3.zero;
         // 攻撃中・被ダメージ硬直中は、新しい操作や AI の行動を受け付けません。
         if (_stunRemaining <= 0 && _attackRemaining <= 0 && _dashRemaining <= 0 && !wasWindingUp && !IsUsingSpecialAction)
@@ -325,6 +358,10 @@ public class Fighter : Combatant
             Facing = Mathf.Sign(movement.x);
         }
         transform.position += movement * (IsPlayer ? 5 : EnemyMovementSpeed) * deltaTime;
+        if (IsAirborne)
+        {
+            transform.position += _jumpDrift * deltaTime;
+        }
         // 最終フレームの移動量を残り時間で制限し、FPS が低いときの飛びすぎを防ぎます。
         if (_dashRemaining > 0)
         {
@@ -359,14 +396,15 @@ public class Fighter : Combatant
         {
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
-            _attackArm.localRotation = Quaternion.Euler(0, 0, _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
+            _attackArm.localRotation = Quaternion.Euler(0, 0, _isDownThrust ? -90 : _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
             _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, _isGroundAttack ? 0.65f : 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
             float hitTiming = _isGroundAttack ? 0.23f : _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : EnemyAttackDamage;
+                int damage = _isAirAttack ? (_isDownThrust ? 32 : 20)
+                    : _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : EnemyAttackDamage;
                 if (_isGroundAttack)
                 {
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
@@ -384,6 +422,8 @@ public class Fighter : Combatant
             _isCounterAttack = false;
             _isGroundAttack = false;
             _groundAttackTarget = null;
+            _isAirAttack = false;
+            _isDownThrust = false;
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -395,7 +435,7 @@ public class Fighter : Combatant
         // 生存中の転倒は一定時間で起き上がります。死亡姿勢は Update の早期終了で保持します。
         _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
-        _visual.localPosition = new Vector3(0, _stunRemaining > 0 ? 0.08f : 0, 0);
+        _visual.localPosition = new Vector3(0, _jumpHeight + (_stunRemaining > 0 ? 0.08f : 0), 0);
         // 被ダメージは白、回避中は水色、敵の攻撃予告は黄色で見分けられるようにします。
         // SetPropertyBlock(null) で上書きを解除すると、元の各パーツの色に戻ります。
         foreach (var body in _bodyRenderers)
@@ -476,6 +516,57 @@ public class Fighter : Combatant
         IsGuarding = false;
     }
 
+    private void StartJump(Vector3 input)
+    {
+        // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
+        _jumpVelocity = input.z > 0.5f ? 9 : 7;
+        _jumpDrift = _dashRemaining > 0 ? _dashDirection * 4 : Vector3.zero;
+        _dashRemaining = 0;
+        _knockbackVelocity = Vector3.zero;
+        ReleaseDefenseForSpecialAction();
+    }
+
+    private void UpdateJump(float deltaTime)
+    {
+        if (!IsAirborne)
+        {
+            return;
+        }
+        const float gravity = 22;
+        _jumpHeight += _jumpVelocity * deltaTime - gravity * deltaTime * deltaTime * 0.5f;
+        _jumpVelocity -= gravity * deltaTime;
+        if (_jumpHeight <= 0)
+        {
+            _jumpHeight = 0;
+            _jumpVelocity = 0;
+            _jumpDrift = Vector3.zero;
+            if (_isAirAttack)
+            {
+                _attackRemaining = 0;
+                _isAirAttack = false;
+                _isDownThrust = false;
+            }
+        }
+    }
+
+    private void StartAirAttack(bool isDownThrust)
+    {
+        _isAirAttack = true;
+        _isDownThrust = isDownThrust;
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
+        _isDashAttack = false;
+        _isCounterAttack = false;
+        _attackRemaining = 0.3f;
+        _attackCooldown = 0.35f;
+        _hasDealtHit = false;
+        if (isDownThrust)
+        {
+            // 下突きは降下を速めます。攻撃が着地より遅ければ命中せず終了します。
+            _jumpVelocity = -6;
+        }
+    }
+
     private void StartGroundAttack(Fighter target)
     {
         _isGroundAttack = true;
@@ -507,7 +598,7 @@ public class Fighter : Combatant
     public void TakeDamage(int amount, float direction)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0)
+        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > 0.6f)
         {
             return;
         }
@@ -530,6 +621,8 @@ public class Fighter : Combatant
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
+        _isAirAttack = false;
+        _isDownThrust = false;
         _isGroundAttack = false;
         _groundAttackTarget = null;
         _isDashAttack = false;
