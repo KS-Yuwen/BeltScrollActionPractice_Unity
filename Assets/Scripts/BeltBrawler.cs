@@ -374,6 +374,23 @@ public sealed class BeltBrawler : MonoBehaviour
         }
     }
 
+    public void HitRunningTargets(Fighter attacker)
+    {
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0)
+            {
+                continue;
+            }
+            Vector3 delta = enemy.transform.position - attacker.transform.position;
+            // 体当たりは通常攻撃より近い、前方への接触だけを判定します。
+            if (Mathf.Abs(delta.x) < 0.9f && Mathf.Abs(delta.z) < 0.6f && delta.x * attacker.Facing > -0.25f)
+            {
+                attacker.TryBodyCheck(enemy);
+            }
+        }
+    }
+
     public Fighter FindGroundAttackTarget(Fighter attacker)
     {
         Fighter closest = null;
@@ -437,6 +454,10 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.color = Color.white;
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
         string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
+        if (_player.IsRunning)
+        {
+            GUI.Label(new Rect(24, 323, 900, 40), "RUNNING — Attack / Jump, release direction to stop", style);
+        }
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
         if (_player.CanCounter)
         {

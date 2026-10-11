@@ -364,6 +364,40 @@ public static class CombatValidation
             Require(heavy.Health == beforeCrouchHit - 12, "しゃがみ攻撃は12ダメージ");
             updateStop.Invoke(game, new object[] { 1f });
 
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_dashRemaining", 0f);
+            SetPrivateField(player, "_isCrouching", false);
+            MethodInfo runInput = typeof(Fighter).GetMethod("UpdateRunningInput", BindingFlags.Instance | BindingFlags.NonPublic);
+            runInput.Invoke(player, new object[] { Vector3.zero });
+            SetPrivateField(player, "_lastForwardTapAt", -10f);
+            runInput.Invoke(player, new object[] { Vector3.right });
+            Require(!player.IsRunning, "前方向1回では走らない");
+            runInput.Invoke(player, new object[] { Vector3.zero });
+            runInput.Invoke(player, new object[] { Vector3.right });
+            Require(player.IsRunning, "前方向2回で継続ダッシュ");
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            heavy.transform.position = player.transform.position + Vector3.right * 0.5f;
+            int beforeBodyCheck = heavy.Health;
+            game.HitRunningTargets(player);
+            Require(heavy.Health == beforeBodyCheck - 8, "継続ダッシュ中の接触で8ダメージ");
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            game.HitRunningTargets(player);
+            Require(heavy.Health == beforeBodyCheck - 8, "同じダッシュでは同じ敵に二重命中しない");
+            runInput.Invoke(player, new object[] { Vector3.zero });
+            Require(!player.IsRunning, "方向を離すと継続ダッシュ解除");
+            runInput.Invoke(player, new object[] { Vector3.right });
+            runInput.Invoke(player, new object[] { Vector3.zero });
+            runInput.Invoke(player, new object[] { Vector3.right });
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            game.HitRunningTargets(player);
+            Require(heavy.Health == beforeBodyCheck - 16, "新しいダッシュでは体当たりを再受付");
+            int beforeRunningDamage = player.Health;
+            player.TakeDamage(5, -player.Facing);
+            Require(!player.IsRunning && player.Health == beforeRunningDamage - 5, "継続ダッシュは無敵ではなく被ダメージで中断");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

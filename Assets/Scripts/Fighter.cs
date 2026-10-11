@@ -53,6 +53,14 @@ public class Fighter : Combatant
     private float _lastJumpPressedAt = -10;
     private bool _canBackstepFromJump;
     private bool _isBackstep;
+    private bool _isRunning;
+    private float _runDirection;
+    private float _lastForwardTapAt = -10;
+    private float _lastForwardTapDirection;
+    private bool _wasForwardHeld;
+    private readonly System.Collections.Generic.HashSet<Fighter> _bodyCheckedEnemies = new System.Collections.Generic.HashSet<Fighter>();
+
+    public bool IsRunning => _isRunning;
 
     public bool IsCrouching => _isCrouching;
 
@@ -113,7 +121,7 @@ public class Fighter : Combatant
     protected virtual Color? SpecialFeedbackColor => null;
 
     protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
-        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne;
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne && !_isRunning;
 
     protected virtual bool UpdateSpecialAction() => false;
 
@@ -171,6 +179,10 @@ public class Fighter : Combatant
         ApplyKnockback(deltaTime);
         Vector3 movement = GetMovement(input, wasWindingUp);
         Move(movement, deltaTime);
+        if (_isRunning)
+        {
+            _game.HitRunningTargets(this);
+        }
         UpdateWalkAnimation(movement, deltaTime);
         UpdateAttackAnimation(deltaTime);
         UpdateVisualFeedback();
@@ -228,8 +240,20 @@ public class Fighter : Combatant
                 }
                 return input;
             }
+            UpdateRunningInput(input);
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
                 && _attackRemaining <= 0 && _dashRemaining <= 0 && !_isCrouching;
+            if (IsGuarding)
+            {
+                _isRunning = false;
+            }
+            if (attackPressed && _isRunning && _attackCooldown <= 0)
+            {
+                _dashDirection = new Vector3(_runDirection, 0, 0);
+                _isRunning = false;
+                StartDashAttack();
+                return Vector3.zero;
+            }
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
             if (attackPressed && !IsGuarding)
             {
@@ -241,6 +265,7 @@ public class Fighter : Combatant
                 // 回避距離はスティックの倒し具合によらず一定にするため、回避方向だけ正規化します。
                 _dashDirection = input.sqrMagnitude > 0 ? input.normalized : new Vector3(Facing, 0, 0);
                 _dashRemaining = 0.2f;
+                _isRunning = false;
                 _isBackstep = false;
                 _isCrouching = false;
                 _isCrouchAttack = false;
@@ -390,7 +415,7 @@ public class Fighter : Combatant
         {
             Facing = Mathf.Sign(movement.x);
         }
-        transform.position += movement * (IsPlayer ? 5 : EnemyMovementSpeed) * deltaTime;
+        transform.position += movement * (IsPlayer ? (_isRunning ? 8 : 5) : EnemyMovementSpeed) * deltaTime;
         if (IsAirborne)
         {
             transform.position += _jumpDrift * deltaTime;
@@ -558,15 +583,61 @@ public class Fighter : Combatant
         IsGuarding = false;
     }
 
+    private void UpdateRunningInput(Vector3 input)
+    {
+        bool forwardHeld = input.x * Facing > 0.6f;
+        bool canRun = !_isCrouching && _stunRemaining <= 0 && _attackRemaining <= 0
+            && _dashRemaining <= 0 && !IsUsingSpecialAction;
+        if (_isRunning && (!canRun || input.x * _runDirection <= 0.6f))
+        {
+            _isRunning = false;
+        }
+        if (forwardHeld && !_wasForwardHeld && canRun)
+        {
+            float direction = Mathf.Sign(input.x);
+            if (_lastForwardTapDirection == direction && Time.time - _lastForwardTapAt <= 0.25f)
+            {
+                _isRunning = true;
+                _runDirection = direction;
+                _bodyCheckedEnemies.Clear();
+                _lastForwardTapAt = -10;
+            }
+            else
+            {
+                _lastForwardTapAt = Time.time;
+                _lastForwardTapDirection = direction;
+            }
+        }
+        _wasForwardHeld = forwardHeld;
+    }
+
+    public void TryBodyCheck(Fighter target)
+    {
+        if (!_isRunning || target == null || target.IsPlayer || _bodyCheckedEnemies.Contains(target))
+        {
+            return;
+        }
+        int previousHealth = target.Health;
+        target.TakeDamage(8, _runDirection);
+        // 硬直無敵で拒否された接触は消費せず、実際に命中した相手だけ記録します。
+        if (target.Health < previousHealth)
+        {
+            _bodyCheckedEnemies.Add(target);
+        }
+    }
+
     private void StartJump(Vector3 input)
     {
         _isCrouchAttack = false;
         _isCrouching = false;
-        _canBackstepFromJump = input.z <= 0.5f && _dashRemaining <= 0;
+        _canBackstepFromJump = input.z <= 0.5f && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
         _jumpVelocity = input.z > 0.5f ? 9 : 7;
-        _jumpDrift = _dashRemaining > 0 ? _dashDirection * 4 : Vector3.zero;
+        _jumpDrift = _isRunning ? new Vector3(_runDirection * 4, 0, 0)
+            : _dashRemaining > 0 ? _dashDirection * 4 : Vector3.zero;
+        _isRunning = false;
+        _wasForwardHeld = false;
         _dashRemaining = 0;
         _knockbackVelocity = Vector3.zero;
         ReleaseDefenseForSpecialAction();
@@ -634,6 +705,8 @@ public class Fighter : Combatant
 
     private void StartBackstep()
     {
+        _isRunning = false;
+        _wasForwardHeld = false;
         // 1回目は通常ジャンプ、0.25秒以内の2回目で後方回避へ切り替えます。
         // 向きを変えず、共通の回避無敵・ステージ端制限を使います。
         _canBackstepFromJump = false;
@@ -698,6 +771,9 @@ public class Fighter : Combatant
 
     private void ApplyDamage(int amount, float direction, bool isGroundHit)
     {
+        _isRunning = false;
+        _wasForwardHeld = false;
+        _lastForwardTapAt = -10;
         IsGuarding = false;
         ReduceHealth(CalculateReceivedDamage(amount));
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : 0.25f;
