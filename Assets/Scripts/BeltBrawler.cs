@@ -20,6 +20,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _enemyMaterial;
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
+    private Material _heavyEnemyMaterial;
     private Material _potionMaterial;
     private int _defeatedEnemyCount;
     private int _score;
@@ -53,6 +54,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _enemyMaterial = CreateMaterial(new Color(1, 0.25f, 0.25f));
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
         _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
+        _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = new Material(Shader.Find("Unlit/Color"));
@@ -108,25 +110,34 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // プレイヤーと敵は同じ Fighter を使い、isPlayer によって操作方法を切り替えます。
-    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false)
+    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false, bool isHeavy = false)
     {
         var root = new GameObject(label);
         root.transform.position = position;
         Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+            : isHeavy ? root.AddComponent<HeavyFighter>()
             : isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
-        int maxHealth = isPlayer ? 100 : 55 + _wave * 5;
+        int maxHealth = isPlayer ? 100 : isHeavy ? 100 + _wave * 8 : 55 + _wave * 5;
         // 移動を担う親と、見た目を担う Model を分離します。
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : isRanged ? _rangedEnemyMaterial : _enemyMaterial;
+        var bodyMaterial = isPlayer ? _playerMaterial : isHeavy ? _heavyEnemyMaterial
+            : isRanged ? _rangedEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
         var attackArm = CreateBodyPart("Punch arm", new Vector3(0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
         var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
+        if (isHeavy)
+        {
+            // 大きな胴鎧と肩当てで区別します。判定用の親や通常のリーチは拡大しません。
+            CreateBodyPart("Heavy armor", new Vector3(0, 1.15f, 0), new Vector3(0.8f, 0.9f, 0.55f), bodyMaterial, visual);
+            CreateBodyPart("Right pauldron", new Vector3(0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
+            CreateBodyPart("Left pauldron", new Vector3(-0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
+        }
         if (isPlayer)
         {
             // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
@@ -192,8 +203,10 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
             bool isRanged = i % 3 == 2;
-            _enemies.Add(CreateFighter(isRanged ? "Ranged Enemy" : "Melee Enemy",
-                _pendingSpawnPositions[i], false, isRanged));
+            // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
+            bool isHeavy = _wave >= 2 && i == 3;
+            _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : "Melee Enemy",
+                _pendingSpawnPositions[i], false, isRanged, isHeavy));
         }
         _pendingSpawnPositions.Clear();
     }

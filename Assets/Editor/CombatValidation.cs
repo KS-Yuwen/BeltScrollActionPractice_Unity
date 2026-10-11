@@ -285,6 +285,33 @@ public static class CombatValidation
             Require(!player.IsGroundAttacking, "被ダメージで追撃を中断");
             updateStop.Invoke(game, new object[] { 1f });
 
+            var heavy = UnityEngine.Object.FindAnyObjectByType<HeavyFighter>();
+            Require(heavy != null && heavy.MaxHealth == 116, "第2ウェーブにHP116の重装型を生成");
+            player.RestoreHealth(100);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_dashRemaining", 0f);
+            SetPrivateField(cleric, "_protectionRemaining", 0f);
+            player.transform.position = Vector3.zero;
+            heavy.transform.position = Vector3.right;
+            typeof(Fighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(heavy, null);
+            Require(heavy.IsWindingUp && (float)GetPrivateField(heavy, "_windupRemaining") == 0.95f, "重装型は長い予告を開始");
+            typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(heavy, new object[] { 0.96f });
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(heavy, new object[] { 0.15f });
+            Require(player.Health == 76, "重装型の実際の攻撃は24ダメージ");
+            heavy.transform.position = Vector3.zero;
+            typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(heavy, new object[] { Vector3.right, 1f });
+            Require(Mathf.Approximately(heavy.transform.position.x, 1.3f), "重装型の移動速度は1.3");
+            SetPrivateField(heavy, "_windupRemaining", 0.95f);
+            heavy.TakeDamage(18, 1);
+            Require(!heavy.IsWindingUp, "重装型の予告も攻撃で中断");
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            heavy.TakeDamage(30, 1);
+            Require(heavy.CanReceiveGroundHit && heavy.TryTakeGroundHit(24, 1), "重装型も転倒と追撃が有効");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

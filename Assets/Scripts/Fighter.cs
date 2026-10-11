@@ -77,6 +77,13 @@ public class Fighter : Combatant
 
     protected virtual float EnemyAttackInterval => 1.2f;
 
+    // 敵の種類ごとの差は派生クラスで上書きし、近接 AI と命中処理は共用します。
+    protected virtual float EnemyMovementSpeed => 2.2f;
+
+    protected virtual float EnemyWindupDuration => 0.55f;
+
+    protected virtual int EnemyAttackDamage => 10;
+
     // 職業固有の行動は派生クラスが担当し、共通の戦闘状態はここで管理します。
     protected virtual bool IsUsingSpecialAction => false;
 
@@ -294,7 +301,7 @@ public class Fighter : Combatant
         }
         if (CanStartEnemyAttack)
         {
-            BeginAttackWindup(0.55f);
+            BeginAttackWindup(EnemyWindupDuration);
         }
         return Vector3.zero;
     }
@@ -317,7 +324,7 @@ public class Fighter : Combatant
         {
             Facing = Mathf.Sign(movement.x);
         }
-        transform.position += movement * (IsPlayer ? 5 : 2.2f) * deltaTime;
+        transform.position += movement * (IsPlayer ? 5 : EnemyMovementSpeed) * deltaTime;
         // 最終フレームの移動量を残り時間で制限し、FPS が低いときの飛びすぎを防ぎます。
         if (_dashRemaining > 0)
         {
@@ -359,7 +366,7 @@ public class Fighter : Combatant
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : 10;
+                int damage = _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : EnemyAttackDamage;
                 if (_isGroundAttack)
                 {
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
