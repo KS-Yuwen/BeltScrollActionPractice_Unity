@@ -35,6 +35,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _impactMaterial;
     private Material _guardImpactMaterial;
     private Material _counterImpactMaterial;
+    private Material _warningMaterial;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private BrawlerAudio _audio;
@@ -70,6 +71,8 @@ public sealed class BeltBrawler : MonoBehaviour
         _guardImpactMaterial.color = new Color(1, 1, 0.75f);
         _counterImpactMaterial = new Material(Shader.Find("Unlit/Color"));
         _counterImpactMaterial.color = new Color(0.45f, 0.9f, 1);
+        _warningMaterial = new Material(Shader.Find("Unlit/Color"));
+        _warningMaterial.color = Color.white;
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -164,7 +167,29 @@ public sealed class BeltBrawler : MonoBehaviour
             CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
         }
         fighter.Initialize(this, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);
+        if (!isPlayer)
+        {
+            CreateAttackWarning(fighter);
+        }
         return fighter;
+    }
+
+    private void CreateAttackWarning(Fighter fighter)
+    {
+        // 毎回の予告で生成せず、敵一体につき一つだけ作ってRendererを切り替えます。
+        var marker = new GameObject("Attack Warning").transform;
+        marker.SetParent(fighter.transform, false);
+        marker.localPosition = Vector3.up * BrawlerBalance.WarningMarkerHeight;
+        float width = BrawlerBalance.WarningMarkerWidth;
+        float depth = BrawlerBalance.WarningMarkerDepth;
+        float thickness = BrawlerBalance.WarningMarkerThickness;
+        CreateBodyPart("Front edge", Vector3.forward * (depth / 2), new Vector3(width, thickness, thickness), _warningMaterial, marker);
+        CreateBodyPart("Back edge", Vector3.back * (depth / 2), new Vector3(width, thickness, thickness), _warningMaterial, marker);
+        CreateBodyPart("Right edge", Vector3.right * (width / 2), new Vector3(thickness, thickness, depth), _warningMaterial, marker);
+        CreateBodyPart("Left edge", Vector3.left * (width / 2), new Vector3(thickness, thickness, depth), _warningMaterial, marker);
+        Transform direction = CreateBodyPart("Attack direction", Vector3.zero,
+            new Vector3(BrawlerBalance.WarningDirectionLength, thickness, thickness), _warningMaterial, marker);
+        marker.gameObject.AddComponent<EnemyAttackWarning>().Initialize(fighter, direction);
     }
 
     // 各身体パーツの位置は、世界全体ではなく親 Model を基準に指定します。
@@ -584,14 +609,14 @@ public sealed class BeltBrawler : MonoBehaviour
         // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
         float attackReach = attacker.IsHeavyStriking ? BrawlerBalance.HeavyStrikeReach
             : attacker.IsPushAttacking ? BrawlerBalance.PushReach : attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
-            : attacker.IsPlayer ? 2.475f : 1.65f;
+            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : BrawlerBalance.EnemyAttackReach;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
         return target.Health > 0
-            && Mathf.Abs(delta.z) < 0.8f
+            && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth
             && Mathf.Abs(delta.x) < attackReach
-            && delta.x * attacker.Facing > -0.25f;
+            && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }
 
     // Unity の簡易 GUI。画面左上を原点とするピクセル座標で文字や HP バーを描きます。

@@ -5,7 +5,7 @@ public sealed class EnemyProjectile : MonoBehaviour
 {
     private Fighter _target;
     private float _direction;
-    private float _remainingLifetime = 4;
+    private float _remainingLifetime = BrawlerBalance.EnemyProjectileLifetimeSeconds;
 
     public void Initialize(Fighter target, float direction)
     {
@@ -22,8 +22,8 @@ public sealed class EnemyProjectile : MonoBehaviour
             return;
         }
         Vector3 previousPosition = transform.position;
-        transform.position += Vector3.right * _direction * 8 * Time.deltaTime;
-        Vector3 targetPosition = _target.transform.position + Vector3.up * (1.2f + _target.JumpHeight);
+        transform.position += Vector3.right * _direction * BrawlerBalance.EnemyProjectileSpeed * Time.deltaTime;
+        Vector3 targetPosition = _target.transform.position + Vector3.up * (BrawlerBalance.EnemyProjectileHeight + _target.JumpHeight);
         if (TouchesTarget(previousPosition, transform.position, targetPosition))
         {
             // ダメージの可否は Fighter が判断するため、ガードと回避の共通ルールを使えます。
@@ -39,6 +39,6 @@ public sealed class EnemyProjectile : MonoBehaviour
         float fraction = travel.sqrMagnitude > 0
             ? Mathf.Clamp01(Vector3.Dot(target - start, travel) / travel.sqrMagnitude) : 0;
         Vector3 closestPoint = start + travel * fraction;
-        return (target - closestPoint).sqrMagnitude <= 0.45f * 0.45f;
+        return (target - closestPoint).sqrMagnitude <= BrawlerBalance.EnemyProjectileHitRadius * BrawlerBalance.EnemyProjectileHitRadius;
     }
 }

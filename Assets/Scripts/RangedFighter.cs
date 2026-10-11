@@ -4,6 +4,12 @@ using UnityEngine;
 // 予告中に向きと奥行きを固定するため、プレイヤーは奥行き移動で射線から逃げられます。
 public sealed class RangedFighter : Fighter
 {
+    // 弾の発射位置・飛距離・衝突半径から射線表示を求めます。
+    public override float WarningRangeStart => BrawlerBalance.EnemyProjectileLaunchOffset;
+    public override float WarningRangeEnd => WarningRangeStart
+        + BrawlerBalance.EnemyProjectileSpeed * BrawlerBalance.EnemyProjectileLifetimeSeconds;
+    public override float WarningLaneHalfWidth => BrawlerBalance.EnemyProjectileHitRadius;
+
     protected override float EnemyAttackInterval => 2;
 
     protected override Vector3 GetEnemyMovement()
@@ -38,7 +44,7 @@ public sealed class RangedFighter : Fighter
     {
         var projectileObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         projectileObject.name = "Enemy Projectile";
-        projectileObject.transform.position = transform.position + new Vector3(Facing * 0.7f, 1.2f, 0);
+        projectileObject.transform.position = transform.position + new Vector3(Facing * BrawlerBalance.EnemyProjectileLaunchOffset, BrawlerBalance.EnemyProjectileHeight, 0);
         projectileObject.transform.localScale = Vector3.one * 0.3f;
         projectileObject.GetComponent<Renderer>().sharedMaterial = GetComponentInChildren<Renderer>().sharedMaterial;
         // 判定は移動区間と対象の距離で行います。物理コライダーは使いません。

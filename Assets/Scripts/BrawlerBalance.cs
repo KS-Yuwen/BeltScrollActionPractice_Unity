@@ -3,6 +3,24 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // 実際の命中判定と予告表示で共用し、調整後も範囲がずれないようにします。
+    public const float PlayerAttackReach = 2.475f;
+    public const float EnemyAttackReach = 1.65f;
+    public const float AttackLaneHalfWidth = 0.8f;
+    public const float AttackBehindAllowance = 0.25f;
+    public const float EnemyProjectileSpeed = 8f;
+    public const float EnemyProjectileLifetimeSeconds = 4f;
+    public const float EnemyProjectileHitRadius = 0.45f;
+    public const float EnemyProjectileLaunchOffset = 0.7f;
+    public const float EnemyProjectileHeight = 1.2f;
+
+    // 足元の予告枠。床との重なりを避ける高さと、敵の向きを示す短い棒を定義します。
+    public const float WarningMarkerHeight = 0.04f;
+    public const float WarningMarkerWidth = 1.2f;
+    public const float WarningMarkerDepth = 0.8f;
+    public const float WarningMarkerThickness = 0.05f;
+    public const float WarningDirectionOffset = 0.85f;
+    public const float WarningDirectionLength = 0.4f;
     // 防御・反撃の演出設定。時間は実時間で進め、ヒットストップ中も消えるようにします。
     public const float GuardImpactSeconds = 0.22f;
     public const float CounterImpactSeconds = 0.3f;

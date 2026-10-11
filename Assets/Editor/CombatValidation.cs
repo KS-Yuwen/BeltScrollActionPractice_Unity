@@ -749,6 +749,72 @@ public static class CombatValidation
             HitImpact effectToAdvance = counterEffects[counterEffects.Length - 1];
             effectToAdvance.Advance(BrawlerBalance.CounterImpactSeconds);
             Require(effectToAdvance.transform.localScale == Vector3.zero, "ヒットストップ中も実時間で専用演出が終了");
+            // 予告開始・進行・攻撃開始・中断・死亡に表示が追従することを確認します。
+            Fighter warningEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test warning", Vector3.right * 10, false, false, false, false });
+            EnemyAttackWarning warning = warningEnemy.GetComponentInChildren<EnemyAttackWarning>();
+            Require(warning != null && !warning.IsVisible, "敵の生成時に予告マーカーを一度だけ作り、通常時は非表示");
+            MethodInfo beginWarning = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+            beginWarning.Invoke(warningEnemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            warning.Refresh();
+            Require(warning.IsVisible && warning.CurrentColor == Color.yellow && warningEnemy.AttackWindupProgress == 0,
+                "予告開始時は黄色で表示");
+            SetPrivateField(warningEnemy, "_windupRemaining", BrawlerBalance.MeleeWindupSeconds / 2);
+            warning.Refresh();
+            Require(Mathf.Abs(warningEnemy.AttackWindupProgress - 0.5f) < 0.01f
+                && warning.CurrentColor.g < 1 && warning.CurrentColor.r == 1, "半分進むと橙色へ変化");
+            foreach (float warningFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(warningEnemy, warningFacing);
+                warning.Refresh();
+                Require(Mathf.Sign(warning.transform.Find("Attack direction").localPosition.x) == warningFacing,
+                    "左右の攻撃方向を足元の棒で表示");
+            }
+            SetPrivateField(warningEnemy, "_windupRemaining", BrawlerBalance.MeleeWindupSeconds * 0.01f);
+            warning.Refresh();
+            Require(warning.CurrentColor.g < 0.02f, "発動直前は赤に近づく");
+            typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(warningEnemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            warning.Refresh();
+            Require(!warning.IsVisible, "攻撃開始で予告を消す");
+            beginWarning.Invoke(warningEnemy, new object[] { BrawlerBalance.HeavyWindupSeconds });
+            SetPrivateField(warningEnemy, "_windupRemaining", BrawlerBalance.HeavyWindupSeconds / 2);
+            Require(Mathf.Abs(warningEnemy.AttackWindupProgress - 0.5f) < 0.01f, "異なる予告時間も正しく正規化");
+            warningEnemy.TakeDamage(1, 1);
+            warning.Refresh();
+            Require(!warning.IsVisible, "被ダメージによる中断でマーカーを消す");
+            SetPrivateField(warningEnemy, "_stunRemaining", 0f);
+            beginWarning.Invoke(warningEnemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            warningEnemy.TakeDamage(1000, 1);
+            warning.Refresh();
+            Require(!warning.IsVisible && Array.TrueForAll(warning.GetComponentsInChildren<Renderer>(), r => !r.enabled),
+                "死亡後は全マーカーレンダラーを非表示");
+            Require(warningEnemy.GetComponentsInChildren<EnemyAttackWarning>().Length == 1, "予告を繰り返してもマーカーは増えない");
+            Fighter rangedWarningEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test ranged warning", Vector3.zero, false, true, false, false });
+            Fighter meleeWarningEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test melee warning", Vector3.zero, false, false, true, false });
+            foreach (Fighter rangeOwner in new Fighter[] { meleeWarningEnemy, rangedWarningEnemy })
+            {
+                EnemyAttackWarning rangeWarning = rangeOwner.GetComponentInChildren<EnemyAttackWarning>();
+                beginWarning.Invoke(rangeOwner, new object[] { BrawlerBalance.MeleeWindupSeconds });
+                foreach (float rangeFacing in new float[] { -1, 1 })
+                {
+                    typeof(Fighter).GetProperty("Facing").SetValue(rangeOwner, rangeFacing);
+                    rangeWarning.Refresh();
+                    Transform frontRangeEdge = rangeWarning.transform.Find("Front edge");
+                    Require(Mathf.Abs(frontRangeEdge.localScale.x - (rangeOwner.WarningRangeEnd - rangeOwner.WarningRangeStart)) < 0.01f
+                        && Mathf.Abs(frontRangeEdge.localPosition.z - rangeOwner.WarningLaneHalfWidth) < 0.01f,
+                        "種類ごとの予告長さと奥行き幅を表示");
+                    Require(Mathf.Abs(rangeWarning.transform.Find("Right edge").localPosition.x - rangeFacing * rangeOwner.WarningRangeEnd) < 0.01f
+                        && Mathf.Abs(rangeWarning.transform.Find("Left edge").localPosition.x - rangeFacing * rangeOwner.WarningRangeStart) < 0.01f,
+                        "左右の向きに応じて範囲の始点と終点を反転");
+                }
+            }
+            Require(meleeWarningEnemy.WarningRangeStart == -BrawlerBalance.AttackBehindAllowance
+                && meleeWarningEnemy.WarningRangeEnd == BrawlerBalance.EnemyAttackReach, "近接表示は実際のリーチと背後の余裕を共用");
+            Require(rangedWarningEnemy.WarningRangeStart == BrawlerBalance.EnemyProjectileLaunchOffset
+                && rangedWarningEnemy.WarningRangeEnd == BrawlerBalance.EnemyProjectileLaunchOffset
+                    + BrawlerBalance.EnemyProjectileSpeed * BrawlerBalance.EnemyProjectileLifetimeSeconds
+                && rangedWarningEnemy.WarningLaneHalfWidth == BrawlerBalance.EnemyProjectileHitRadius,
+                "射線表示は実際の弾の発射位置・飛距離・衝突幅を共用");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

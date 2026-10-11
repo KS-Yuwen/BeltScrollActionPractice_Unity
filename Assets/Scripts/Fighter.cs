@@ -5,6 +5,11 @@ public class Fighter : Combatant
 {
     // 敵の属性は派生クラスが宣言します。見た目やクラス名で魔法の対象を判定しません。
     public virtual bool IsUndead => false;
+
+    // 近接予告の範囲。遠距離型は弾の射線へ上書きし、表示側に敵の型判定を持たせません。
+    public virtual float WarningRangeStart => -BrawlerBalance.AttackBehindAllowance;
+    public virtual float WarningRangeEnd => BrawlerBalance.EnemyAttackReach;
+    public virtual float WarningLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
     private BeltBrawler _game;
     private Transform _visual;
     private Transform _attackArm;
@@ -30,6 +35,7 @@ public class Fighter : Combatant
     private float _dashRemaining;
     private float _dashCooldown;
     private float _windupRemaining;
+    private float _windupDuration;
     private float _flashRemaining;
     private Vector3 _dashDirection;
     private float _attackBufferRemaining;
@@ -226,6 +232,10 @@ public class Fighter : Combatant
     public bool DashReady => _dashCooldown <= 0;
 
     public bool IsWindingUp => _windupRemaining > 0;
+
+    // 敵ごとの予告秒数が異なっても、表示側には0～1の進み具合として渡します。
+    public float AttackWindupProgress => IsWindingUp
+        ? 1 - Mathf.Clamp01(_windupRemaining / Mathf.Max(_windupDuration, Mathf.Epsilon)) : 0;
 
     // 生成直後に管理役から一度だけ呼び、戦闘に必要な状態とパーツをまとめて渡します。
     // Start より前に初期化を完了するため、Start で安全に Renderer を取得できます。
@@ -559,6 +569,7 @@ public class Fighter : Combatant
 
     protected void BeginAttackWindup(float duration)
     {
+        _windupDuration = duration;
         _windupRemaining = duration;
     }
 
