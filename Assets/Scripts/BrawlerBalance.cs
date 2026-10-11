@@ -1,0 +1,203 @@
+// 戦闘・操作の調整値を集約します。単位は名前とコメントで示します。
+// スライディングはCSVから検証済み設定を読み込み、他の戦闘設定は名前付き定数を使います。
+// 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
+public static class BrawlerBalance
+{
+    // 方向コマンド：下→斜めに0.9秒、斜め→ジャンプに0.6秒の余裕を持たせます。
+    public const float DefaultCommandDirectionThreshold = 0.35f;
+    public const float DefaultSlideDirectionWindowSeconds = 0.9f;
+    public const float DefaultSlideButtonWindowSeconds = 0.6f;
+    private static SlideBalanceSettings s_slideSettings = SlideBalanceSettings.CreateDefault();
+    public static float CommandDirectionThreshold => s_slideSettings.DirectionThreshold;
+    public static float SlideDirectionWindowSeconds => s_slideSettings.DirectionWindowSeconds;
+    public static float SlideButtonWindowSeconds => s_slideSettings.ButtonWindowSeconds;
+    public static float SlideSpeed => s_slideSettings.Speed;
+    public static float SlideMinSeconds => s_slideSettings.MinSeconds;
+    public static float SlideMaxSeconds => s_slideSettings.MaxSeconds;
+    public static float SlideCooldownSeconds => s_slideSettings.CooldownSeconds;
+    public static int SlideDamage => s_slideSettings.Damage;
+    public const int DefaultDashSpecialDamage = 40;
+    public const float DefaultDashSpecialSpeed = 10;
+    public const float DefaultDashSpecialMovementSeconds = 0.25f;
+    public const float DefaultDashSpecialAttackSeconds = 0.4f;
+    public const float DefaultDashSpecialCooldownSeconds = 0.75f;
+    public const float DefaultDashSpecialHitDelaySeconds = 0.1f;
+    public static int DashSpecialDamage => s_slideSettings.DashSpecialDamage;
+    public static float DashSpecialSpeed => s_slideSettings.DashSpecialSpeed;
+    public static float DashSpecialMovementSeconds => s_slideSettings.DashSpecialMovementSeconds;
+    public static float DashSpecialAttackSeconds => s_slideSettings.DashSpecialAttackSeconds;
+    public static float DashSpecialCooldownSeconds => s_slideSettings.DashSpecialCooldownSeconds;
+    public static float DashSpecialHitDelaySeconds => s_slideSettings.DashSpecialHitDelaySeconds;
+    public const int DefaultUppercutDamage = 36;
+    public const float DefaultUppercutDirectionWindowSeconds = 0.9f;
+    public const float DefaultUppercutButtonWindowSeconds = 0.6f;
+    public const float DefaultUppercutAttackSeconds = 0.45f;
+    public const float DefaultUppercutCooldownSeconds = 0.7f;
+    public const float DefaultUppercutHitDelaySeconds = 0.1f;
+    public const float DefaultUppercutReach = 1.8f;
+    public static int UppercutDamage => s_slideSettings.UppercutDamage;
+    public static float UppercutDirectionWindowSeconds => s_slideSettings.UppercutDirectionWindowSeconds;
+    public static float UppercutButtonWindowSeconds => s_slideSettings.UppercutButtonWindowSeconds;
+    public static float UppercutAttackSeconds => s_slideSettings.UppercutAttackSeconds;
+    public static float UppercutCooldownSeconds => s_slideSettings.UppercutCooldownSeconds;
+    public static float UppercutHitDelaySeconds => s_slideSettings.UppercutHitDelaySeconds;
+    public static float UppercutReach => s_slideSettings.UppercutReach;
+
+    // 大斬り・突き飛ばしの既定値とCSVから読み込んだ値。
+    public const int DefaultHeavyStrikeDamage = 34;
+    public static int HeavyStrikeDamage => s_slideSettings.HeavyStrikeDamage;
+    public const float DefaultHeavyStrikeAttackSeconds = 0.5f;
+    public static float HeavyStrikeAttackSeconds => s_slideSettings.HeavyStrikeAttackSeconds;
+    public const float DefaultHeavyStrikeCooldownSeconds = 0.7f;
+    public static float HeavyStrikeCooldownSeconds => s_slideSettings.HeavyStrikeCooldownSeconds;
+    public const float DefaultHeavyStrikeHitDelaySeconds = 0.18f;
+    public static float HeavyStrikeHitDelaySeconds => s_slideSettings.HeavyStrikeHitDelaySeconds;
+    public const float DefaultHeavyStrikeReach = 2.8f;
+    public static float HeavyStrikeReach => s_slideSettings.HeavyStrikeReach;
+    public const int DefaultPushDamage = 10;
+    public static int PushDamage => s_slideSettings.PushDamage;
+    public const float DefaultPushHoldSeconds = 0.35f;
+    public static float PushHoldSeconds => s_slideSettings.PushHoldSeconds;
+    public const float DefaultPushAttackSeconds = 0.3f;
+    public static float PushAttackSeconds => s_slideSettings.PushAttackSeconds;
+    public const float DefaultPushCooldownSeconds = 0.5f;
+    public static float PushCooldownSeconds => s_slideSettings.PushCooldownSeconds;
+    public const float DefaultPushHitDelaySeconds = 0.1f;
+    public static float PushHitDelaySeconds => s_slideSettings.PushHitDelaySeconds;
+    public const float DefaultPushReach = 1.8f;
+    public static float PushReach => s_slideSettings.PushReach;
+    public const float DefaultPushKnockbackSpeed = 12;
+    public static float PushKnockbackSpeed => s_slideSettings.PushKnockbackSpeed;
+
+    [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void LoadSlideSettings()
+    {
+        // Play開始時に必ずリセットし、ドメインリロード無効時も前回の値を残しません。
+        s_slideSettings = SlideBalanceSettings.CreateDefault();
+        UnityEngine.TextAsset asset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("Balance/slide_balance");
+        if (asset == null)
+        {
+            UnityEngine.Debug.LogWarning("スライディングCSVがないため既定値を使用します。");
+            return;
+        }
+        if (SlideBalanceSettings.TryParse(asset.text, out SlideBalanceSettings settings, out string error))
+        {
+            s_slideSettings = settings;
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning("スライディングCSVを適用できず既定値を使用します：" + error);
+        }
+    }
+    public const float JumpDirectionThreshold = 0.5f;
+    public const float ForwardInputThreshold = 0.6f;
+    public const float DoubleTapWindowSeconds = 0.25f;
+    public const float FacingInputThreshold = 0.01f;
+    // パッドの奥行き操作に混じる微小な左右入力で、意図せず反転するのを抑えます。
+    public const float PlayerFacingInputThreshold = 0.2f;
+
+    // 移動速度（Unity単位/秒）・行動時間（秒）。
+    public const float WalkSpeed = 5;
+    public const float RunSpeed = 8;
+    public const float DefaultSlideSpeed = 8;
+    public const float DefaultSlideMinSeconds = 0.12f;
+    public const float DefaultSlideMaxSeconds = 0.4f;
+    public const float DefaultSlideCooldownSeconds = 0.55f;
+    public const int DefaultSlideDamage = 12;
+    public const int BodyCheckDamage = 8;
+    public const float DashSpeed = 13;
+    public const float DashSeconds = 0.2f;
+    public const float DashCooldownSeconds = 0.85f;
+    public const float BackstepSeconds = 0.14f;
+    public const float BackstepCooldownSeconds = 0.6f;
+    public const float JumpVelocity = 7;
+    public const float HighJumpVelocity = 9;
+    public const float JumpDriftSpeed = 4;
+    public const float JumpGravity = 22;
+    public const float DownThrustVelocity = -6;
+    public const float GroundAttackAvoidanceHeight = 0.6f;
+
+    // 攻撃ダメージと、演出・入力受付・再使用までの秒数。
+    public const int NormalDamage = 18;
+    public const int FinisherDamage = 30;
+    public const int CounterDamage = 36;
+    public const int DashAttackDamage = 32;
+    public const int AirAttackDamage = 20;
+    public const int DownThrustDamage = 32;
+    public const int CrouchAttackDamage = 12;
+    public const int GroundAttackDamage = 24;
+    public const int ComboSteps = 3;
+    public const float AttackBufferSeconds = 0.2f;
+    public const float ComboWindowSeconds = 0.85f;
+    public const float AttackSeconds = 0.3f;
+    public const float NormalCooldownSeconds = 0.32f;
+    public const float FinisherCooldownSeconds = 0.55f;
+    public const float DashAttackSpeed = 8;
+    public const float DashAttackMovementSeconds = 0.18f;
+    public const float DashAttackCooldownSeconds = 0.6f;
+    public const float CounterCooldownSeconds = 0.5f;
+    public const float AirAttackCooldownSeconds = 0.35f;
+    public const float CrouchAttackSeconds = 0.25f;
+    public const float CrouchAttackCooldownSeconds = 0.3f;
+    public const float GroundAttackSeconds = 0.35f;
+    public const float GroundAttackCooldownSeconds = 0.55f;
+    public const float NormalHitRemainingSeconds = 0.16f;
+    public const float FastHitRemainingSeconds = 0.24f;
+    public const float GroundHitRemainingSeconds = 0.23f;
+
+    // 敵の標準能力と、被ダメージ・防御後の反応。
+    public const float MeleeSpeed = 2.2f;
+    public const float MeleeWindupSeconds = 0.55f;
+    public const float MeleeAttackIntervalSeconds = 1.2f;
+    public const int MeleeDamage = 10;
+    public const float MeleeStopDistance = 1.1f;
+    public const float MeleeLaneTolerance = 0.5f;
+    public const float StunSeconds = 0.25f;
+    public const float EnemyHitCooldownSeconds = 0.6f;
+    public const float DownSeconds = 0.7f;
+    public const int KnockdownDamageThreshold = 30;
+    public const float KnockbackSpeed = 5;
+    public const float StrongKnockbackSpeed = 9;
+    public const float KnockbackDecay = 12;
+    public const float BlockKnockbackSpeed = 1.5f;
+    public const float BlockFlashSeconds = 0.15f;
+    public const float CounterWindowSeconds = 0.45f;
+    public const float DamageFlashSeconds = 0.12f;
+    public const float EnemyRemovalSeconds = 0.5f;
+    public const float StageHalfWidth = 22;
+    public const float StageHalfDepth = 3;
+    public const float HeavySpeed = 1.3f;
+    public const float HeavyWindupSeconds = 0.95f;
+    public const float HeavyAttackIntervalSeconds = 1.8f;
+    public const int HeavyDamage = 24;
+    public const int HealingAmount = 30;
+    // ターニングアンデッドの試作用設定。HPや魔法回数は消費せず、再使用時間で連打を制限します。
+    public const int TurnUndeadDamage = 40;
+    public const float TurnUndeadRadius = 4f;
+    public const float TurnUndeadRecoverySeconds = 0.6f;
+    public const float TurnUndeadCooldownSeconds = 4f;
+    public const int UndeadSpawnIndex = 1;
+    public const int HealingUses = 3;
+    public const int ProtectionUses = 2;
+    public const float SpellRecoverySeconds = 0.6f;
+    public const float ProtectionSeconds = 8;
+    public const float ProtectionDamageMultiplier = 0.5f;
+    public const int PotionHealingAmount = 20;
+    // 有限の所持品。射程は時間ではなく飛んだ距離で制限します。
+    public const int KnifeCapacity = 9;
+    public const int KnifeDamage = 24;
+    public const int KnifeDropInterval = 2;
+    public const float KnifeSpeed = 12f;
+    public const float KnifeRange = 9f;
+    public const float KnifeRecoverySeconds = 0.35f;
+    public const float KnifePickupRadius = 0.7f;
+    public const float KnifePickupLifetimeSeconds = 20f;
+    public const float KnifeHitRadius = 0.45f;
+    public const float KnifeLaunchOffset = 0.7f;
+    public const float KnifeHeight = 1.2f;
+    // 所持上限と使用後の隙は、将来の外部データ調整でも同じ窓口を使います。
+    public const int PotionCapacity = 9;
+    public const float PotionRecoverySeconds = 0.6f;
+    public const float PotionPickupRadius = 0.7f;
+    public const float PotionLifetimeSeconds = 20;
+}

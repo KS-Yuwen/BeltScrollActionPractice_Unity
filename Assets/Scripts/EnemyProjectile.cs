@@ -23,7 +23,7 @@ public sealed class EnemyProjectile : MonoBehaviour
         }
         Vector3 previousPosition = transform.position;
         transform.position += Vector3.right * _direction * 8 * Time.deltaTime;
-        Vector3 targetPosition = _target.transform.position + Vector3.up * 1.2f;
+        Vector3 targetPosition = _target.transform.position + Vector3.up * (1.2f + _target.JumpHeight);
         if (TouchesTarget(previousPosition, transform.position, targetPosition))
         {
             // ダメージの可否は Fighter が判断するため、ガードと回避の共通ルールを使えます。

@@ -67,7 +67,33 @@ public static class BrawlerInput
         Keyboard keyboard = Keyboard.current;
         Gamepad pad = Gamepad.current;
         return (keyboard != null && keyboard.leftShiftKey.wasPressedThisFrame)
-            || (pad != null && (pad.buttonSouth.wasPressedThisFrame || pad.rightShoulder.wasPressedThisFrame));
+            || (pad != null && pad.rightShoulder.wasPressedThisFrame);
+    }
+
+    public static bool IsAttackHeld()
+    {
+        return (Keyboard.current != null && (Keyboard.current.jKey.isPressed || Keyboard.current.spaceKey.isPressed))
+            || (Gamepad.current != null && Gamepad.current.buttonWest.isPressed);
+    }
+
+    // 資料の B（ジャンプ）はパッド下側、キーボードでは U に対応させます。
+    public static bool WasJumpPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.uKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
+    }
+
+    public static bool IsJumpHeld()
+    {
+        return (Keyboard.current != null && Keyboard.current.uKey.isPressed)
+            || (Gamepad.current != null && Gamepad.current.buttonSouth.isPressed);
+    }
+
+    // 二つのボタンを全く同じフレームに押す必要はなく、片方を保持してもう片方を押しても成立します。
+    // 両方を保持し続けるだけでは再発動しません。
+    public static bool WasTurnUndeadPressed()
+    {
+        return (WasAttackPressed() && IsJumpHeld()) || (WasJumpPressed() && IsAttackHeld());
     }
 
     public static bool WasRestartPressed()
@@ -83,6 +109,19 @@ public static class BrawlerInput
     {
         return (Keyboard.current != null && Keyboard.current.lKey.wasPressedThisFrame)
             || (Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame);
+    }
+
+    // 選択と使用は別操作です。どちらも押した瞬間だけ受け付けます。
+    public static bool WasActionSelectPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.qKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.selectButton.wasPressedThisFrame);
+    }
+
+    public static bool WasActionUsePressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.rightTrigger.wasPressedThisFrame);
     }
 
     // 回復と独立したボタンにし、場面に応じて補助魔法を使い分けられるようにします。

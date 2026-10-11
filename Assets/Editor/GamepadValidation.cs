@@ -84,8 +84,8 @@ public static class GamepadValidation
             SendState(pad, new GamepadState());
             UpdatePlayer(player);
             Require(player.ComboStep == 2, "先行入力した攻撃が次の段へつながる");
-            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
-            Require(BrawlerInput.WasDashPressed(), "下側のフェイスボタンで回避");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
+            Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンで回避");
             UpdatePlayer(player);
             Require(ReadPlayerTimer(player, "_dashRemaining") > 0, "パッドの回避入力が戦闘処理へ到達");
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
@@ -100,6 +100,9 @@ public static class GamepadValidation
             SetPlayerTimer(player, "_stunRemaining", 0);
             SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            Require(BrawlerInput.WasJumpPressed() && !BrawlerInput.WasDashPressed(), "パッド下側はジャンプ専用");
+            Require(BrawlerInput.IsJumpHeld(), "パッドのジャンプ保持を認識");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
             Require(BrawlerInput.WasRestartPressed(), "Start でリスタート");
             SendState(pad, new GamepadState().WithButton(GamepadButton.North));
@@ -111,7 +114,44 @@ public static class GamepadValidation
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             Require(!BrawlerInput.WasProtectionPressed(), "補助魔法の長押しでは再入力しない");
 
+            // 選択は回数を消費せず、押し続けても切り替わり続けません。
+            var spellCaster = (ClericFighter)player;
+            int healingBeforeSelection = spellCaster.HealingUsesRemaining;
+            int protectionBeforeSelection = spellCaster.ProtectionUsesRemaining;
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select));
+            Require(BrawlerInput.WasActionSelectPressed(), "View・Shareで魔法選択入力");
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.Protection, "パッド入力で補助魔法へ切り替え");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select));
+            UpdatePlayer(player);
+            Require(!BrawlerInput.WasActionSelectPressed() && spellCaster.SelectedAction == BrawlerDefines.UsableAction.Protection,
+                "選択長押しでは連続切り替えしない");
+            SendState(pad, new GamepadState { rightTrigger = 1 });
+            Require(BrawlerInput.WasActionUsePressed(), "RT・R2で選択魔法の使用入力");
+            SendState(pad, new GamepadState { rightTrigger = 1 });
+            Require(!BrawlerInput.WasActionUsePressed(), "使用長押しでは再発動しない");
             SendState(pad, new GamepadState());
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.HealingPotion, "Qでポーションへ切り替え");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "Qでナイフへ切り替え");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.Healing, "Qで回復へ循環して戻る");
+            Require(spellCaster.HealingUsesRemaining == healingBeforeSelection
+                && spellCaster.ProtectionUsesRemaining == protectionBeforeSelection, "選択だけでは使用回数を消費しない");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            Require(BrawlerInput.WasActionUsePressed(), "Eで選択魔法の使用入力");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D, Key.J, Key.LeftShift, Key.R));
             InputSystem.Update();
             Require(Mathf.Approximately(BrawlerInput.ReadMovement().magnitude, 1), "キーボードの斜め移動は速度を制限");
@@ -128,6 +168,245 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.I));
             InputSystem.Update();
             Require(BrawlerInput.WasProtectionPressed(), "I キーで補助魔法入力");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            Require(BrawlerInput.WasJumpPressed(), "Uキーでジャンプ入力");
+            // 通常の Update まで通して、組み合わせ入力と2回押しの分岐を確認します。
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            SetPlayerTimer(player, "_dashRemaining", 0);
+            SetPlayerTimer(player, "_dashCooldown", 0);
+            SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U));
+            InputSystem.Update();
+            // 先の被ダメージ検証による押し戻しを取り除き、しゃがみ入力による移動だけを調べます。
+            typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(player, Vector3.zero);
+            Vector3 beforeCrouch = player.transform.position;
+            UpdatePlayer(player);
+            Require(player.IsCrouching && !player.IsAirborne && player.transform.position == beforeCrouch,
+                "下＋ジャンプは移動やジャンプではなくしゃがみ");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U, Key.J));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsCrouchAttacking, "しゃがみ中の攻撃入力で専用攻撃");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(!player.IsCrouching, "保持を離すとしゃがみ解除");
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            UpdatePlayer(player);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsAirborne, "1回目のジャンプは通常ジャンプ");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            float beforeBackstepFacing = player.Facing;
+            UpdatePlayer(player);
+            Require(player.IsBackstepping && !player.IsAirborne && player.Facing == beforeBackstepFacing,
+                "素早い2回押しは向きを変えずバックステップ");
+            SetPlayerTimer(player, "_dashRemaining", 0);
+            SetPlayerTimer(player, "_dashCooldown", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.D, Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsSliding && !player.IsCrouching && !player.IsAirborne,
+                "実際の下→斜め前下＋ジャンプはしゃがみではなくスライディング");
+            Vector3 slideStart = player.transform.position;
+            typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { Vector3.zero, 1f });
+            Require(!player.IsSliding && player.transform.position.x - slideStart.x > 3,
+                "ジャンプ保持では長いスライディング");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            foreach (float expectedFacing in new float[] { -1, 1 })
+            {
+                SetPlayerTimer(player, "_attackRemaining", 0.1f);
+                SetPlayerTimer(player, "_attackCooldown", 0.1f);
+                Key directionKey = expectedFacing < 0 ? Key.A : Key.D;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(directionKey, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                // 先行入力後に方向を離し、攻撃開始時のフレームには方向入力がない状況を再現します。
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+                Transform model = (Transform)typeof(Fighter).GetField("_visual", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+                Require(player.Facing == expectedFacing && Mathf.Sign(model.localScale.x) == expectedFacing,
+                    "左右どちらも先行入力した攻撃方向と見た目が一致");
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                // しゃがみ攻撃でも、方向＋攻撃の同時入力を開始方向に反映します。
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U, directionKey, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsCrouchAttacking && player.Facing == expectedFacing, "しゃがみ攻撃の方向入力を反映");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            foreach (float specialFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, specialFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, specialFacing < 0 ? Key.A : Key.D, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsDashSpecialAttacking && !player.IsSliding && player.Facing == specialFacing,
+                    "左右の下→斜め前下＋攻撃はダッシュ必殺技へ分岐");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+                UpdatePlayer(player);
+            }
+            foreach (float uppercutFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, uppercutFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsUppercutAttacking && player.Facing == uppercutFacing,
+                    "左右の下→上＋攻撃で対空技を発動");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
+            foreach (float strikeFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, strikeFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(strikeFacing < 0 ? Key.A : Key.D, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsHeavyStriking && player.Facing == strikeFacing, "左右の前＋攻撃で大斬り");
+                Require(BrawlerInput.IsAttackHeld(), "攻撃長押しの入力を認識");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
+            // 資料の後ろ＋攻撃ガードを左右で確認し、前入力だけでは反撃しないことも検証します。
+            foreach (float guardFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, guardFacing);
+                SetPlayerTimer(player, "_counterWindowRemaining", 0);
+                Key backward = guardFacing < 0 ? Key.D : Key.A;
+                Key forward = guardFacing < 0 ? Key.A : Key.D;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(backward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsGuarding && player.Facing == guardFacing && ReadPlayerTimer(player, "_attackRemaining") <= 0,
+                    "後ろ＋攻撃で向きを固定してガードし、通常攻撃を出さない");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(forward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsGuarding && !player.IsCounterAttacking && !player.IsHeavyStriking,
+                    "攻撃を保持して前に入れ直しても、防御成功までは攻撃しない");
+                int commandGuardHealth = player.Health;
+                player.TakeDamage(10, -guardFacing);
+                Require(player.Health == commandGuardHealth && player.IsCounterAttacking && !player.CanCounter,
+                    "正面ガード成功で自動反撃し、反撃受付を一度消費");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+                Require(!player.IsGuarding, "攻撃ボタンを離すとコマンドガード解除");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(backward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                player.TakeDamage(1, guardFacing);
+                Require(player.Health == commandGuardHealth - 1 && !player.IsCounterAttacking && !player.IsGuarding,
+                    "背後からの攻撃は防げず、自動反撃もしない");
+                player.RestoreHealth(1);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_stunRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(player, Vector3.zero);
+                UpdatePlayer(player);
+            }
+            // 共通使用キーを実際の戦闘更新まで通し、直接発動と同じ回数管理を確認します。
+            player.TakeDamage(10, player.Facing);
+            SetPlayerTimer(player, "_stunRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.Health == player.MaxHealth && spellCaster.HealingUsesRemaining == healingBeforeSelection - 1,
+                "E入力で選択した回復を実際に発動し、一度だけ消費");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.HealingUsesRemaining == healingBeforeSelection - 1, "共通使用キーの保持で連続消費しない");
+            // 後続の戦闘検証には開始時の使用回数と硬直を引き継ぎます。
+            typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(spellCaster, healingBeforeSelection);
+            typeof(ClericFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, Vector3.zero);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            // 入力検証の範囲魔法で、後続の戦闘検証用の敵にダメージを残さないようにします。
+            Fighter[] turnInputEnemies = UnityEngine.Object.FindObjectsByType<Fighter>();
+            var turnInputPositions = new System.Collections.Generic.Dictionary<Fighter, Vector3>();
+            foreach (Fighter turnInputEnemy in turnInputEnemies)
+            {
+                if (!turnInputEnemy.IsPlayer)
+                {
+                    turnInputPositions.Add(turnInputEnemy, turnInputEnemy.transform.position);
+                    turnInputEnemy.transform.position = player.transform.position + Vector3.right * (BrawlerBalance.TurnUndeadRadius + 2);
+                }
+            }
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.IsTurningUndead && !player.IsAirborne,
+                "攻撃＋ジャンプ同時押しは通常攻撃・ジャンプより優先して発動");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
+            InputSystem.Update();
+            Require(!BrawlerInput.WasTurnUndeadPressed(), "両ボタン保持では発動を繰り返さない");
+            foreach (var turnInputPosition in turnInputPositions)
+            {
+                turnInputPosition.Key.transform.position = turnInputPosition.Value;
+            }
+            typeof(ClericFighter).GetField("_turnUndeadRecoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            typeof(ClericFighter).GetField("_turnUndeadCooldownRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
