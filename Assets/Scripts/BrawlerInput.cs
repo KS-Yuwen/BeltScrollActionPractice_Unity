@@ -70,6 +70,12 @@ public static class BrawlerInput
             || (pad != null && pad.rightShoulder.wasPressedThisFrame);
     }
 
+    public static bool IsAttackHeld()
+    {
+        return (Keyboard.current != null && (Keyboard.current.jKey.isPressed || Keyboard.current.spaceKey.isPressed))
+            || (Gamepad.current != null && Gamepad.current.buttonWest.isPressed);
+    }
+
     // 資料の B（ジャンプ）はパッド下側、キーボードでは U に対応させます。
     public static bool WasJumpPressed()
     {

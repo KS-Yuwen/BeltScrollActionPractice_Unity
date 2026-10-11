@@ -26,3 +26,17 @@ UppercutAttackSeconds,0.45
 UppercutCooldownSeconds,0.7
 UppercutHitDelaySeconds,0.1
 UppercutReach,1.8
+
+# 大斬り・長押しの突き飛ばし
+HeavyStrikeDamage,34
+HeavyStrikeAttackSeconds,0.5
+HeavyStrikeCooldownSeconds,0.7
+HeavyStrikeHitDelaySeconds,0.18
+HeavyStrikeReach,2.8
+PushDamage,10
+PushHoldSeconds,0.35
+PushAttackSeconds,0.3
+PushCooldownSeconds,0.5
+PushHitDelaySeconds,0.1
+PushReach,1.8
+PushKnockbackSpeed,12

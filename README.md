@@ -54,6 +54,10 @@ CSVの `DashSpecialDamage` / `DashSpecialSpeed` / `DashSpecialMovementSeconds` /
 下→上＋攻撃で対空必殺技を出します（S→W＋J、またはパッド下→上＋X・□）。向きを維持して鈍器を振り上げ、36ダメージ・リーチ1.8の単発攻撃を出します。
 既定は方向受付0.9秒・ボタン受付0.6秒・攻撃0.45秒・再使用待ち0.7秒です。無敵はなく、被ダメージで中断します。地上の敵にも命中します。
 同じCSVの `UppercutDirectionWindowSeconds` / `UppercutButtonWindowSeconds` / `UppercutDamage` / `UppercutAttackSeconds` / `UppercutCooldownSeconds` / `UppercutHitDelaySeconds` / `UppercutReach` で調整できます。
+地上で向いている方向＋攻撃を押すと大斬りになります。既定は34ダメージ・リーチ2.8・攻撃0.5秒・再使用待ち0.7秒です。方向コマンド技・走行中の攻撃・追撃を優先します。
+通常攻撃または大斬りから攻撃ボタンを保持すると、長押し0.35秒以上かつ攻撃の後隙終了後に突き飛ばしを出します（10ダメージ・押し戻し速度12）。通常の最初の一撃も出ます。
+1回の長押しで突き飛ばしは1回だけです。空中・しゃがみ・ガード・回避・魔法や被ダメージでは長押しを解除し、無敵は付けません。
+同じCSVの `HeavyStrike` / `Push` で始まる設定で威力・時間・リーチを調整できます。`PushHoldSeconds` が長押し受付、`PushKnockbackSpeed` が押し戻し速度です。
 ジャンプ中の攻撃は20ダメージ、下＋攻撃は32ダメージの下突きです。空中でも左右・奥行きに移動できます。
 高さ0.6を超えると地上攻撃を避けられます。離陸直後・着地間際は攻撃を受け、空中ではガード・回復・プロテクションを使えません。
 資料の操作との対応・今後の実装順は `CONTROLS_ROADMAP.md` を参照してください。

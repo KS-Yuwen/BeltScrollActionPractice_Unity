@@ -543,6 +543,41 @@ public static class CombatValidation
             Require(!SlideBalanceSettings.TryParse("key,value\nUppercutHitDelaySeconds,1", out _, out _), "対空技の不正な命中時刻を拒否");
             updateStop.Invoke(game, new object[] { 1f });
 
+            player.transform.position = Vector3.zero;
+            heavy.transform.position = Vector3.right;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+            player.RestoreHealth(100);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            typeof(Fighter).GetMethod("StartHeavyStrike", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            int strikeHealth = heavy.Health;
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.19f });
+            Require(heavy.Health == strikeHealth - 34 && heavy.IsDowned, "大斬りは34ダメージで転倒");
+            MethodInfo holdAttack = typeof(Fighter).GetMethod("UpdateAttackHold", BindingFlags.Instance | BindingFlags.NonPublic);
+            Require(!(bool)holdAttack.Invoke(player, new object[] { 0.5f, true }), "長押しでも攻撃中は突き飛ばしを待つ");
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(player, "_attackHoldFacing", 1f);
+            Require((bool)holdAttack.Invoke(player, new object[] { 0.01f, true }) && player.IsPushAttacking,
+                "長押しが後隙終了時に突き飛ばしへ変化");
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            int pushHealth = heavy.Health;
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
+            Require(heavy.Health == pushHealth - 10 && ((Vector3)GetPrivateField(heavy, "_knockbackVelocity")).x == 12,
+                "突き飛ばしは10ダメージと強い押し戻し");
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(!(bool)holdAttack.Invoke(player, new object[] { 1f, true }), "長押し継続だけで二度目を出さない");
+            Require(SlideBalanceSettings.TryParse("key,value\nHeavyStrikeDamage,45\nPushHoldSeconds,0.6\nPushKnockbackSpeed,15",
+                out SlideBalanceSettings strikeSettings, out _) && strikeSettings.HeavyStrikeDamage == 45
+                && strikeSettings.PushHoldSeconds == 0.6f && strikeSettings.PushKnockbackSpeed == 15, "大斬りと突き飛ばしのCSV調整");
+            Require(!SlideBalanceSettings.TryParse("key,value\nPushHitDelaySeconds,1", out _, out _), "突き飛ばしの不正な命中時刻を拒否");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

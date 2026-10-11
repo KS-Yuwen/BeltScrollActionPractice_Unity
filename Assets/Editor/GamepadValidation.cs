@@ -264,6 +264,22 @@ public static class GamepadValidation
                 SetPlayerTimer(player, "_attackCooldown", 0);
                 UpdatePlayer(player);
             }
+            foreach (float strikeFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, strikeFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(strikeFacing < 0 ? Key.A : Key.D, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsHeavyStriking && player.Facing == strikeFacing, "左右の前＋攻撃で大斬り");
+                Require(BrawlerInput.IsAttackHeld(), "攻撃長押しの入力を認識");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

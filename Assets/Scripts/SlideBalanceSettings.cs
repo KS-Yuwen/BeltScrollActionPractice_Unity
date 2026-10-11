@@ -28,6 +28,19 @@ public sealed class SlideBalanceSettings
     public float UppercutHitDelaySeconds { get; }
     public float UppercutReach { get; }
 
+    public int HeavyStrikeDamage { get; }
+    public float HeavyStrikeAttackSeconds { get; }
+    public float HeavyStrikeCooldownSeconds { get; }
+    public float HeavyStrikeHitDelaySeconds { get; }
+    public float HeavyStrikeReach { get; }
+    public int PushDamage { get; }
+    public float PushHoldSeconds { get; }
+    public float PushAttackSeconds { get; }
+    public float PushCooldownSeconds { get; }
+    public float PushHitDelaySeconds { get; }
+    public float PushReach { get; }
+    public float PushKnockbackSpeed { get; }
+
     private SlideBalanceSettings(Dictionary<string, float> values)
     {
         DirectionWindowSeconds = values["SlideDirectionWindowSeconds"];
@@ -51,6 +64,18 @@ public sealed class SlideBalanceSettings
         UppercutCooldownSeconds = values["UppercutCooldownSeconds"];
         UppercutHitDelaySeconds = values["UppercutHitDelaySeconds"];
         UppercutReach = values["UppercutReach"];
+        HeavyStrikeDamage = (int)values["HeavyStrikeDamage"];
+        HeavyStrikeAttackSeconds = values["HeavyStrikeAttackSeconds"];
+        HeavyStrikeCooldownSeconds = values["HeavyStrikeCooldownSeconds"];
+        HeavyStrikeHitDelaySeconds = values["HeavyStrikeHitDelaySeconds"];
+        HeavyStrikeReach = values["HeavyStrikeReach"];
+        PushDamage = (int)values["PushDamage"];
+        PushHoldSeconds = values["PushHoldSeconds"];
+        PushAttackSeconds = values["PushAttackSeconds"];
+        PushCooldownSeconds = values["PushCooldownSeconds"];
+        PushHitDelaySeconds = values["PushHitDelaySeconds"];
+        PushReach = values["PushReach"];
+        PushKnockbackSpeed = values["PushKnockbackSpeed"];
     }
 
     private static Dictionary<string, float> CreateDefaults()
@@ -77,7 +102,19 @@ public sealed class SlideBalanceSettings
             { "UppercutAttackSeconds", BrawlerBalance.DefaultUppercutAttackSeconds },
             { "UppercutCooldownSeconds", BrawlerBalance.DefaultUppercutCooldownSeconds },
             { "UppercutHitDelaySeconds", BrawlerBalance.DefaultUppercutHitDelaySeconds },
-            { "UppercutReach", BrawlerBalance.DefaultUppercutReach }
+            { "UppercutReach", BrawlerBalance.DefaultUppercutReach },
+            { "HeavyStrikeDamage", BrawlerBalance.DefaultHeavyStrikeDamage },
+            { "HeavyStrikeAttackSeconds", BrawlerBalance.DefaultHeavyStrikeAttackSeconds },
+            { "HeavyStrikeCooldownSeconds", BrawlerBalance.DefaultHeavyStrikeCooldownSeconds },
+            { "HeavyStrikeHitDelaySeconds", BrawlerBalance.DefaultHeavyStrikeHitDelaySeconds },
+            { "HeavyStrikeReach", BrawlerBalance.DefaultHeavyStrikeReach },
+            { "PushDamage", BrawlerBalance.DefaultPushDamage },
+            { "PushHoldSeconds", BrawlerBalance.DefaultPushHoldSeconds },
+            { "PushAttackSeconds", BrawlerBalance.DefaultPushAttackSeconds },
+            { "PushCooldownSeconds", BrawlerBalance.DefaultPushCooldownSeconds },
+            { "PushHitDelaySeconds", BrawlerBalance.DefaultPushHitDelaySeconds },
+            { "PushReach", BrawlerBalance.DefaultPushReach },
+            { "PushKnockbackSpeed", BrawlerBalance.DefaultPushKnockbackSpeed }
         };
     }
 
@@ -147,6 +184,15 @@ public sealed class SlideBalanceSettings
             error = "対空必殺技の命中時刻は攻撃時間内、再使用待ちは攻撃時間以上にしてください。";
             return false;
         }
+        foreach (string prefix in new string[] { "HeavyStrike", "Push" })
+        {
+            if (values[prefix + "HitDelaySeconds"] >= values[prefix + "AttackSeconds"]
+                || values[prefix + "CooldownSeconds"] < values[prefix + "AttackSeconds"])
+            {
+                error = prefix + " の命中時刻と再使用待ちを確認してください。";
+                return false;
+            }
+        }
         settings = new SlideBalanceSettings(values);
         return true;
     }
@@ -160,10 +206,13 @@ public sealed class SlideBalanceSettings
                 return value >= 0.05f && value <= 0.9f;
             case "SlideSpeed":
             case "DashSpecialSpeed":
+            case "PushKnockbackSpeed":
                 return value >= 0.1f && value <= 30;
             case "SlideDamage":
             case "DashSpecialDamage":
             case "UppercutDamage":
+            case "HeavyStrikeDamage":
+            case "PushDamage":
                 return value >= 1 && value <= 1000 && value == Math.Floor(value);
             default:
                 return value >= 0.01f && value <= 3;

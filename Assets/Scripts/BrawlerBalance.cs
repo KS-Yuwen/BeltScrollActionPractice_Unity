@@ -43,6 +43,32 @@ public static class BrawlerBalance
     public static float UppercutHitDelaySeconds => s_slideSettings.UppercutHitDelaySeconds;
     public static float UppercutReach => s_slideSettings.UppercutReach;
 
+    // 大斬り・突き飛ばしの既定値とCSVから読み込んだ値。
+    public const int DefaultHeavyStrikeDamage = 34;
+    public static int HeavyStrikeDamage => s_slideSettings.HeavyStrikeDamage;
+    public const float DefaultHeavyStrikeAttackSeconds = 0.5f;
+    public static float HeavyStrikeAttackSeconds => s_slideSettings.HeavyStrikeAttackSeconds;
+    public const float DefaultHeavyStrikeCooldownSeconds = 0.7f;
+    public static float HeavyStrikeCooldownSeconds => s_slideSettings.HeavyStrikeCooldownSeconds;
+    public const float DefaultHeavyStrikeHitDelaySeconds = 0.18f;
+    public static float HeavyStrikeHitDelaySeconds => s_slideSettings.HeavyStrikeHitDelaySeconds;
+    public const float DefaultHeavyStrikeReach = 2.8f;
+    public static float HeavyStrikeReach => s_slideSettings.HeavyStrikeReach;
+    public const int DefaultPushDamage = 10;
+    public static int PushDamage => s_slideSettings.PushDamage;
+    public const float DefaultPushHoldSeconds = 0.35f;
+    public static float PushHoldSeconds => s_slideSettings.PushHoldSeconds;
+    public const float DefaultPushAttackSeconds = 0.3f;
+    public static float PushAttackSeconds => s_slideSettings.PushAttackSeconds;
+    public const float DefaultPushCooldownSeconds = 0.5f;
+    public static float PushCooldownSeconds => s_slideSettings.PushCooldownSeconds;
+    public const float DefaultPushHitDelaySeconds = 0.1f;
+    public static float PushHitDelaySeconds => s_slideSettings.PushHitDelaySeconds;
+    public const float DefaultPushReach = 1.8f;
+    public static float PushReach => s_slideSettings.PushReach;
+    public const float DefaultPushKnockbackSpeed = 12;
+    public static float PushKnockbackSpeed => s_slideSettings.PushKnockbackSpeed;
+
     [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void LoadSlideSettings()
     {
