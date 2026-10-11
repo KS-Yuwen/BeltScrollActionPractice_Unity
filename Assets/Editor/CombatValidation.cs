@@ -1010,6 +1010,46 @@ public static class CombatValidation
             player.TakeDamage(1000, player.Facing);
             waveProgress.Invoke(game, new object[] { 0f });
             Require(banner.Text == string.Empty, "敗北時は中央ウェーブ通知を消す");
+            // HP残像は実HPを変えず、待機・連続被弾・回復・死亡を正しく表示します。
+            var healthFeedback = new HealthBarFeedback();
+            healthFeedback.Refresh(100, 100, 0);
+            healthFeedback.Refresh(80, 100, 0);
+            Require(healthFeedback.TrailHealth == 100, "被弾直後は以前のHPを赤い残像として保持");
+            healthFeedback.Refresh(80, 100, BrawlerBalance.HealthTrailDelaySeconds);
+            Require(healthFeedback.TrailHealth == 100, "待機中は赤い残像を縮めない");
+            healthFeedback.Refresh(80, 100, 0.05f);
+            Require(healthFeedback.TrailHealth < 100 && healthFeedback.TrailHealth > 80, "待機後は残像が現在HPへ徐々に追いつく");
+            float trailBeforeSecondHit = healthFeedback.TrailHealth;
+            healthFeedback.Refresh(60, 100, 0);
+            healthFeedback.Refresh(60, 100, 0);
+            Require(healthFeedback.TrailHealth == trailBeforeSecondHit, "連続被弾と時間停止では残像を保持");
+            healthFeedback.Refresh(90, 100, 0);
+            Require(healthFeedback.TrailHealth == 90, "回復すると古い被ダメージ残像を消す");
+            healthFeedback.Refresh(0, 100, 0);
+            Require(healthFeedback.TrailHealth == 90, "死亡時も直前HPを残像として保持");
+            healthFeedback.Refresh(0, 100, 10);
+            Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
+            Fighter trailEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test enemy HP trail", Vector3.right * 10, false, false, true, false });
+            Fighter separateTrailEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test separate HP trail", Vector3.right * 12, false, true, false, false });
+            int trailEnemyMaxHealth = trailEnemy.MaxHealth;
+            Require(trailEnemy.EnemyHealthTrail == trailEnemyMaxHealth
+                && separateTrailEnemy.EnemyHealthTrail == separateTrailEnemy.MaxHealth, "敵ごとの最大HPで残像を初期化");
+            trailEnemy.TakeDamage(18, 1);
+            Require(trailEnemy.Health == trailEnemyMaxHealth - 18 && trailEnemy.EnemyHealthTrail == trailEnemyMaxHealth,
+                "敵への命中で現在HPだけ即座に減り、赤い残像は直前HPを保持");
+            Require(separateTrailEnemy.EnemyHealthTrail == separateTrailEnemy.MaxHealth, "他の敵のHP残像には影響しない");
+            var enemyTrailFeedback = (HealthBarFeedback)GetPrivateField(trailEnemy, "_enemyHealthBarFeedback");
+            enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, BrawlerBalance.HealthTrailDelaySeconds);
+            enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0.05f);
+            Require(trailEnemy.EnemyHealthTrail < trailEnemyMaxHealth && trailEnemy.EnemyHealthTrail > trailEnemy.Health,
+                "敵の残像も待機後に現在HPへ縮む");
+            trailEnemy.RestoreHealth(5);
+            Require(trailEnemy.EnemyHealthTrail == trailEnemy.Health, "敵の回復では古い残像を消す");
+            SetPrivateField(trailEnemy, "_stunRemaining", 0f);
+            trailEnemy.TakeDamage(BrawlerBalance.CounterDamage, 1, BrawlerDefines.DamageKind.Counter);
+            float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
+            enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
+            Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

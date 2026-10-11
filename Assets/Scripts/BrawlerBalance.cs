@@ -3,6 +3,15 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // HPは即座に反映し、赤い残像だけを待機後に最大HPの一定割合/秒で縮めます。
+    public const float HealthTrailDelaySeconds = 0.25f;
+    public const float HealthTrailFractionPerSecond = 1.2f;
+    public const float PlayerHealthBarWidth = 300f;
+    public const float PlayerHealthBarHeight = 24f;
+    public const int PlayerHealthBarFontSize = 18;
+    public const float EnemyHealthBarWidth = 70f;
+    public const float EnemyHealthBarHeight = 10f;
+    public const float EnemyHealthBarWorldHeight = 2.3f;
     // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
     public const float NextWaveDelaySeconds = 2f;
     public const float SpawnWarningSeconds = 1.5f;

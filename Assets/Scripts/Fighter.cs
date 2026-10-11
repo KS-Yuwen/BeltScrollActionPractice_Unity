@@ -11,6 +11,9 @@ public class Fighter : Combatant
     public virtual float WarningRangeEnd => BrawlerBalance.EnemyAttackReach;
     public virtual float WarningLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
     private BeltBrawler _game;
+    // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
+    private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
+    public float EnemyHealthTrail => _enemyHealthBarFeedback.TrailHealth;
     private Transform _visual;
     private Transform _attackArm;
     private Transform _rightLeg;
@@ -136,6 +139,10 @@ public class Fighter : Combatant
 
     protected override void OnHealthRestored(int actualAmount)
     {
+        if (!IsPlayer)
+        {
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
+        }
         // 回復魔法・ポーション・ウェーブ報酬が通る共通の通知で、重複表示を防ぎます。
         if (IsPlayer && _game != null)
         {
@@ -278,6 +285,7 @@ public class Fighter : Combatant
         _game = game;
         IsPlayer = isPlayer;
         InitializeHealth(maxHealth);
+        _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
         _visual = visual;
         _attackArm = attackArm;
         _rightLeg = rightLeg;
@@ -300,6 +308,10 @@ public class Fighter : Combatant
             return;
         }
         float deltaTime = Time.deltaTime;
+        if (!IsPlayer)
+        {
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, deltaTime);
+        }
         // 更新順もゲームの挙動の一部です。元の順序を維持し、担当する処理ごとに分けます。
         UpdateTimers(deltaTime);
         Vector3 input = ReadPlayerInput();
@@ -1171,6 +1183,11 @@ public class Fighter : Combatant
         IsGuarding = false;
         int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
+        if (!IsPlayer)
+        {
+            // 被弾確定時に残像の待機を開始し、同フレームの描画にも直前HPを残します。
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
+        }
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;

@@ -10,6 +10,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 生存中と撃破直後の敵を保持します。破棄された敵は Update で取り除きます。
     private readonly List<Fighter> _enemies = new List<Fighter>();
     private Fighter _player;
+    private readonly HealthBarFeedback _healthBarFeedback = new HealthBarFeedback();
     private Camera _camera;
     // 現在の敵グループの番号。出現のたびに増えます。
     private int _wave;
@@ -103,6 +104,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _camera.orthographicSize = 6;
         _camera.backgroundColor = new Color(0.035f, 0.055f, 0.1f);
         _player = CreateFighter("Player", new Vector3(-5, 0, 0), true);
+        _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, 0);
         SpawnWave();
     }
 
@@ -267,6 +269,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
+        _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, Time.deltaTime);
         _waveBanner.Advance(Time.deltaTime);
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
         _enemies.RemoveAll(enemy => enemy == null);
@@ -689,10 +692,19 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         var style = new GUIStyle(GUI.skin.label) { fontSize = 24 };
         GUI.Label(new Rect(24, 20, 700, 40), "NEON STREET  |  WAVE " + _wave + "  |  ENEMIES " + _enemies.Count, style);
+        // 背景→遅れて縮む赤い残像→現在HPの順に重ね、HPゼロでも数値を表示します。
+        var healthArea = new Rect(24, 65, BrawlerBalance.PlayerHealthBarWidth, BrawlerBalance.PlayerHealthBarHeight);
+        GUI.color = new Color(0.12f, 0.12f, 0.15f);
+        GUI.DrawTexture(healthArea, Texture2D.whiteTexture);
+        float trailFraction = Mathf.Clamp01(Mathf.Max(_player.Health, _healthBarFeedback.TrailHealth) / _player.MaxHealth);
+        float healthFraction = Mathf.Clamp01((float)_player.Health / _player.MaxHealth);
+        GUI.color = Color.red;
+        GUI.DrawTexture(new Rect(healthArea.x, healthArea.y, healthArea.width * trailFraction, healthArea.height), Texture2D.whiteTexture);
         GUI.color = new Color(0.1f, 0.7f, 1);
-        // 現在 HP / 最大 HP の割合を、満タン時の幅 300 ピクセルに掛けます。
-        GUI.Box(new Rect(24, 65, 300f * Mathf.Max(0, _player.Health) / _player.MaxHealth, 24), "HP " + _player.Health);
+        GUI.DrawTexture(new Rect(healthArea.x, healthArea.y, healthArea.width * healthFraction, healthArea.height), Texture2D.whiteTexture);
         GUI.color = Color.white;
+        var healthStyle = new GUIStyle(style) { alignment = TextAnchor.MiddleCenter, fontSize = BrawlerBalance.PlayerHealthBarFontSize };
+        GUI.Label(healthArea, $"HP {_player.Health} / {_player.MaxHealth}", healthStyle);
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
         string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
         if (_player.IsRunning)
@@ -736,14 +748,23 @@ public sealed class BeltBrawler : MonoBehaviour
             {
                 continue;
             }
-            Vector3 screen = _camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * 2.3f);
+            Vector3 screen = _camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * BrawlerBalance.EnemyHealthBarWorldHeight);
             if (screen.z <= 0)
             {
                 continue;
             }
             float y = Screen.height - screen.y;
-            GUI.color = enemy.IsWindingUp ? Color.yellow : new Color(1, 0.35f, 0.35f);
-            GUI.Box(new Rect(screen.x - 35, y, 70f * enemy.Health / enemy.MaxHealth, 10), "");
+            var enemyHealthArea = new Rect(screen.x - BrawlerBalance.EnemyHealthBarWidth / 2, y,
+                BrawlerBalance.EnemyHealthBarWidth, BrawlerBalance.EnemyHealthBarHeight);
+            GUI.color = new Color(0.12f, 0.12f, 0.15f);
+            GUI.DrawTexture(enemyHealthArea, Texture2D.whiteTexture);
+            GUI.color = Color.red;
+            float enemyTrailFraction = Mathf.Clamp01(Mathf.Max(enemy.Health, enemy.EnemyHealthTrail) / enemy.MaxHealth);
+            GUI.DrawTexture(new Rect(enemyHealthArea.x, y, enemyHealthArea.width * enemyTrailFraction, enemyHealthArea.height), Texture2D.whiteTexture);
+            // 現在HPは橙色、予告中は黄色。赤い残像と色を分けて削った量を見せます。
+            GUI.color = enemy.IsWindingUp ? Color.yellow : new Color(1, 0.65f, 0.2f);
+            GUI.DrawTexture(new Rect(enemyHealthArea.x, y, enemyHealthArea.width * enemy.Health / enemy.MaxHealth,
+                enemyHealthArea.height), Texture2D.whiteTexture);
             if (enemy.IsWindingUp)
             {
                 GUI.Label(new Rect(screen.x - 12, y - 35, 40, 35), "!", style);
