@@ -1,12 +1,12 @@
 using UnityEngine;
 
-// 結果の描画だけを担当します。クリア時に確定した値を受け取り、進行や得点を変更しません。
+// 結果の描画だけを担当します。クリア・敗北時に確定した値を受け取り、進行や得点を変更しません。
 public static class StageResultHud
 {
     private static GUIStyle s_titleStyle;
     private static GUIStyle s_bodyStyle;
 
-    public static void Draw(int score, int defeatedEnemies)
+    public static void Draw(bool cleared, int reachedWave, int score, int defeatedEnemies)
     {
         if (s_titleStyle == null)
         {
@@ -32,10 +32,10 @@ public static class StageResultHud
         GUI.DrawTexture(new Rect(0, 0, width, height), Texture2D.whiteTexture);
         float row = BrawlerBalance.ResultRowHeight;
         float top = BrawlerBalance.ResultPanelMargin;
-        GUI.color = Color.yellow;
-        GUI.Label(new Rect(0, top, width, row), "STAGE CLEAR", s_titleStyle);
+        GUI.color = cleared ? Color.yellow : Color.red;
+        GUI.Label(new Rect(0, top, width, row), cleared ? "STAGE CLEAR" : "DEFEATED", s_titleStyle);
         GUI.color = Color.white;
-        GUI.Label(new Rect(0, top + row, width, row), $"WAVES {BrawlerBalance.StageWaveCount} / {BrawlerBalance.StageWaveCount}", s_bodyStyle);
+        GUI.Label(new Rect(0, top + row, width, row), $"WAVES {reachedWave} / {BrawlerBalance.StageWaveCount}", s_bodyStyle);
         GUI.Label(new Rect(0, top + row * 2, width, row), "SCORE  " + score, s_bodyStyle);
         GUI.Label(new Rect(0, top + row * 3, width, row), "DEFEATED  " + defeatedEnemies, s_bodyStyle);
         string restart = BrawlerInput.IsGamepadConnected ? "Start" : "R";

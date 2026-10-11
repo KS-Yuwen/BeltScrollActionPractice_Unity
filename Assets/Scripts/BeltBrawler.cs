@@ -21,6 +21,10 @@ public sealed class BeltBrawler : MonoBehaviour
     // 現在の敵グループの番号。出現のたびに増えます。
     private int _wave;
     public bool IsStageCleared { get; private set; }
+    // 終了理由を分けつつ、操作や得点の停止条件は共通にします。
+    public bool IsDefeated { get; private set; }
+    public bool IsRunFinished => IsStageCleared || IsDefeated;
+    public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
     // 全滅後、次の出現までに経過した秒数。
@@ -222,7 +226,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
-        if (IsStageCleared || _wave >= BrawlerBalance.StageWaveCount)
+        if (IsRunFinished || _wave >= BrawlerBalance.StageWaveCount)
         {
             return;
         }
@@ -255,7 +259,7 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void UpdateSpawnWarning(float deltaTime)
     {
-        if (_pendingSpawnPositions.Count == 0 || _player.Health <= 0)
+        if (IsRunFinished || _pendingSpawnPositions.Count == 0 || _player.Health <= 0)
         {
             return;
         }
@@ -305,10 +309,10 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void UpdateWaveProgress(float deltaTime)
     {
-        if (IsStageCleared) return;
+        if (IsRunFinished) return;
         if (_player.Health <= 0)
         {
-            _waveBanner.Clear();
+            FinishRun(false);
             return;
         }
         if (_enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
@@ -316,10 +320,7 @@ public sealed class BeltBrawler : MonoBehaviour
             if (_wave >= BrawlerBalance.StageWaveCount)
             {
                 // 最終ウェーブの敵が消えてから結果を確定し、六つ目のウェーブは予約しません。
-                IsStageCleared = true;
-                ResultScore = _score;
-                ResultDefeatedEnemies = _defeatedEnemyCount;
-                _waveBanner.Clear();
+                FinishRun(true);
                 return;
             }
             // 空の状態が続いても通知を再生成せず、このウェーブにつき一度だけ表示します。
@@ -336,6 +337,20 @@ public sealed class BeltBrawler : MonoBehaviour
                 SpawnWave();
             }
         }
+    }
+
+    // 終了した瞬間の値を保存します。以後は呼び直しても結果を上書きしません。
+    private void FinishRun(bool cleared)
+    {
+        if (IsRunFinished) return;
+        IsStageCleared = cleared;
+        IsDefeated = !cleared;
+        ResultWave = Mathf.Clamp(_wave, 1, BrawlerBalance.StageWaveCount);
+        ResultScore = _score;
+        ResultDefeatedEnemies = _defeatedEnemyCount;
+        _waveBanner.Clear();
+        // 敗北時の出現予約も破棄し、リザルトの背後で次の敵が出ないようにします。
+        _pendingSpawnPositions.Clear();
     }
 
     // 全キャラクターの Update の後にカメラを動かし、そのフレームの最新位置を追います。
@@ -411,7 +426,7 @@ public sealed class BeltBrawler : MonoBehaviour
     public void RegisterDamage(Fighter victim, int attackDamage = 18, int actualDamage = 0,
         BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
-        if (IsStageCleared) return;
+        if (IsRunFinished) return;
         PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
         CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
         if (!victim.IsPlayer)
@@ -430,6 +445,8 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _hitChain = 0;
             _hitChainRemaining = 0;
+            // Update の順序によらず、致命傷を受けた時点で全員の操作を止めます。
+            if (victim.Health <= 0) FinishRun(false);
             return;
         }
         _hitChain++;
@@ -715,9 +732,9 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
-        if (IsStageCleared)
+        if (IsRunFinished)
         {
-            StageResultHud.Draw(ResultScore, ResultDefeatedEnemies);
+            StageResultHud.Draw(IsStageCleared, ResultWave, ResultScore, ResultDefeatedEnemies);
             return;
         }
         var style = new GUIStyle(GUI.skin.label) { fontSize = 24 };

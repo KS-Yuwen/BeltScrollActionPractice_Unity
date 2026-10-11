@@ -1054,6 +1054,21 @@ public static class CombatValidation
             player.TakeDamage(1000, player.Facing);
             waveProgress.Invoke(game, new object[] { 0f });
             Require(banner.Text == string.Empty, "敗北時は中央ウェーブ通知を消す");
+            Require(game.IsDefeated && !game.IsStageCleared && game.IsRunFinished,
+                "致命傷で敗北リザルトを確定");
+            int defeatScore = game.ResultScore;
+            int defeatKills = game.ResultDefeatedEnemies;
+            int defeatWave = game.ResultWave;
+            game.RegisterDamage(player, 10, 10);
+            waveProgress.Invoke(game, new object[] { 10f });
+            Require(game.ResultScore == defeatScore && game.ResultDefeatedEnemies == defeatKills
+                && game.ResultWave == defeatWave && bannerPending.Count == 0,
+                "敗北後は結果を固定し、敵の出現予約を破棄");
+            Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Defeated,
+                "敗北後の選択アクションは死亡状態を返す");
+            // この後のクリア検証は別のプレイ状況として実行するため、検証内だけで終了状態を戻します。
+            typeof(BeltBrawler).GetProperty("IsDefeated").SetValue(game, false);
+
             // HP残像は実HPを変えず、待機・連続被弾・回復・死亡を正しく表示します。
             var healthFeedback = new HealthBarFeedback();
             healthFeedback.Refresh(100, 100, 0);
