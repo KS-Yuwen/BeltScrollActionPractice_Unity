@@ -55,7 +55,8 @@ public static class CombatValidation
             {
                 return;
             }
-            var enemy = Array.Find(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer);
+            // 撃破検証で、後の追撃・射撃検証に使う遠距離型を倒してしまわないようにします。
+            var enemy = Array.Find(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && !(f is RangedFighter));
             if (enemy == null)
             {
                 return;
@@ -396,6 +397,42 @@ public static class CombatValidation
             int beforeRunningDamage = player.Health;
             player.TakeDamage(5, -player.Facing);
             Require(!player.IsRunning && player.Health == beforeRunningDamage - 5, "継続ダッシュは無敵ではなく被ダメージで中断");
+            updateStop.Invoke(game, new object[] { 1f });
+
+            var commands = new DirectionCommandBuffer();
+            commands.Record(Vector3.back, 1, 0);
+            commands.Record(new Vector3(1, 0, -1), 1, 0.1f);
+            Require(commands.TryConsumeSlide(new Vector3(1, 0, -1), 0.15f, out float slideFacing) && slideFacing == 1,
+                "下から斜め前下で右向きコマンド成立");
+            Require(!commands.TryConsumeSlide(new Vector3(1, 0, -1), 0.16f, out _), "コマンドの二重消費を防止");
+            commands.Record(Vector3.back, -1, 1);
+            commands.Record(new Vector3(-1, 0, -1), -1, 1.1f);
+            Require(commands.TryConsumeSlide(new Vector3(-1, 0, -1), 1.15f, out slideFacing) && slideFacing == -1,
+                "左向きでは方向コマンドを反転");
+            commands.Record(Vector3.back, 1, 2);
+            commands.Record(new Vector3(1, 0, -1), 1, 2.95f);
+            Require(!commands.TryConsumeSlide(new Vector3(1, 0, -1), 2.96f, out _), "遅い入力は不成立");
+            commands.Record(Vector3.back, 1, 3);
+            commands.Record(new Vector3(0.32f, 0, -0.8f), 1, 3.2f);
+            commands.Record(new Vector3(0.45f, 0, -0.6f), 1, 3.8f);
+            Require(commands.TryConsumeSlide(new Vector3(0.45f, 0, -0.6f), 4.35f, out _),
+                "浅い斜め入力への移行とゆっくりしたジャンプ入力を受理");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackRemaining", 0f);
+            player.transform.position = Vector3.zero;
+            typeof(Fighter).GetMethod("StartSlide", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 1f });
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            heavy.transform.position = Vector3.right * 0.5f;
+            int beforeSlideHit = heavy.Health;
+            game.HitSlidingTargets(player);
+            Require(heavy.Health == beforeSlideHit - 12, "スライディング接触で12ダメージ");
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            game.HitSlidingTargets(player);
+            Require(heavy.Health == beforeSlideHit - 12, "同じ滑りでは二重命中しない");
+            typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { Vector3.zero, 1f });
+            Require(!player.IsSliding && Mathf.Approximately(player.transform.position.x, 0.96f), "短押しの移動は0.12秒分で制限");
             updateStop.Invoke(game, new object[] { 1f });
 
             Debug.Log("COMBAT_VALIDATION_PASSED");

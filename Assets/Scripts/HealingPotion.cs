@@ -3,10 +3,10 @@ using UnityEngine;
 // 床に落ちた回復ポーション。魔法の回数を消費せず、近づくだけで拾えます。
 public sealed class HealingPotion : MonoBehaviour
 {
-    private const int HealingAmount = 20;
-    private const float PickupRadius = 0.7f;
+    private const int HealingAmount = BrawlerBalance.PotionHealingAmount;
+    private const float PickupRadius = BrawlerBalance.PotionPickupRadius;
     private Fighter _player;
-    private float _remainingLifetime = 20;
+    private float _remainingLifetime = BrawlerBalance.PotionLifetimeSeconds;
     private bool _wasCollected;
     private BrawlerAudio _audio;
 

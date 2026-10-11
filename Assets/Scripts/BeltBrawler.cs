@@ -391,6 +391,22 @@ public sealed class BeltBrawler : MonoBehaviour
         }
     }
 
+    public void HitSlidingTargets(Fighter attacker)
+    {
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0)
+            {
+                continue;
+            }
+            Vector3 delta = enemy.transform.position - attacker.transform.position;
+            if (Mathf.Abs(delta.x) < 1.1f && Mathf.Abs(delta.z) < 0.6f && delta.x * attacker.Facing > -0.25f)
+            {
+                attacker.TrySlideHit(enemy);
+            }
+        }
+    }
+
     public Fighter FindGroundAttackTarget(Fighter attacker)
     {
         Fighter closest = null;

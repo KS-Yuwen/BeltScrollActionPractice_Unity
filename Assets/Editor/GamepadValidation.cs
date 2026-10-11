@@ -176,6 +176,22 @@ public static class GamepadValidation
                 "素早い2回押しは向きを変えずバックステップ");
             SetPlayerTimer(player, "_dashRemaining", 0);
             SetPlayerTimer(player, "_dashCooldown", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.D, Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsSliding && !player.IsCrouching && !player.IsAirborne,
+                "実際の下→斜め前下＋ジャンプはしゃがみではなくスライディング");
+            Vector3 slideStart = player.transform.position;
+            typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { Vector3.zero, 1f });
+            Require(!player.IsSliding && player.transform.position.x - slideStart.x > 3,
+                "ジャンプ保持では長いスライディング");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

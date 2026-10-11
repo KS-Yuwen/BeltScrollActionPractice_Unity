@@ -15,7 +15,7 @@ public class Fighter : Combatant
     private float _attackRemaining;
     private float _attackCooldown;
     private float _stunRemaining;
-    private float _lastAttackTime = -10;
+    private float _lastAttackTime = BrawlerDefines.UnsetTime;
     private float _walkPhase;
     // 現在のコンボ段数（1～3）。
     private int _comboStep;
@@ -50,17 +50,24 @@ public class Fighter : Combatant
     private bool _isDownThrust;
     private bool _isCrouching;
     private bool _isCrouchAttack;
-    private float _lastJumpPressedAt = -10;
+    private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
     private bool _canBackstepFromJump;
     private bool _isBackstep;
     private bool _isRunning;
     private float _runDirection;
-    private float _lastForwardTapAt = -10;
+    private float _lastForwardTapAt = BrawlerDefines.UnsetTime;
     private float _lastForwardTapDirection;
     private bool _wasForwardHeld;
     private readonly System.Collections.Generic.HashSet<Fighter> _bodyCheckedEnemies = new System.Collections.Generic.HashSet<Fighter>();
 
     public bool IsRunning => _isRunning;
+    private readonly DirectionCommandBuffer _directionCommands = new DirectionCommandBuffer();
+    private readonly System.Collections.Generic.HashSet<Fighter> _slideHitEnemies = new System.Collections.Generic.HashSet<Fighter>();
+    private float _slideRemaining;
+    private float _slideDirection;
+    private float _slideElapsed;
+
+    public bool IsSliding => _slideRemaining > 0;
 
     public bool IsCrouching => _isCrouching;
 
@@ -106,14 +113,14 @@ public class Fighter : Combatant
 
     protected bool CanStartEnemyAttack => _attackCooldown <= 0;
 
-    protected virtual float EnemyAttackInterval => 1.2f;
+    protected virtual float EnemyAttackInterval => BrawlerBalance.MeleeAttackIntervalSeconds;
 
     // 敵の種類ごとの差は派生クラスで上書きし、近接 AI と命中処理は共用します。
-    protected virtual float EnemyMovementSpeed => 2.2f;
+    protected virtual float EnemyMovementSpeed => BrawlerBalance.MeleeSpeed;
 
-    protected virtual float EnemyWindupDuration => 0.55f;
+    protected virtual float EnemyWindupDuration => BrawlerBalance.MeleeWindupSeconds;
 
-    protected virtual int EnemyAttackDamage => 10;
+    protected virtual int EnemyAttackDamage => BrawlerBalance.MeleeDamage;
 
     // 職業固有の行動は派生クラスが担当し、共通の戦闘状態はここで管理します。
     protected virtual bool IsUsingSpecialAction => false;
@@ -121,7 +128,7 @@ public class Fighter : Combatant
     protected virtual Color? SpecialFeedbackColor => null;
 
     protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
-        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne && !_isRunning;
+        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne && !_isRunning && !IsSliding;
 
     protected virtual bool UpdateSpecialAction() => false;
 
@@ -134,7 +141,7 @@ public class Fighter : Combatant
         _counterWindowRemaining = 0;
         _attackBufferRemaining = 0;
         _comboStep = 0;
-        _lastAttackTime = -10;
+        _lastAttackTime = BrawlerDefines.UnsetTime;
     }
 
     public bool DashReady => _dashCooldown <= 0;
@@ -183,6 +190,10 @@ public class Fighter : Combatant
         {
             _game.HitRunningTargets(this);
         }
+        if (IsSliding)
+        {
+            _game.HitSlidingTargets(this);
+        }
         UpdateWalkAnimation(movement, deltaTime);
         UpdateAttackAnimation(deltaTime);
         UpdateVisualFeedback();
@@ -216,11 +227,23 @@ public class Fighter : Combatant
             input = BrawlerInput.ReadMovement();
             bool attackPressed = BrawlerInput.WasAttackPressed();
             bool jumpPressed = BrawlerInput.WasJumpPressed();
+            if (IsSliding)
+            {
+                return Vector3.zero;
+            }
+            _directionCommands.Record(input, Facing, Time.time);
+            if (jumpPressed && !IsAirborne && _stunRemaining <= 0 && _attackRemaining <= 0
+                && _dashRemaining <= 0 && _attackCooldown <= 0
+                && _directionCommands.TryConsumeSlide(input, Time.time, out float slideDirection))
+            {
+                StartSlide(slideDirection);
+                return Vector3.zero;
+            }
             // 下入力は奥行き移動にも使うため、ジャンプボタンを保持した時だけしゃがみます。
             _isCrouching = !IsAirborne && _dashRemaining <= 0 && _stunRemaining <= 0
-                && input.z < -0.5f && BrawlerInput.IsJumpHeld();
-            if (jumpPressed && _canBackstepFromJump && Time.time - _lastJumpPressedAt <= 0.25f
-                && input.z >= -0.5f && _stunRemaining <= 0 && _attackRemaining <= 0 && DashReady)
+                && input.z < -BrawlerBalance.JumpDirectionThreshold && BrawlerInput.IsJumpHeld();
+            if (jumpPressed && _canBackstepFromJump && Time.time - _lastJumpPressedAt <= BrawlerBalance.DoubleTapWindowSeconds
+                && input.z >= -BrawlerBalance.JumpDirectionThreshold && _stunRemaining <= 0 && _attackRemaining <= 0 && DashReady)
             {
                 StartBackstep();
                 return Vector3.zero;
@@ -236,7 +259,7 @@ public class Fighter : Combatant
                 // 空中では攻撃ボタンを1回押して発動。奥行きの下入力＋攻撃で下突きに変化します。
                 if (attackPressed && _attackRemaining <= 0 && _attackCooldown <= 0 && _stunRemaining <= 0)
                 {
-                    StartAirAttack(input.z < -0.5f);
+                    StartAirAttack(input.z < -BrawlerBalance.JumpDirectionThreshold);
                 }
                 return input;
             }
@@ -257,19 +280,19 @@ public class Fighter : Combatant
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
             if (attackPressed && !IsGuarding)
             {
-                _attackBufferRemaining = 0.2f;
+                _attackBufferRemaining = BrawlerBalance.AttackBufferSeconds;
             }
             // 攻撃の後隙からも回避できますが、被ダメージ硬直中は回避できません。
             if (BrawlerInput.WasDashPressed() && DashReady && _stunRemaining <= 0)
             {
                 // 回避距離はスティックの倒し具合によらず一定にするため、回避方向だけ正規化します。
                 _dashDirection = input.sqrMagnitude > 0 ? input.normalized : new Vector3(Facing, 0, 0);
-                _dashRemaining = 0.2f;
+                _dashRemaining = BrawlerBalance.DashSeconds;
                 _isRunning = false;
                 _isBackstep = false;
                 _isCrouching = false;
                 _isCrouchAttack = false;
-                _dashCooldown = 0.85f;
+                _dashCooldown = BrawlerBalance.DashCooldownSeconds;
                 _attackRemaining = 0;
                 _isGroundAttack = false;
                 _groundAttackTarget = null;
@@ -317,12 +340,16 @@ public class Fighter : Combatant
     {
         // 速度に経過秒数を掛けて移動量へ変換し、ノックバック速度を徐々にゼロへ近づけます。
         transform.position += _knockbackVelocity * deltaTime;
-        _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, deltaTime * 12);
+        _knockbackVelocity = Vector3.Lerp(_knockbackVelocity, Vector3.zero, deltaTime * BrawlerBalance.KnockbackDecay);
     }
 
     // プレイヤー入力か敵 AI のどちらかから、そのフレームの通常移動方向を決めます。
     private Vector3 GetMovement(Vector3 input, bool wasWindingUp)
     {
+        if (IsSliding)
+        {
+            return Vector3.zero;
+        }
         if (IsPlayer && IsAirborne)
         {
             // 空中攻撃中も方向入力で着地点を調整できます。被ダメージ時は操作を止めます。
@@ -356,7 +383,7 @@ public class Fighter : Combatant
                 {
                     // 反対方向＋攻撃を同時に入力したとき、攻撃開始前に向きを更新します。
                     // 攻撃開始後は向きを固定し、途中で判定だけが裏返らないようにします。
-                    if (Mathf.Abs(input.x) > 0.01f)
+                    if (Mathf.Abs(input.x) > BrawlerBalance.FacingInputThreshold)
                     {
                         Facing = Mathf.Sign(input.x);
                     }
@@ -386,7 +413,7 @@ public class Fighter : Combatant
     {
         Vector3 delta = _game.Target.transform.position - transform.position;
         Facing = delta.x >= 0 ? 1 : -1;
-        if (Mathf.Abs(delta.x) > 1.1f || Mathf.Abs(delta.z) > 0.5f)
+        if (Mathf.Abs(delta.x) > BrawlerBalance.MeleeStopDistance || Mathf.Abs(delta.z) > BrawlerBalance.MeleeLaneTolerance)
         {
             return delta.normalized;
         }
@@ -411,11 +438,11 @@ public class Fighter : Combatant
     private void Move(Vector3 movement, float deltaTime)
     {
         // 奥行きだけの移動では向きを維持し、左右に動いた場合だけ向きを変更します。
-        if (Mathf.Abs(movement.x) > 0.01f)
+        if (Mathf.Abs(movement.x) > BrawlerBalance.FacingInputThreshold)
         {
             Facing = Mathf.Sign(movement.x);
         }
-        transform.position += movement * (IsPlayer ? (_isRunning ? 8 : 5) : EnemyMovementSpeed) * deltaTime;
+        transform.position += movement * (IsPlayer ? (_isRunning ? BrawlerBalance.RunSpeed : BrawlerBalance.WalkSpeed) : EnemyMovementSpeed) * deltaTime;
         if (IsAirborne)
         {
             transform.position += _jumpDrift * deltaTime;
@@ -423,18 +450,30 @@ public class Fighter : Combatant
         // 最終フレームの移動量を残り時間で制限し、FPS が低いときの飛びすぎを防ぎます。
         if (_dashRemaining > 0)
         {
-            transform.position += _dashDirection * 13 * Mathf.Min(deltaTime, _dashRemaining);
+            transform.position += _dashDirection * BrawlerBalance.DashSpeed * Mathf.Min(deltaTime, _dashRemaining);
             _dashRemaining = Mathf.Max(0, _dashRemaining - deltaTime);
         }
         // 回避より速度を落とした短い踏み込みです。通常移動と同時には発生しません。
         if (_dashAttackMovementRemaining > 0)
         {
-            transform.position += _dashDirection * 8 * Mathf.Min(deltaTime, _dashAttackMovementRemaining);
+            transform.position += _dashDirection * BrawlerBalance.DashAttackSpeed * Mathf.Min(deltaTime, _dashAttackMovementRemaining);
             _dashAttackMovementRemaining = Mathf.Max(0, _dashAttackMovementRemaining - deltaTime);
         }
         Vector3 position = transform.position;
+        if (IsSliding)
+        {
+            // 最短0.12秒、保持で最大0.4秒。離すと最短分だけ滑って終了します。
+            if (!BrawlerInput.IsJumpHeld())
+            {
+                _slideRemaining = Mathf.Min(_slideRemaining, Mathf.Max(0, BrawlerBalance.SlideMinSeconds - _slideElapsed));
+            }
+            float travelTime = Mathf.Min(deltaTime, _slideRemaining);
+            position.x += _slideDirection * BrawlerBalance.SlideSpeed * travelTime;
+            _slideElapsed += travelTime;
+            _slideRemaining = Mathf.Max(0, _slideRemaining - deltaTime);
+        }
         // ステージの端で位置を制限し、高さは常に床の Y = 0 に固定します。
-        transform.position = new Vector3(Mathf.Clamp(position.x, -22, 22), 0, Mathf.Clamp(position.z, -3, 3));
+        transform.position = new Vector3(Mathf.Clamp(position.x, -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth), 0, Mathf.Clamp(position.z, -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
     }
 
     private void UpdateWalkAnimation(Vector3 movement, float deltaTime)
@@ -458,16 +497,16 @@ public class Fighter : Combatant
             _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f,
                 _isGroundAttack || _isCrouchAttack ? 0.65f : 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            float hitTiming = _isGroundAttack ? 0.23f : _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
+            float hitTiming = _isGroundAttack ? BrawlerBalance.GroundHitRemainingSeconds : _isDashAttack || _isCounterAttack ? BrawlerBalance.FastHitRemainingSeconds : BrawlerBalance.NormalHitRemainingSeconds;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isCrouchAttack ? 12 : _isAirAttack ? (_isDownThrust ? 32 : 20)
-                    : _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : EnemyAttackDamage;
+                int damage = _isCrouchAttack ? BrawlerBalance.CrouchAttackDamage : _isAirAttack ? (_isDownThrust ? BrawlerBalance.DownThrustDamage : BrawlerBalance.AirAttackDamage)
+                    : _isCounterAttack ? BrawlerBalance.CounterDamage : _isDashAttack ? BrawlerBalance.DashAttackDamage : IsPlayer ? (_comboStep == BrawlerBalance.ComboSteps ? BrawlerBalance.FinisherDamage : BrawlerBalance.NormalDamage) : EnemyAttackDamage;
                 if (_isGroundAttack)
                 {
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
-                    _game.HitGroundTarget(this, _groundAttackTarget, 24);
+                    _game.HitGroundTarget(this, _groundAttackTarget, BrawlerBalance.GroundAttackDamage);
                 }
                 else
                 {
@@ -496,7 +535,7 @@ public class Fighter : Combatant
         _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
         // モデルだけ縦に縮めます。HPや通常の攻撃判定には影響しません。
         Vector3 visualScale = _visual.localScale;
-        visualScale.y = _isCrouching || IsCrouchAttacking ? 0.6f : 1;
+        visualScale.y = IsSliding ? 0.4f : _isCrouching || IsCrouchAttacking ? 0.6f : 1;
         _visual.localScale = visualScale;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         _visual.localPosition = new Vector3(0, _jumpHeight + (_stunRemaining > 0 ? 0.08f : 0), 0);
@@ -532,11 +571,11 @@ public class Fighter : Combatant
         _counterWindowRemaining = 0;
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
         // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
-        _comboStep = Time.time - _lastAttackTime < 0.85f ? _comboStep % 3 + 1 : 1;
+        _comboStep = Time.time - _lastAttackTime < BrawlerBalance.ComboWindowSeconds ? _comboStep % BrawlerBalance.ComboSteps + 1 : 1;
         _lastAttackTime = Time.time;
-        _attackRemaining = 0.3f;
+        _attackRemaining = BrawlerBalance.AttackSeconds;
         // プレイヤーは 3 段目の後に長めの隙を作り、敵は攻撃間隔を長くして避けやすくします。
-        _attackCooldown = IsPlayer ? (_comboStep == 3 ? 0.55f : 0.32f) : EnemyAttackInterval;
+        _attackCooldown = IsPlayer ? (_comboStep == BrawlerBalance.ComboSteps ? BrawlerBalance.FinisherCooldownSeconds : BrawlerBalance.NormalCooldownSeconds) : EnemyAttackInterval;
         _hasDealtHit = false;
     }
 
@@ -548,18 +587,18 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
-        if (Mathf.Abs(_dashDirection.x) > 0.01f)
+        if (Mathf.Abs(_dashDirection.x) > BrawlerBalance.FacingInputThreshold)
         {
             Facing = Mathf.Sign(_dashDirection.x);
         }
         _dashRemaining = 0;
         _isDashAttack = true;
-        _dashAttackMovementRemaining = 0.18f;
-        _attackRemaining = 0.3f;
-        _attackCooldown = 0.6f;
+        _dashAttackMovementRemaining = BrawlerBalance.DashAttackMovementSeconds;
+        _attackRemaining = BrawlerBalance.AttackSeconds;
+        _attackCooldown = BrawlerBalance.DashAttackCooldownSeconds;
         _attackBufferRemaining = 0;
         _comboStep = 0;
-        _lastAttackTime = -10;
+        _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         IsGuarding = false;
     }
@@ -573,34 +612,63 @@ public class Fighter : Combatant
         _counterWindowRemaining = 0;
         _isCounterAttack = true;
         _isDashAttack = false;
-        _attackRemaining = 0.3f;
-        _attackCooldown = 0.5f;
+        _attackRemaining = BrawlerBalance.AttackSeconds;
+        _attackCooldown = BrawlerBalance.CounterCooldownSeconds;
         _attackBufferRemaining = 0;
         _comboStep = 0;
-        _lastAttackTime = -10;
+        _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         _knockbackVelocity = Vector3.zero;
         IsGuarding = false;
     }
 
+    private void StartSlide(float direction)
+    {
+        _slideDirection = direction;
+        Facing = direction;
+        _slideRemaining = BrawlerBalance.SlideMaxSeconds;
+        _slideElapsed = 0;
+        _slideHitEnemies.Clear();
+        _isRunning = false;
+        _isCrouching = false;
+        _canBackstepFromJump = false;
+        _knockbackVelocity = Vector3.zero;
+        _attackCooldown = BrawlerBalance.SlideCooldownSeconds;
+        ReleaseDefenseForSpecialAction();
+    }
+
+    public void TrySlideHit(Fighter target)
+    {
+        if (!IsSliding || target == null || target.IsPlayer || _slideHitEnemies.Contains(target))
+        {
+            return;
+        }
+        int previousHealth = target.Health;
+        target.TakeDamage(BrawlerBalance.SlideDamage, _slideDirection);
+        if (target.Health < previousHealth)
+        {
+            _slideHitEnemies.Add(target);
+        }
+    }
+
     private void UpdateRunningInput(Vector3 input)
     {
-        bool forwardHeld = input.x * Facing > 0.6f;
+        bool forwardHeld = input.x * Facing > BrawlerBalance.ForwardInputThreshold;
         bool canRun = !_isCrouching && _stunRemaining <= 0 && _attackRemaining <= 0
             && _dashRemaining <= 0 && !IsUsingSpecialAction;
-        if (_isRunning && (!canRun || input.x * _runDirection <= 0.6f))
+        if (_isRunning && (!canRun || input.x * _runDirection <= BrawlerBalance.ForwardInputThreshold))
         {
             _isRunning = false;
         }
         if (forwardHeld && !_wasForwardHeld && canRun)
         {
             float direction = Mathf.Sign(input.x);
-            if (_lastForwardTapDirection == direction && Time.time - _lastForwardTapAt <= 0.25f)
+            if (_lastForwardTapDirection == direction && Time.time - _lastForwardTapAt <= BrawlerBalance.DoubleTapWindowSeconds)
             {
                 _isRunning = true;
                 _runDirection = direction;
                 _bodyCheckedEnemies.Clear();
-                _lastForwardTapAt = -10;
+                _lastForwardTapAt = BrawlerDefines.UnsetTime;
             }
             else
             {
@@ -618,7 +686,7 @@ public class Fighter : Combatant
             return;
         }
         int previousHealth = target.Health;
-        target.TakeDamage(8, _runDirection);
+        target.TakeDamage(BrawlerBalance.BodyCheckDamage, _runDirection);
         // 硬直無敵で拒否された接触は消費せず、実際に命中した相手だけ記録します。
         if (target.Health < previousHealth)
         {
@@ -630,12 +698,12 @@ public class Fighter : Combatant
     {
         _isCrouchAttack = false;
         _isCrouching = false;
-        _canBackstepFromJump = input.z <= 0.5f && _dashRemaining <= 0 && !_isRunning;
+        _canBackstepFromJump = input.z <= BrawlerBalance.JumpDirectionThreshold && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
-        _jumpVelocity = input.z > 0.5f ? 9 : 7;
-        _jumpDrift = _isRunning ? new Vector3(_runDirection * 4, 0, 0)
-            : _dashRemaining > 0 ? _dashDirection * 4 : Vector3.zero;
+        _jumpVelocity = input.z > BrawlerBalance.JumpDirectionThreshold ? BrawlerBalance.HighJumpVelocity : BrawlerBalance.JumpVelocity;
+        _jumpDrift = _isRunning ? new Vector3(_runDirection * BrawlerBalance.JumpDriftSpeed, 0, 0)
+            : _dashRemaining > 0 ? _dashDirection * BrawlerBalance.JumpDriftSpeed : Vector3.zero;
         _isRunning = false;
         _wasForwardHeld = false;
         _dashRemaining = 0;
@@ -649,7 +717,7 @@ public class Fighter : Combatant
         {
             return;
         }
-        const float gravity = 22;
+        const float gravity = BrawlerBalance.JumpGravity;
         _jumpHeight += _jumpVelocity * deltaTime - gravity * deltaTime * deltaTime * 0.5f;
         _jumpVelocity -= gravity * deltaTime;
         if (_jumpHeight <= 0)
@@ -675,13 +743,13 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isDashAttack = false;
         _isCounterAttack = false;
-        _attackRemaining = 0.3f;
-        _attackCooldown = 0.35f;
+        _attackRemaining = BrawlerBalance.AttackSeconds;
+        _attackCooldown = BrawlerBalance.AirAttackCooldownSeconds;
         _hasDealtHit = false;
         if (isDownThrust)
         {
             // 下突きは降下を速めます。攻撃が着地より遅ければ命中せず終了します。
-            _jumpVelocity = -6;
+            _jumpVelocity = BrawlerBalance.DownThrustVelocity;
         }
     }
 
@@ -695,11 +763,11 @@ public class Fighter : Combatant
         _isDashAttack = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
-        _attackRemaining = 0.25f;
-        _attackCooldown = 0.3f;
+        _attackRemaining = BrawlerBalance.CrouchAttackSeconds;
+        _attackCooldown = BrawlerBalance.CrouchAttackCooldownSeconds;
         _attackBufferRemaining = 0;
         _comboStep = 0;
-        _lastAttackTime = -10;
+        _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
     }
 
@@ -715,8 +783,8 @@ public class Fighter : Combatant
         _jumpDrift = Vector3.zero;
         _isBackstep = true;
         _dashDirection = new Vector3(-Facing, 0, 0);
-        _dashRemaining = 0.14f;
-        _dashCooldown = 0.6f;
+        _dashRemaining = BrawlerBalance.BackstepSeconds;
+        _dashCooldown = BrawlerBalance.BackstepCooldownSeconds;
         _knockbackVelocity = Vector3.zero;
         ReleaseDefenseForSpecialAction();
     }
@@ -729,11 +797,11 @@ public class Fighter : Combatant
         _isDashAttack = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
-        _attackRemaining = 0.35f;
-        _attackCooldown = 0.55f;
+        _attackRemaining = BrawlerBalance.GroundAttackSeconds;
+        _attackCooldown = BrawlerBalance.GroundAttackCooldownSeconds;
         _attackBufferRemaining = 0;
         _comboStep = 0;
-        _lastAttackTime = -10;
+        _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         IsGuarding = false;
     }
@@ -753,7 +821,7 @@ public class Fighter : Combatant
     public void TakeDamage(int amount, float direction)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > 0.6f)
+        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
         {
             return;
         }
@@ -761,9 +829,9 @@ public class Fighter : Combatant
         if (IsGuarding && direction * Facing < 0)
         {
             _game.PlaySound(BrawlerSound.Guard);
-            _blockFlashRemaining = 0.15f;
-            _counterWindowRemaining = 0.45f;
-            _knockbackVelocity = new Vector3(direction * 1.5f, 0, 0);
+            _blockFlashRemaining = BrawlerBalance.BlockFlashSeconds;
+            _counterWindowRemaining = BrawlerBalance.CounterWindowSeconds;
+            _knockbackVelocity = new Vector3(direction * BrawlerBalance.BlockKnockbackSpeed, 0, 0);
             return;
         }
         ApplyDamage(amount, direction, false);
@@ -771,12 +839,13 @@ public class Fighter : Combatant
 
     private void ApplyDamage(int amount, float direction, bool isGroundHit)
     {
+        _slideRemaining = 0;
         _isRunning = false;
         _wasForwardHeld = false;
-        _lastForwardTapAt = -10;
+        _lastForwardTapAt = BrawlerDefines.UnsetTime;
         IsGuarding = false;
         ReduceHealth(CalculateReceivedDamage(amount));
-        _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : 0.25f;
+        _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
         _isCrouching = false;
@@ -793,17 +862,17 @@ public class Fighter : Combatant
         _attackBufferRemaining = 0;
         // 予告中に殴れば敵の攻撃を止められます。
         _windupRemaining = 0;
-        _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? 0.25f : 0.6f);
-        _flashRemaining = 0.12f;
+        _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? BrawlerBalance.StunSeconds : BrawlerBalance.EnemyHitCooldownSeconds);
+        _flashRemaining = BrawlerBalance.DamageFlashSeconds;
         // 最終段で敵を転倒させます。硬直時間と合わせて、起き上がるまで行動を止めます。
-        if (!isGroundHit && !IsPlayer && amount >= 30 && Health > 0)
+        if (!isGroundHit && !IsPlayer && amount >= BrawlerBalance.KnockdownDamageThreshold && Health > 0)
         {
             _hasReceivedGroundHit = false;
-            _downRemaining = 0.7f;
+            _downRemaining = BrawlerBalance.DownSeconds;
             _stunRemaining = _downRemaining;
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
-        _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= 30 ? 9 : 5), 0, 0);
+        _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
         _game.RegisterDamage(this, amount);
         if (Health == 0)
         {
@@ -811,7 +880,7 @@ public class Fighter : Combatant
             _visual.localRotation = Quaternion.Euler(0, 0, 80);
             if (!IsPlayer)
             {
-                Destroy(gameObject, 0.5f);
+                Destroy(gameObject, BrawlerBalance.EnemyRemovalSeconds);
             }
         }
     }

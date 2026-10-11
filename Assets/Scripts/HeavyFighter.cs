@@ -2,11 +2,11 @@
 // ガード・予告中断・転倒・追撃は通常の敵と共通なので、覚えた操作がそのまま使えます。
 public sealed class HeavyFighter : Fighter
 {
-    protected override float EnemyMovementSpeed => 1.3f;
+    protected override float EnemyMovementSpeed => BrawlerBalance.HeavySpeed;
 
-    protected override float EnemyWindupDuration => 0.95f;
+    protected override float EnemyWindupDuration => BrawlerBalance.HeavyWindupSeconds;
 
-    protected override float EnemyAttackInterval => 1.8f;
+    protected override float EnemyAttackInterval => BrawlerBalance.HeavyAttackIntervalSeconds;
 
-    protected override int EnemyAttackDamage => 24;
+    protected override int EnemyAttackDamage => BrawlerBalance.HeavyDamage;
 }

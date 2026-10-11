@@ -3,21 +3,21 @@ using UnityEngine;
 // クレリック固有の魔法を担当します。移動・攻撃・被ダメージは Fighter の共通処理を使います。
 public sealed class ClericFighter : Fighter
 {
-    private const int HealingAmount = 30;
-    private const float RecoveryDuration = 0.6f;
+    private const int HealingAmount = BrawlerBalance.HealingAmount;
+    private const float RecoveryDuration = BrawlerBalance.SpellRecoverySeconds;
     private float _recoveryRemaining;
-    private const float ProtectionDuration = 8;
+    private const float ProtectionDuration = BrawlerBalance.ProtectionSeconds;
     private float _protectionRemaining;
 
     // 回復とは別に 2 回使用できます。効果中の再使用では回数を消費しません。
-    public int ProtectionUsesRemaining { get; private set; } = 2;
+    public int ProtectionUsesRemaining { get; private set; } = BrawlerBalance.ProtectionUses;
 
     public float ProtectionSecondsRemaining => _protectionRemaining;
 
     public bool IsProtected => _protectionRemaining > 0;
 
     // 1 プレイで 3 回。ウェーブを進めても補充せず、リスタートで初期化します。
-    public int HealingUsesRemaining { get; private set; } = 3;
+    public int HealingUsesRemaining { get; private set; } = BrawlerBalance.HealingUses;
 
     public bool IsRecoveringFromHeal => _recoveryRemaining > 0;
 
@@ -42,7 +42,7 @@ public sealed class ClericFighter : Fighter
     protected override int CalculateReceivedDamage(int amount)
     {
         // 奇数のダメージは切り上げます。1 ダメージも無効にならず、完全無敵とは区別できます。
-        return IsProtected ? Mathf.CeilToInt(Mathf.Max(0, amount) * 0.5f) : amount;
+        return IsProtected ? Mathf.CeilToInt(Mathf.Max(0, amount) * BrawlerBalance.ProtectionDamageMultiplier) : amount;
     }
 
     protected override bool UpdateSpecialAction()
