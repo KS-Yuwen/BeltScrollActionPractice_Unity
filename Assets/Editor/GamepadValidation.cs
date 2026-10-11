@@ -245,6 +245,25 @@ public static class GamepadValidation
                 SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
                 UpdatePlayer(player);
             }
+            foreach (float uppercutFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, uppercutFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsUppercutAttacking && player.Facing == uppercutFacing,
+                    "左右の下→上＋攻撃で対空技を発動");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

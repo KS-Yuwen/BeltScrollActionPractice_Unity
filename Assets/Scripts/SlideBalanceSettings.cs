@@ -20,6 +20,13 @@ public sealed class SlideBalanceSettings
     public float DashSpecialAttackSeconds { get; }
     public float DashSpecialCooldownSeconds { get; }
     public float DashSpecialHitDelaySeconds { get; }
+    public int UppercutDamage { get; }
+    public float UppercutDirectionWindowSeconds { get; }
+    public float UppercutButtonWindowSeconds { get; }
+    public float UppercutAttackSeconds { get; }
+    public float UppercutCooldownSeconds { get; }
+    public float UppercutHitDelaySeconds { get; }
+    public float UppercutReach { get; }
 
     private SlideBalanceSettings(Dictionary<string, float> values)
     {
@@ -37,6 +44,13 @@ public sealed class SlideBalanceSettings
         DashSpecialAttackSeconds = values["DashSpecialAttackSeconds"];
         DashSpecialCooldownSeconds = values["DashSpecialCooldownSeconds"];
         DashSpecialHitDelaySeconds = values["DashSpecialHitDelaySeconds"];
+        UppercutDamage = (int)values["UppercutDamage"];
+        UppercutDirectionWindowSeconds = values["UppercutDirectionWindowSeconds"];
+        UppercutButtonWindowSeconds = values["UppercutButtonWindowSeconds"];
+        UppercutAttackSeconds = values["UppercutAttackSeconds"];
+        UppercutCooldownSeconds = values["UppercutCooldownSeconds"];
+        UppercutHitDelaySeconds = values["UppercutHitDelaySeconds"];
+        UppercutReach = values["UppercutReach"];
     }
 
     private static Dictionary<string, float> CreateDefaults()
@@ -56,7 +70,14 @@ public sealed class SlideBalanceSettings
             { "DashSpecialMovementSeconds", BrawlerBalance.DefaultDashSpecialMovementSeconds },
             { "DashSpecialAttackSeconds", BrawlerBalance.DefaultDashSpecialAttackSeconds },
             { "DashSpecialCooldownSeconds", BrawlerBalance.DefaultDashSpecialCooldownSeconds },
-            { "DashSpecialHitDelaySeconds", BrawlerBalance.DefaultDashSpecialHitDelaySeconds }
+            { "DashSpecialHitDelaySeconds", BrawlerBalance.DefaultDashSpecialHitDelaySeconds },
+            { "UppercutDamage", BrawlerBalance.DefaultUppercutDamage },
+            { "UppercutDirectionWindowSeconds", BrawlerBalance.DefaultUppercutDirectionWindowSeconds },
+            { "UppercutButtonWindowSeconds", BrawlerBalance.DefaultUppercutButtonWindowSeconds },
+            { "UppercutAttackSeconds", BrawlerBalance.DefaultUppercutAttackSeconds },
+            { "UppercutCooldownSeconds", BrawlerBalance.DefaultUppercutCooldownSeconds },
+            { "UppercutHitDelaySeconds", BrawlerBalance.DefaultUppercutHitDelaySeconds },
+            { "UppercutReach", BrawlerBalance.DefaultUppercutReach }
         };
     }
 
@@ -120,6 +141,12 @@ public sealed class SlideBalanceSettings
             error = "ダッシュ必殺技は移動・命中時刻が攻撃時間内に収まり、再使用待ちは攻撃時間以上にしてください。";
             return false;
         }
+        if (values["UppercutHitDelaySeconds"] >= values["UppercutAttackSeconds"]
+            || values["UppercutCooldownSeconds"] < values["UppercutAttackSeconds"])
+        {
+            error = "対空必殺技の命中時刻は攻撃時間内、再使用待ちは攻撃時間以上にしてください。";
+            return false;
+        }
         settings = new SlideBalanceSettings(values);
         return true;
     }
@@ -136,6 +163,7 @@ public sealed class SlideBalanceSettings
                 return value >= 0.1f && value <= 30;
             case "SlideDamage":
             case "DashSpecialDamage":
+            case "UppercutDamage":
                 return value >= 1 && value <= 1000 && value == Math.Floor(value);
             default:
                 return value >= 0.01f && value <= 3;

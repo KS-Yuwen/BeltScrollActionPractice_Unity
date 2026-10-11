@@ -515,6 +515,34 @@ public static class CombatValidation
             Require(!SlideBalanceSettings.TryParse("key,value\nDashSpecialHitDelaySeconds,1", out _, out _), "攻撃終了後の命中時刻を拒否");
             updateStop.Invoke(game, new object[] { 1f });
 
+            var uppercutCommands = new DirectionCommandBuffer();
+            uppercutCommands.Record(Vector3.back, 1, 0);
+            uppercutCommands.Record(Vector3.zero, 1, 0.2f);
+            uppercutCommands.Record(Vector3.forward, 1, 0.8f);
+            Require(uppercutCommands.TryConsumeDownUp(Vector3.forward, 1.3f), "対空コマンドはニュートラル経由と遅めの入力を許可");
+            Require(!uppercutCommands.TryConsumeDownUp(Vector3.forward, 1.31f), "対空コマンドを二重消費しない");
+            uppercutCommands.Record(Vector3.back, 1, 2);
+            uppercutCommands.Record(Vector3.forward, 1, 3);
+            Require(!uppercutCommands.TryConsumeDownUp(Vector3.forward, 3.1f), "期限を超えた対空コマンドを拒否");
+            player.transform.position = Vector3.zero;
+            heavy.transform.position = Vector3.left;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+            player.RestoreHealth(100);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            typeof(Fighter).GetMethod("StartUppercut", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            int uppercutHitHealth = heavy.Health;
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
+            Require(heavy.Health == uppercutHitHealth - 36 && heavy.IsDowned, "対空技は36ダメージで転倒");
+            player.TakeDamage(5, 1);
+            Require(player.Health == 95 && !player.IsUppercutAttacking, "対空技も被ダメージで中断");
+            Require(SlideBalanceSettings.TryParse("key,value\nUppercutDamage,48\nUppercutReach,2.5", out SlideBalanceSettings uppercutSettings, out _)
+                && uppercutSettings.UppercutDamage == 48 && uppercutSettings.UppercutReach == 2.5f, "対空技をCSVで調整可能");
+            Require(!SlideBalanceSettings.TryParse("key,value\nUppercutHitDelaySeconds,1", out _, out _), "対空技の不正な命中時刻を拒否");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

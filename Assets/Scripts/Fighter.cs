@@ -38,6 +38,8 @@ public class Fighter : Combatant
     private float _blockFlashRemaining;
     private bool _isDashAttack;
     private bool _isDashSpecial;
+    private bool _isUppercut;
+    public bool IsUppercutAttacking => _isUppercut && _attackRemaining > 0;
     public bool IsDashSpecialAttacking => _isDashSpecial && _attackRemaining > 0;
     private float _dashAttackMovementRemaining;
     // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
@@ -235,6 +237,14 @@ public class Fighter : Combatant
                 return Vector3.zero;
             }
             _directionCommands.Record(input, Facing, Time.time);
+            if (attackPressed && !jumpPressed && !IsAirborne && _stunRemaining <= 0
+                && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0
+                && _directionCommands.TryConsumeDownUp(input, Time.time))
+            {
+                Facing = GetInputFacing(input);
+                StartUppercut();
+                return Vector3.zero;
+            }
             if (jumpPressed && !IsAirborne && _stunRemaining <= 0 && _attackRemaining <= 0
                 && _dashRemaining <= 0 && _attackCooldown <= 0
                 && _directionCommands.TryConsumeDownForward(input, Time.time, out float slideDirection))
@@ -311,6 +321,7 @@ public class Fighter : Combatant
                 _groundAttackTarget = null;
                 _isDashAttack = false;
                 _isDashSpecial = false;
+                _isUppercut = false;
                 _isCounterAttack = false;
                 _counterWindowRemaining = 0;
                 _dashAttackMovementRemaining = 0;
@@ -513,16 +524,17 @@ public class Fighter : Combatant
         {
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
-            _attackArm.localRotation = Quaternion.Euler(0, 0, _isDownThrust ? -90 : _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
+            _attackArm.localRotation = Quaternion.Euler(0, 0, _isUppercut ? -30 : _isDownThrust ? -90 : _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
             _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f,
-                _isGroundAttack || _isCrouchAttack ? 0.65f : 1.35f, -0.1f);
+                _isUppercut ? 1.6f : _isGroundAttack || _isCrouchAttack ? 0.65f : 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            float hitTiming = _isDashSpecial ? BrawlerBalance.DashSpecialAttackSeconds - BrawlerBalance.DashSpecialHitDelaySeconds
+            float hitTiming = _isUppercut ? BrawlerBalance.UppercutAttackSeconds - BrawlerBalance.UppercutHitDelaySeconds
+                : _isDashSpecial ? BrawlerBalance.DashSpecialAttackSeconds - BrawlerBalance.DashSpecialHitDelaySeconds
                 : _isGroundAttack ? BrawlerBalance.GroundHitRemainingSeconds : _isDashAttack || _isCounterAttack ? BrawlerBalance.FastHitRemainingSeconds : BrawlerBalance.NormalHitRemainingSeconds;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isDashSpecial ? BrawlerBalance.DashSpecialDamage
+                int damage = _isUppercut ? BrawlerBalance.UppercutDamage : _isDashSpecial ? BrawlerBalance.DashSpecialDamage
                     : _isCrouchAttack ? BrawlerBalance.CrouchAttackDamage : _isAirAttack ? (_isDownThrust ? BrawlerBalance.DownThrustDamage : BrawlerBalance.AirAttackDamage)
                     : _isCounterAttack ? BrawlerBalance.CounterDamage : _isDashAttack ? BrawlerBalance.DashAttackDamage : IsPlayer ? (_comboStep == BrawlerBalance.ComboSteps ? BrawlerBalance.FinisherDamage : BrawlerBalance.NormalDamage) : EnemyAttackDamage;
                 if (_isGroundAttack)
@@ -540,6 +552,7 @@ public class Fighter : Combatant
         {
             _isDashAttack = false;
             _isDashSpecial = false;
+            _isUppercut = false;
             _isCounterAttack = false;
             _isGroundAttack = false;
             _groundAttackTarget = null;
@@ -591,6 +604,7 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
@@ -607,6 +621,7 @@ public class Fighter : Combatant
     private void StartDashAttack()
     {
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCrouchAttack = false;
         _isGroundAttack = false;
         _groundAttackTarget = null;
@@ -626,6 +641,19 @@ public class Fighter : Combatant
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         IsGuarding = false;
+    }
+
+    private void StartUppercut()
+    {
+        // 共通の単発攻撃初期化を使い、対空技の威力・時間・振り上げ演出を適用します。
+        StartCounterAttack();
+        _isCounterAttack = false;
+        _isUppercut = true;
+        _isRunning = false;
+        _isCrouching = false;
+        _dashAttackMovementRemaining = 0;
+        _attackRemaining = BrawlerBalance.UppercutAttackSeconds;
+        _attackCooldown = BrawlerBalance.UppercutCooldownSeconds;
     }
 
     private void StartDashSpecial(float direction)
@@ -652,6 +680,7 @@ public class Fighter : Combatant
         _isCounterAttack = true;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         _attackCooldown = BrawlerBalance.CounterCooldownSeconds;
         _attackBufferRemaining = 0;
@@ -783,6 +812,7 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCounterAttack = false;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         _attackCooldown = BrawlerBalance.AirAttackCooldownSeconds;
@@ -803,6 +833,7 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
         _attackRemaining = BrawlerBalance.CrouchAttackSeconds;
@@ -838,6 +869,7 @@ public class Fighter : Combatant
         _groundAttackTarget = target;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
         _attackRemaining = BrawlerBalance.GroundAttackSeconds;
@@ -883,6 +915,7 @@ public class Fighter : Combatant
     private void ApplyDamage(int amount, float direction, bool isGroundHit)
     {
         _isDashSpecial = false;
+        _isUppercut = false;
         _slideRemaining = 0;
         _isRunning = false;
         _wasForwardHeld = false;
@@ -901,6 +934,7 @@ public class Fighter : Combatant
         _groundAttackTarget = null;
         _isDashAttack = false;
         _isDashSpecial = false;
+        _isUppercut = false;
         _isCounterAttack = false;
         _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;

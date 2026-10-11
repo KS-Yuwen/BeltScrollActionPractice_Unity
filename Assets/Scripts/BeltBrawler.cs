@@ -448,7 +448,8 @@ public sealed class BeltBrawler : MonoBehaviour
         Vector3 delta = target.transform.position - attacker.transform.position;
         // プレイヤーの左右方向のリーチだけを従来の 1.5 倍にします（1.65 × 1.5 = 2.475）。
         // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
-        float attackReach = attacker.IsPlayer ? 2.475f : 1.65f;
+        float attackReach = attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
+            : attacker.IsPlayer ? 2.475f : 1.65f;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。

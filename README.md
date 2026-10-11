@@ -51,6 +51,9 @@ CSVはビルドに同梱されます。現在はPlay開始時の読み込みで�
 左右の向きに対応し、無敵はなく被ダメージで中断します。攻撃＋ジャンプの同時入力はスライディングを優先します。
 CSVの `DashSpecialDamage` / `DashSpecialSpeed` / `DashSpecialMovementSeconds` / `DashSpecialAttackSeconds` / `DashSpecialCooldownSeconds` / `DashSpecialHitDelaySeconds` で調整できます。
 受付時間と方向しきい値はスライディングと共通です。必殺技の移動・命中時刻は攻撃時間内、再使用待ちは攻撃時間以上にしてください。
+下→上＋攻撃で対空必殺技を出します（S→W＋J、またはパッド下→上＋X・□）。向きを維持して鈍器を振り上げ、36ダメージ・リーチ1.8の単発攻撃を出します。
+既定は方向受付0.9秒・ボタン受付0.6秒・攻撃0.45秒・再使用待ち0.7秒です。無敵はなく、被ダメージで中断します。地上の敵にも命中します。
+同じCSVの `UppercutDirectionWindowSeconds` / `UppercutButtonWindowSeconds` / `UppercutDamage` / `UppercutAttackSeconds` / `UppercutCooldownSeconds` / `UppercutHitDelaySeconds` / `UppercutReach` で調整できます。
 ジャンプ中の攻撃は20ダメージ、下＋攻撃は32ダメージの下突きです。空中でも左右・奥行きに移動できます。
 高さ0.6を超えると地上攻撃を避けられます。離陸直後・着地間際は攻撃を受け、空中ではガード・回復・プロテクションを使えません。
 資料の操作との対応・今後の実装順は `CONTROLS_ROADMAP.md` を参照してください。

@@ -18,3 +18,11 @@ DashSpecialMovementSeconds,0.25
 DashSpecialAttackSeconds,0.4
 DashSpecialCooldownSeconds,0.75
 DashSpecialHitDelaySeconds,0.1
+# 対空必殺技：下→上の受付と上→攻撃の受付、威力、攻撃時間、再使用待ち、命中時刻、リーチ
+UppercutDirectionWindowSeconds,0.9
+UppercutButtonWindowSeconds,0.6
+UppercutDamage,36
+UppercutAttackSeconds,0.45
+UppercutCooldownSeconds,0.7
+UppercutHitDelaySeconds,0.1
+UppercutReach,1.8

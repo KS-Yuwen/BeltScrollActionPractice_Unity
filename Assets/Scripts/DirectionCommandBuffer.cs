@@ -7,9 +7,29 @@ public sealed class DirectionCommandBuffer
     private float _downAt = BrawlerDefines.UnsetTime;
     private float _diagonalAt = BrawlerDefines.UnsetTime;
     private float _facing;
+    private float _uppercutDownAt = BrawlerDefines.UnsetTime;
+    private float _uppercutUpAt = BrawlerDefines.UnsetTime;
+    private bool _wasDown;
+    private bool _wasUp;
 
     public void Record(Vector3 input, float facing, float time)
     {
+        // 下→上は途中のニュートラルを許可します。スライディングとは独立した履歴です。
+        bool currentDown = input.z < -BrawlerBalance.CommandDirectionThreshold;
+        bool currentUp = input.z > BrawlerBalance.CommandDirectionThreshold;
+        if (currentDown && !_wasDown)
+        {
+            _uppercutDownAt = time;
+            _uppercutUpAt = BrawlerDefines.UnsetTime;
+        }
+        if (currentUp && !_wasUp)
+        {
+            _uppercutUpAt = time - _uppercutDownAt <= BrawlerBalance.UppercutDirectionWindowSeconds
+                ? time : BrawlerDefines.UnsetTime;
+            _uppercutDownAt = BrawlerDefines.UnsetTime;
+        }
+        _wasDown = currentDown;
+        _wasUp = currentUp;
         bool down = input.z < -BrawlerBalance.CommandDirectionThreshold;
         // 判定の境界をそろえます。浅い斜め入力で状態だけ進み、後の深い入力を見逃すのを防ぎます。
         BrawlerDefines.CommandDirection direction = down
@@ -38,6 +58,17 @@ public sealed class DirectionCommandBuffer
             _downAt = BrawlerDefines.UnsetTime;
             _diagonalAt = BrawlerDefines.UnsetTime;
         }
+    }
+
+    public bool TryConsumeDownUp(Vector3 input, float time)
+    {
+        if (input.z <= BrawlerBalance.CommandDirectionThreshold
+            || time - _uppercutUpAt > BrawlerBalance.UppercutButtonWindowSeconds)
+        {
+            return false;
+        }
+        _uppercutUpAt = BrawlerDefines.UnsetTime;
+        return true;
     }
 
     public bool TryConsumeDownForward(Vector3 input, float time, out float direction)

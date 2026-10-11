@@ -28,6 +28,20 @@ public static class BrawlerBalance
     public static float DashSpecialAttackSeconds => s_slideSettings.DashSpecialAttackSeconds;
     public static float DashSpecialCooldownSeconds => s_slideSettings.DashSpecialCooldownSeconds;
     public static float DashSpecialHitDelaySeconds => s_slideSettings.DashSpecialHitDelaySeconds;
+    public const int DefaultUppercutDamage = 36;
+    public const float DefaultUppercutDirectionWindowSeconds = 0.9f;
+    public const float DefaultUppercutButtonWindowSeconds = 0.6f;
+    public const float DefaultUppercutAttackSeconds = 0.45f;
+    public const float DefaultUppercutCooldownSeconds = 0.7f;
+    public const float DefaultUppercutHitDelaySeconds = 0.1f;
+    public const float DefaultUppercutReach = 1.8f;
+    public static int UppercutDamage => s_slideSettings.UppercutDamage;
+    public static float UppercutDirectionWindowSeconds => s_slideSettings.UppercutDirectionWindowSeconds;
+    public static float UppercutButtonWindowSeconds => s_slideSettings.UppercutButtonWindowSeconds;
+    public static float UppercutAttackSeconds => s_slideSettings.UppercutAttackSeconds;
+    public static float UppercutCooldownSeconds => s_slideSettings.UppercutCooldownSeconds;
+    public static float UppercutHitDelaySeconds => s_slideSettings.UppercutHitDelaySeconds;
+    public static float UppercutReach => s_slideSettings.UppercutReach;
 
     [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void LoadSlideSettings()
