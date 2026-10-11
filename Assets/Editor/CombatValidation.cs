@@ -164,8 +164,20 @@ public static class CombatValidation
             Require(player.Health == beforeProtectionHit - 9, "弾の8ダメージも4に軽減");
             SetPrivateField(player, "_stunRemaining", 0f);
             // エディターの検証コールバックでは deltaTime が0の場合があるため、経過時間を明示します。
+            SetPrivateField(cleric, "_protectionRemaining", BrawlerBalance.ProtectionWarningSeconds + 1);
+            Require(!cleric.IsProtectionExpiring, "終了予告のしきい値より前は警告しない");
+            SetPrivateField(cleric, "_protectionRemaining", BrawlerBalance.ProtectionWarningSeconds);
+            Require(cleric.IsProtectionExpiring, "残り時間がしきい値に達すると終了予告");
+            int warningProtectionUses = cleric.ProtectionUsesRemaining;
+            typeof(ClericFighter).GetMethod("UpdateProtection", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(cleric, new object[] { 0f });
+            Require(cleric.IsProtectionExpiring && cleric.ProtectionUsesRemaining == warningProtectionUses,
+                "時間停止中も終了予告を維持し、使用回数に影響しない");
+            Require((int)typeof(ClericFighter).GetMethod("CalculateReceivedDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(cleric, new object[] { 9 }) == 5, "終了予告中もダメージ軽減が続く");
             typeof(ClericFighter).GetMethod("UpdateProtection", BindingFlags.Instance | BindingFlags.NonPublic)
                 .Invoke(cleric, new object[] { 8.1f });
+            Require(!cleric.IsProtectionExpiring, "効果終了後は終了予告も解除");
             Require(!cleric.IsProtected, "通常更新で効果時間が終了");
             int beforeExpiredHit = player.Health;
             player.TakeDamage(8, player.Facing);

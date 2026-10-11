@@ -733,7 +733,7 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         if (_player is ClericFighter cleric)
         {
-            SelectionHud.Draw(cleric);
+            SelectionHud.Draw(cleric, _pickupNoticeFont);
             string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
             GUI.Label(new Rect(24, 323, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
                 ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"

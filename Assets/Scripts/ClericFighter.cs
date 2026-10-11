@@ -110,6 +110,10 @@ public sealed class ClericFighter : Fighter
 
     public bool IsProtected => _protectionRemaining > 0;
 
+    // 表示用タイマーを別に持たず、実際の効果時間から終了予告を求めます。
+    public bool IsProtectionExpiring => Health > 0 && IsProtected
+        && _protectionRemaining <= BrawlerBalance.ProtectionWarningSeconds;
+
     // 1 プレイで 3 回。ウェーブを進めても補充せず、リスタートで初期化します。
     public int HealingUsesRemaining { get; private set; } = BrawlerBalance.HealingUses;
 

@@ -14,8 +14,9 @@ public static class SelectionHud
     private static GUIStyle s_titleStyle;
     private static GUIStyle s_countStyle;
     private static GUIStyle s_hintStyle;
+    private static GUIStyle s_statusStyle;
 
-    public static void Draw(ClericFighter cleric)
+    public static void Draw(ClericFighter cleric, Font statusFont)
     {
         // GUI.skinの参照はOnGUIから呼ばれた時だけ行い、スタイルを毎回作り直しません。
         if (s_titleStyle == null)
@@ -23,7 +24,9 @@ public static class SelectionHud
             s_titleStyle = new GUIStyle(GUI.skin.label) { fontSize = BrawlerBalance.SelectionTitleFontSize, fontStyle = FontStyle.Bold };
             s_countStyle = new GUIStyle(s_titleStyle) { fontSize = BrawlerBalance.SelectionCountFontSize };
             s_hintStyle = new GUIStyle(GUI.skin.label) { fontSize = BrawlerBalance.SelectionTitleFontSize };
+            s_statusStyle = new GUIStyle(GUI.skin.label) { fontSize = BrawlerBalance.SelectionStatusFontSize };
         }
+        s_statusStyle.font = statusFont;
         float width = s_actions.Length * BrawlerBalance.SelectionCardWidth
             + (s_actions.Length - 1) * BrawlerBalance.SelectionCardGap;
         float height = BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight * 2;
@@ -62,6 +65,11 @@ public static class SelectionHud
     private static void DrawCard(ClericFighter cleric, BrawlerDefines.UsableAction action, float x)
     {
         bool selected = cleric.SelectedAction == action;
+        bool protection = action == BrawlerDefines.UsableAction.Protection;
+        bool expiring = protection && cleric.IsProtectionExpiring;
+        // 効果時間から点滅を求め、ヒットストップ中は残り時間も点滅も停止させます。
+        float pulse = expiring ? (1 + Mathf.Sin((BrawlerBalance.ProtectionSeconds - cleric.ProtectionSecondsRemaining)
+            * BrawlerBalance.ProtectionWarningPulsesPerSecond * Mathf.PI * 2)) / 2 : 0;
         (string title, int count, int capacity) = action switch
         {
             BrawlerDefines.UsableAction.Healing => ("HEAL", cleric.HealingUsesRemaining, BrawlerBalance.HealingUses),
@@ -71,8 +79,10 @@ public static class SelectionHud
         };
         var card = new Rect(x, 0, BrawlerBalance.SelectionCardWidth, BrawlerBalance.SelectionCardHeight);
         GUI.color = selected ? new Color(0.12f, 0.25f, 0.35f, 0.95f) : new Color(0.05f, 0.07f, 0.1f, 0.9f);
+        if (expiring) GUI.color = Color.Lerp(GUI.color, new Color(0.55f, 0.18f, 0.03f, 0.95f), pulse);
         GUI.DrawTexture(card, Texture2D.whiteTexture);
         GUI.color = selected ? Color.yellow : Color.gray;
+        if (expiring) GUI.color = Color.Lerp(GUI.color, new Color(1, 0.45f, 0.1f), pulse);
         float border = BrawlerBalance.SelectionBorderWidth;
         // 選択項目は色だけでなく枠と「>」でも示し、残りゼロでも選択位置が分かるようにします。
         GUI.DrawTexture(new Rect(x, 0, card.width, border), Texture2D.whiteTexture);
@@ -81,9 +91,17 @@ public static class SelectionHud
         GUI.DrawTexture(new Rect(x + card.width - border, 0, border, card.height), Texture2D.whiteTexture);
         float padding = BrawlerBalance.SelectionCardPadding;
         GUI.color = selected ? Color.yellow : count > 0 ? Color.white : Color.gray;
-        GUI.Label(new Rect(x + padding, padding, card.width - padding * 2, card.height / 2),
+        GUI.Label(new Rect(x + padding, padding, card.width - padding * 2, card.height / 3),
             (selected ? "> " : "") + title, s_titleStyle);
-        GUI.Label(new Rect(x + padding, card.height / 2, card.width - padding * 2, card.height / 2),
+        GUI.Label(new Rect(x + padding, card.height / 3, card.width - padding * 2, card.height / 3),
             $"{count} / {capacity}", s_countStyle);
+        if (protection && cleric.IsProtected && cleric.Health > 0)
+        {
+            // 他の項目を選択中でも予告を表示します。選択の矢印と枠は引き続き維持します。
+            GUI.color = expiring ? Color.yellow : Color.white;
+            string protectionStatus = expiring ? "まもなく終了" : $"残り {cleric.ProtectionSecondsRemaining:F1}秒";
+            GUI.Label(new Rect(x + padding, card.height * 2 / 3, card.width - padding * 2, card.height / 3),
+                protectionStatus, s_statusStyle);
+        }
     }
 }
