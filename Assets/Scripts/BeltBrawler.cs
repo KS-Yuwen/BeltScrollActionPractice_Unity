@@ -23,6 +23,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _heavyEnemyMaterial;
     private Material _undeadEnemyMaterial;
     private Material _potionMaterial;
+    private Material _knifeMaterial;
     private int _defeatedEnemyCount;
     private int _score;
     private int _hitChain;
@@ -58,6 +59,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
         _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        _knifeMaterial = CreateMaterial(new Color(0.8f, 0.85f, 0.95f));
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = new Material(Shader.Find("Unlit/Color"));
         _impactMaterial.color = new Color(1, 0.85f, 0.25f);
@@ -317,6 +319,10 @@ public sealed class BeltBrawler : MonoBehaviour
             // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
             // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
             _defeatedEnemyCount++;
+            if (_defeatedEnemyCount % BrawlerBalance.KnifeDropInterval == 0)
+            {
+                DropKnife(victim.transform.position);
+            }
             if (_defeatedEnemyCount % 3 == 0)
             {
                 DropPotion(victim.transform.position);
@@ -372,6 +378,56 @@ public sealed class BeltBrawler : MonoBehaviour
             ray.localRotation = Quaternion.Euler(0, 0, angle);
         }
         impactObject.AddComponent<HitImpact>().Initialize(isStrong ? 1.4f : 1);
+    }
+
+    public void ThrowKnife(Fighter owner)
+    {
+        Vector3 position = owner.transform.position + Vector3.up * BrawlerBalance.KnifeHeight
+            + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
+        var knife = new GameObject("Thrown Knife");
+        knife.transform.position = position;
+        CreateBodyPart("Knife blade", Vector3.zero, new Vector3(0.65f, 0.08f, 0.12f), _knifeMaterial, knife.transform);
+        CreateBodyPart("Knife grip", Vector3.left * (owner.Facing * 0.4f), new Vector3(0.2f, 0.12f, 0.14f), _floorMaterial, knife.transform);
+        knife.AddComponent<ThrowingKnifeProjectile>().Initialize(this, owner);
+    }
+
+    public Fighter FindKnifeTarget(Vector3 start, Vector3 end)
+    {
+        Fighter nearest = null;
+        float nearestFraction = float.PositiveInfinity;
+        Vector3 travel = end - start;
+        float hitRadiusSquared = BrawlerBalance.KnifeHitRadius * BrawlerBalance.KnifeHitRadius;
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0)
+            {
+                continue;
+            }
+            Vector3 target = enemy.transform.position + Vector3.up * (BrawlerBalance.KnifeHeight + enemy.JumpHeight);
+            // 発射地点より後ろや射程末端より先の敵には当てません。
+            float fraction = travel.sqrMagnitude > 0 ? Vector3.Dot(target - start, travel) / travel.sqrMagnitude : 0;
+            if (fraction < 0 || fraction > 1)
+            {
+                continue;
+            }
+            Vector3 closest = start + travel * fraction;
+            if ((target - closest).sqrMagnitude <= hitRadiusSquared && fraction < nearestFraction)
+            {
+                nearest = enemy;
+                nearestFraction = fraction;
+            }
+        }
+        return nearest;
+    }
+
+    private void DropKnife(Vector3 position)
+    {
+        var knife = new GameObject("Knife Pickup");
+        // ポーションと同時に落ちても重ならず、床に銀色の刃が見えるよう少しずらします。
+        knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + 0.4f, -3, 3));
+        CreateBodyPart("Blade", new Vector3(0, 0.2f, 0), new Vector3(0.6f, 0.08f, 0.18f), _knifeMaterial, knife.transform);
+        CreateBodyPart("Grip", new Vector3(-0.4f, 0.2f, 0), new Vector3(0.2f, 0.12f, 0.2f), _floorMaterial, knife.transform);
+        knife.AddComponent<ThrowingKnifePickup>().Initialize(_player, _audio);
     }
 
     private void DropPotion(Vector3 position)
@@ -534,9 +590,10 @@ public sealed class BeltBrawler : MonoBehaviour
                 BrawlerDefines.UsableAction.Healing => "HEAL",
                 BrawlerDefines.UsableAction.Protection => "PROTECTION",
                 BrawlerDefines.UsableAction.HealingPotion => "POTION (+20 HP)",
+                BrawlerDefines.UsableAction.ThrowingKnife => "THROWING KNIFE",
                 _ => "NONE"
             };
-            GUI.Label(new Rect(24, 397, 900, 40), $"POTIONS {cleric.HealingPotionsHeld}/{BrawlerBalance.PotionCapacity}", style);
+            GUI.Label(new Rect(24, 397, 1000, 40), $"POTIONS {cleric.HealingPotionsHeld}/{BrawlerBalance.PotionCapacity}   KNIVES {cleric.ThrowingKnivesHeld}/{BrawlerBalance.KnifeCapacity}", style);
             string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
             GUI.Label(new Rect(24, 434, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
                 ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"

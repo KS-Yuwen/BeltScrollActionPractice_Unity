@@ -127,6 +127,31 @@ public class Fighter : Combatant
     // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
     public int HealingPotionsHeld { get; private set; }
 
+    public int ThrowingKnivesHeld { get; private set; }
+
+    public bool TryStoreThrowingKnife()
+    {
+        if (!IsPlayer || Health <= 0 || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
+        {
+            return false;
+        }
+        ThrowingKnivesHeld++;
+        return true;
+    }
+
+    protected bool TryConsumeThrowingKnife()
+    {
+        // 発射時の向きを使い、後から振り向いても弾の方向は変えません。
+        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction || ThrowingKnivesHeld <= 0)
+        {
+            return false;
+        }
+        Game.ThrowKnife(this);
+        ThrowingKnivesHeld--;
+        ReleaseDefenseForSpecialAction();
+        return true;
+    }
+
     public bool TryStoreHealingPotion()
     {
         // HP満タンでも保存できます。死亡・所持上限では床のポーションを残します。

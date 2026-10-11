@@ -205,6 +205,8 @@ public static class CombatValidation
             Require(!cleric.TryUseSelectedAction() && player.Health == 85, "所持数ゼロでは回復しない");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
             cleric.SelectNextAction();
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "ポーションの次は投げナイフ");
+            cleric.SelectNextAction();
 
             // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
             player.transform.position = Vector3.zero;
@@ -645,6 +647,72 @@ public static class CombatValidation
             Require(cleric.TryTurnUndead(), "再使用待ち時間終了後は再発動可能");
             player.TakeDamage(5, player.Facing);
             Require(player.Health < turnHealth, "発動中にも被ダメージを受け、無敵は付かない");
+            // 拾得の距離・上限・二重取得と、左右の直進・低FPS・射程を検証します。
+            // 前のポーション検証は撃破数を2から3へ進めるため、ここではナイフの2体目撃破を独立に作ります。
+            Fighter knifeDropEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test knife drop enemy", Vector3.right * 10, false, false, false, false });
+            turnEnemies.Add(knifeDropEnemy);
+            SetPrivateField(game, "_defeatedEnemyCount", BrawlerBalance.KnifeDropInterval - 1);
+            knifeDropEnemy.TakeDamage(1000, 1);
+            var knifePickup = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifePickup>();
+            Require(knifePickup != null, "敵撃破でナイフをドロップ");
+            knifePickup.transform.position = player.transform.position + Vector3.forward;
+            Require(!knifePickup.TryCollect(), "奥行きが離れたナイフは拾わない");
+            knifePickup.transform.position = player.transform.position;
+            for (int held = 0; held < BrawlerBalance.KnifeCapacity; held++)
+            {
+                Require(player.TryStoreThrowingKnife(), "ナイフを上限まで保存可能");
+            }
+            Require(!knifePickup.TryCollect() && !player.TryStoreThrowingKnife(), "ナイフの所持上限を超えない");
+            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
+            Require(knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "床ナイフを所持品に保存");
+            Require(!knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "ナイフの二重取得を防止");
+            SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            foreach (float knifeFacing in new float[] { -1, 1 })
+            {
+                foreach (Fighter knifeEnemy in turnEnemies)
+                {
+                    if (knifeEnemy != null) knifeEnemy.transform.position = new Vector3(20, 0, 3);
+                }
+                Fighter firstKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test first knife target", Vector3.right * knifeFacing * 3, false, false, false, false });
+                Fighter secondKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test second knife target", Vector3.right * knifeFacing * 5, false, false, false, false });
+                turnEnemies.AddRange(new Fighter[] { secondKnifeEnemy, firstKnifeEnemy });
+                player.transform.position = Vector3.zero;
+                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
+                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
+                SetPrivateField(cleric, "_recoveryRemaining", 0f);
+                SetPrivateField(player, "_jumpHeight", 1f);
+                Require(!cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 1, "空中ではナイフを消費しない");
+                SetPrivateField(player, "_jumpHeight", 0f);
+                Require(cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0, "選択使用でナイフを一つ消費");
+                var thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
+                Require(thrownKnife != null && !cleric.TryThrowKnife(), "発射して使用後の隙では再使用不可");
+                // 振り向いてから大きな時間で進めても、発射時の方向で最初の敵だけに当たります。
+                typeof(Fighter).GetProperty("Facing").SetValue(player, -knifeFacing);
+                int firstKnifeHealth = firstKnifeEnemy.Health;
+                thrownKnife.Advance(1f);
+                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage
+                    && secondKnifeEnemy.Health == firstKnifeHealth, "左右・低FPSでも最初の一体だけに命中");
+                thrownKnife.Advance(1f);
+                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage, "破棄前の再更新でも二重命中しない");
+                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                SetPrivateField(cleric, "_recoveryRemaining", 0f);
+                Require(!cleric.TryThrowKnife(), "所持数ゼロでは投げない");
+                Require(player.TryStoreThrowingKnife(), "次の射程検証用ナイフを補充");
+                firstKnifeEnemy.transform.position = new Vector3(20, 0, 3);
+                secondKnifeEnemy.transform.position = Vector3.right * knifeFacing * (BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange + 1);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
+                Require(cleric.TryThrowKnife(), "射程検証用ナイフを発射");
+                thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
+                thrownKnife.Advance(10f);
+                Require(secondKnifeEnemy.Health == firstKnifeHealth
+                    && Mathf.Abs(thrownKnife.transform.position.x) <= BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange,
+                    "大きな経過時間でも射程の先には当たらない");
+                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                SetPrivateField(cleric, "_recoveryRemaining", 0f);
+                Require(player.TryStoreThrowingKnife(), "次の左右検証用に補充");
+            }
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

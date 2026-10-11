@@ -9,7 +9,8 @@ public static class BrawlerDefines
     {
         Healing,
         Protection,
-        HealingPotion
+        HealingPotion,
+        ThrowingKnife
     }
 
     public enum CommandDirection

@@ -183,6 +183,18 @@ public static class BrawlerBalance
     public const float ProtectionSeconds = 8;
     public const float ProtectionDamageMultiplier = 0.5f;
     public const int PotionHealingAmount = 20;
+    // 有限の所持品。射程は時間ではなく飛んだ距離で制限します。
+    public const int KnifeCapacity = 9;
+    public const int KnifeDamage = 24;
+    public const int KnifeDropInterval = 2;
+    public const float KnifeSpeed = 12f;
+    public const float KnifeRange = 9f;
+    public const float KnifeRecoverySeconds = 0.35f;
+    public const float KnifePickupRadius = 0.7f;
+    public const float KnifePickupLifetimeSeconds = 20f;
+    public const float KnifeHitRadius = 0.45f;
+    public const float KnifeLaunchOffset = 0.7f;
+    public const float KnifeHeight = 1.2f;
     // 所持上限と使用後の隙は、将来の外部データ調整でも同じ窓口を使います。
     public const int PotionCapacity = 9;
     public const float PotionRecoverySeconds = 0.6f;

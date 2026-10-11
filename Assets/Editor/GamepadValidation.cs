@@ -140,6 +140,12 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
             InputSystem.Update();
             UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "Qでナイフへ切り替え");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
             Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.Healing, "Qで回復へ循環して戻る");
             Require(spellCaster.HealingUsesRemaining == healingBeforeSelection
                 && spellCaster.ProtectionUsesRemaining == protectionBeforeSelection, "選択だけでは使用回数を消費しない");
@@ -374,6 +380,17 @@ public static class GamepadValidation
             InputSystem.Update();
             SetPlayerTimer(player, "_attackRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
+            // 入力検証の範囲魔法で、後続の戦闘検証用の敵にダメージを残さないようにします。
+            Fighter[] turnInputEnemies = UnityEngine.Object.FindObjectsByType<Fighter>();
+            var turnInputPositions = new System.Collections.Generic.Dictionary<Fighter, Vector3>();
+            foreach (Fighter turnInputEnemy in turnInputEnemies)
+            {
+                if (!turnInputEnemy.IsPlayer)
+                {
+                    turnInputPositions.Add(turnInputEnemy, turnInputEnemy.transform.position);
+                    turnInputEnemy.transform.position = player.transform.position + Vector3.right * (BrawlerBalance.TurnUndeadRadius + 2);
+                }
+            }
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
             InputSystem.Update();
             UpdatePlayer(player);
@@ -382,6 +399,10 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
             InputSystem.Update();
             Require(!BrawlerInput.WasTurnUndeadPressed(), "両ボタン保持では発動を繰り返さない");
+            foreach (var turnInputPosition in turnInputPositions)
+            {
+                turnInputPosition.Key.transform.position = turnInputPosition.Value;
+            }
             typeof(ClericFighter).GetField("_turnUndeadRecoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
             typeof(ClericFighter).GetField("_turnUndeadCooldownRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());

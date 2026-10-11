@@ -23,6 +23,7 @@ public sealed class ClericFighter : Fighter
         BrawlerDefines.UsableAction.Healing => HealingUsesRemaining,
         BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining,
         BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld,
+        BrawlerDefines.UsableAction.ThrowingKnife => ThrowingKnivesHeld,
         _ => 0
     };
 
@@ -37,6 +38,7 @@ public sealed class ClericFighter : Fighter
         {
             BrawlerDefines.UsableAction.Healing => BrawlerDefines.UsableAction.Protection,
             BrawlerDefines.UsableAction.Protection => BrawlerDefines.UsableAction.HealingPotion,
+            BrawlerDefines.UsableAction.HealingPotion => BrawlerDefines.UsableAction.ThrowingKnife,
             _ => BrawlerDefines.UsableAction.Healing
         };
     }
@@ -49,6 +51,7 @@ public sealed class ClericFighter : Fighter
             BrawlerDefines.UsableAction.Healing => TryHeal(),
             BrawlerDefines.UsableAction.Protection => TryProtection(),
             BrawlerDefines.UsableAction.HealingPotion => TryUseHealingPotion(),
+            BrawlerDefines.UsableAction.ThrowingKnife => TryThrowKnife(),
             _ => false
         };
     }
@@ -61,6 +64,17 @@ public sealed class ClericFighter : Fighter
         }
         // 使用直後は魔法と同様に足を止めます。回復量・使用後の隙は専用の定数です。
         _recoveryRemaining = BrawlerBalance.PotionRecoverySeconds;
+        return true;
+    }
+
+    public bool TryThrowKnife()
+    {
+        if (!TryConsumeThrowingKnife())
+        {
+            return false;
+        }
+        // 消費に成功した時だけ使用後の隙を設定します。無敵は付けません。
+        _recoveryRemaining = BrawlerBalance.KnifeRecoverySeconds;
         return true;
     }
 
