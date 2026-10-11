@@ -3,6 +3,13 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    public const int StageWaveCount = 5;
+    public const float ResultPanelWidth = 560f;
+    public const float ResultPanelHeight = 300f;
+    public const float ResultPanelMargin = 24f;
+    public const float ResultRowHeight = 48f;
+    public const int ResultTitleFontSize = 44;
+    public const int ResultBodyFontSize = 24;
     public const float LowHealthWarningFraction = 0.25f;
     public const float LowHealthWarningPulsesPerSecond = 1.5f;
     public const float LowHealthWarningBorderWidth = 3f;

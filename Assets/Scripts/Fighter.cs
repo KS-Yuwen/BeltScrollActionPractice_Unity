@@ -165,7 +165,7 @@ public class Fighter : Combatant
 
     public bool TryStoreThrowingKnife()
     {
-        if (!IsPlayer || Health <= 0 || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
+        if (!IsPlayer || Health <= 0 || _game.IsStageCleared || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
         {
             return false;
         }
@@ -189,7 +189,7 @@ public class Fighter : Combatant
     public bool TryStoreHealingPotion()
     {
         // HP満タンでも保存できます。死亡・所持上限では床のポーションを残します。
-        if (!IsPlayer || Health <= 0 || HealingPotionsHeld >= BrawlerBalance.PotionCapacity)
+        if (!IsPlayer || Health <= 0 || _game.IsStageCleared || HealingPotionsHeld >= BrawlerBalance.PotionCapacity)
         {
             return false;
         }
@@ -239,7 +239,7 @@ public class Fighter : Combatant
     {
         get
         {
-            if (!IsPlayer) return BrawlerDefines.ActionUseStatus.Unavailable;
+            if (!IsPlayer || _game.IsStageCleared) return BrawlerDefines.ActionUseStatus.Unavailable;
             if (Health <= 0) return BrawlerDefines.ActionUseStatus.Defeated;
             if (IsAirborne) return BrawlerDefines.ActionUseStatus.Airborne;
             if (_stunRemaining > 0 || _attackRemaining > 0 || _dashRemaining > 0
@@ -303,7 +303,7 @@ public class Fighter : Combatant
     protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
-        if (Health <= 0)
+        if (Health <= 0 || _game.IsStageCleared)
         {
             return;
         }
@@ -1143,7 +1143,7 @@ public class Fighter : Combatant
     public void TakeDamage(int amount, float direction, BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
+        if (Health <= 0 || _game.IsStageCleared || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
         {
             return;
         }

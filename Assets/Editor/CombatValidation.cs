@@ -1094,6 +1094,45 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
+            // 最終ウェーブの出現待ち・戦闘中はクリアせず、全滅して消えた時点だけ結果を確定します。
+            Fighter resultPlayer = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test result player", Vector3.zero, true, false, false, false });
+            SetPrivateField(game, "_player", resultPlayer);
+            turnEnemies.Clear();
+            bannerPending.Clear();
+            SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
+            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(!game.IsStageCleared && bannerPending.Count > 0, "最終ウェーブの出現予告中はクリアしない");
+            typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds });
+            Require(turnEnemies.Count > 0 && !game.IsStageCleared, "最終ウェーブにも敵を配置");
+            foreach (Fighter finalEnemy in turnEnemies)
+            {
+                finalEnemy.TakeDamage(1000, 1);
+            }
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(!game.IsStageCleared, "撃破フェード中は結果画面へ移らない");
+            foreach (Fighter finalEnemy in turnEnemies)
+            {
+                UnityEngine.Object.DestroyImmediate(finalEnemy.gameObject);
+            }
+            turnEnemies.Clear();
+            int finalScore = (int)GetPrivateField(game, "_score");
+            int finalKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+            waveProgress.Invoke(game, new object[] { 0f });
+            Require(game.IsStageCleared && game.ResultScore == finalScore && game.ResultDefeatedEnemies == finalKills,
+                "最終全滅後にクリアとスコア・撃破数を確定");
+            waveProgress.Invoke(game, new object[] { 10f });
+            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+            Require(bannerPending.Count == 0 && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount,
+                "クリア後は第六ウェーブを予約しない");
+            int resultHealth = resultPlayer.Health;
+            resultPlayer.TakeDamage(10, 1);
+            game.RegisterDamage(resultPlayer, 10, 10);
+            Require(resultPlayer.Health == resultHealth && game.ResultScore == finalScore
+                && (int)GetPrivateField(game, "_score") == finalScore, "クリア後は被ダメージと得点更新を停止");
+            Require(((ClericFighter)resultPlayer).SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable
+                && !resultPlayer.TryStoreHealingPotion(), "クリア後は魔法・アイテム使用と取得を停止");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

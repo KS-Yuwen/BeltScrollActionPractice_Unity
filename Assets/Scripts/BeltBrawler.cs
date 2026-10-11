@@ -20,6 +20,9 @@ public sealed class BeltBrawler : MonoBehaviour
     private Camera _camera;
     // 現在の敵グループの番号。出現のたびに増えます。
     private int _wave;
+    public bool IsStageCleared { get; private set; }
+    public int ResultScore { get; private set; }
+    public int ResultDefeatedEnemies { get; private set; }
     // 全滅後、次の出現までに経過した秒数。
     private float _nextWaveElapsed;
     private readonly WaveBanner _waveBanner = new WaveBanner();
@@ -219,6 +222,10 @@ public sealed class BeltBrawler : MonoBehaviour
     // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
+        if (IsStageCleared || _wave >= BrawlerBalance.StageWaveCount)
+        {
+            return;
+        }
         _wave++;
         _waveClearAnnounced = false;
         _waveBanner.ShowStart(_wave);
@@ -298,6 +305,7 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void UpdateWaveProgress(float deltaTime)
     {
+        if (IsStageCleared) return;
         if (_player.Health <= 0)
         {
             _waveBanner.Clear();
@@ -305,6 +313,15 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         if (_enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
         {
+            if (_wave >= BrawlerBalance.StageWaveCount)
+            {
+                // 最終ウェーブの敵が消えてから結果を確定し、六つ目のウェーブは予約しません。
+                IsStageCleared = true;
+                ResultScore = _score;
+                ResultDefeatedEnemies = _defeatedEnemyCount;
+                _waveBanner.Clear();
+                return;
+            }
             // 空の状態が続いても通知を再生成せず、このウェーブにつき一度だけ表示します。
             if (!_waveClearAnnounced)
             {
@@ -394,6 +411,7 @@ public sealed class BeltBrawler : MonoBehaviour
     public void RegisterDamage(Fighter victim, int attackDamage = 18, int actualDamage = 0,
         BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
+        if (IsStageCleared) return;
         PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
         CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
         if (!victim.IsPlayer)
@@ -697,6 +715,11 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
+        if (IsStageCleared)
+        {
+            StageResultHud.Draw(ResultScore, ResultDefeatedEnemies);
+            return;
+        }
         var style = new GUIStyle(GUI.skin.label) { fontSize = 24 };
         GUI.Label(new Rect(24, 20, 700, 40), "NEON STREET  |  WAVE " + _wave + "  |  ENEMIES " + _enemies.Count, style);
         // 背景→遅れて縮む赤い残像→現在HPの順に重ね、HPゼロでも数値を表示します。
