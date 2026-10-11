@@ -54,6 +54,9 @@ public class Fighter : Combatant
     // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
     private float _counterWindowRemaining;
     private bool _isCounterAttack;
+    // 後ろ＋攻撃で構えた盾は、攻撃ボタンを離すまで維持します。
+    // 前に入れ直しても向きを変えず、次の防御成功時の自動反撃を予約できます。
+    private bool _commandGuardHeld;
     private bool _isGroundAttack;
     private Fighter _groundAttackTarget;
     private bool _hasReceivedGroundHit;
@@ -152,6 +155,7 @@ public class Fighter : Combatant
     protected void ReleaseDefenseForSpecialAction()
     {
         ClearAttackHold();
+        _commandGuardHeld = false;
         IsGuarding = false;
         _counterWindowRemaining = 0;
         _attackBufferRemaining = 0;
@@ -286,7 +290,9 @@ public class Fighter : Combatant
             }
             if (IsAirborne)
             {
+                _commandGuardHeld = false;
                 ClearAttackHold();
+                _commandGuardHeld = false;
                 IsGuarding = false;
                 // 空中では攻撃ボタンを1回押して発動。奥行きの下入力＋攻撃で下突きに変化します。
                 if (attackPressed && _attackRemaining <= 0 && _attackCooldown <= 0 && _stunRemaining <= 0)
@@ -297,8 +303,7 @@ public class Fighter : Combatant
                 return input;
             }
             UpdateRunningInput(input);
-            IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
-                && _attackRemaining <= 0 && _dashRemaining <= 0 && !_isCrouching;
+            UpdateGuardInput(input);
             if (IsGuarding)
             {
                 ClearAttackHold();
@@ -350,6 +355,7 @@ public class Fighter : Combatant
                 _dashAttackMovementRemaining = 0;
                 _attackBufferRemaining = 0;
                 _knockbackVelocity = Vector3.zero;
+                _commandGuardHeld = false;
                 IsGuarding = false;
             }
             // 回避＋攻撃の同時押しも、回避中に攻撃を追加する操作も受け付けます。
@@ -365,6 +371,23 @@ public class Fighter : Combatant
             }
         }
         return input;
+    }
+
+    private void UpdateGuardInput(Vector3 input)
+    {
+        bool canGuard = _stunRemaining <= 0 && _attackRemaining <= 0
+            && _dashRemaining <= 0 && !_isCrouching;
+        bool attackHeld = BrawlerInput.IsAttackHeld();
+        if (!canGuard || !attackHeld)
+        {
+            _commandGuardHeld = false;
+        }
+        else if (input.x * Facing < -BrawlerBalance.ForwardInputThreshold)
+        {
+            // 移動で向きが更新される前に判定し、後ろ入力で振り向くことを防ぎます。
+            _commandGuardHeld = true;
+        }
+        IsGuarding = canGuard && (BrawlerInput.IsGuardHeld() || _commandGuardHeld);
     }
 
     private bool UpdateAttackWindup(float deltaTime)
@@ -682,6 +705,7 @@ public class Fighter : Combatant
         _comboStep = 0;
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
+        _commandGuardHeld = false;
         IsGuarding = false;
     }
 
@@ -784,6 +808,7 @@ public class Fighter : Combatant
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         _knockbackVelocity = Vector3.zero;
+        _commandGuardHeld = false;
         IsGuarding = false;
     }
 
@@ -983,6 +1008,7 @@ public class Fighter : Combatant
         _comboStep = 0;
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
+        _commandGuardHeld = false;
         IsGuarding = false;
     }
 
@@ -1012,6 +1038,13 @@ public class Fighter : Combatant
             _blockFlashRemaining = BrawlerBalance.BlockFlashSeconds;
             _counterWindowRemaining = BrawlerBalance.CounterWindowSeconds;
             _knockbackVelocity = new Vector3(direction * BrawlerBalance.BlockKnockbackSpeed, 0, 0);
+            // 防御が実際に成功した瞬間だけ反撃します。前＋攻撃だけでは発動しません。
+            // 専用ガードボタンでも同じ予約操作を利用でき、後隙中は手動受付を残します。
+            if (IsPlayer && _attackCooldown <= 0 && BrawlerInput.IsAttackHeld()
+                && BrawlerInput.ReadMovement().x * Facing > BrawlerBalance.ForwardInputThreshold)
+            {
+                StartCounterAttack();
+            }
             return;
         }
         ApplyDamage(amount, direction, false);
@@ -1028,6 +1061,7 @@ public class Fighter : Combatant
         _isRunning = false;
         _wasForwardHeld = false;
         _lastForwardTapAt = BrawlerDefines.UnsetTime;
+        _commandGuardHeld = false;
         IsGuarding = false;
         ReduceHealth(CalculateReceivedDamage(amount));
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;

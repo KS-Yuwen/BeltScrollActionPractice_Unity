@@ -280,6 +280,48 @@ public static class GamepadValidation
                 SetPlayerTimer(player, "_attackCooldown", 0);
                 UpdatePlayer(player);
             }
+            // 資料の後ろ＋攻撃ガードを左右で確認し、前入力だけでは反撃しないことも検証します。
+            foreach (float guardFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, guardFacing);
+                SetPlayerTimer(player, "_counterWindowRemaining", 0);
+                Key backward = guardFacing < 0 ? Key.D : Key.A;
+                Key forward = guardFacing < 0 ? Key.A : Key.D;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(backward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsGuarding && player.Facing == guardFacing && ReadPlayerTimer(player, "_attackRemaining") <= 0,
+                    "後ろ＋攻撃で向きを固定してガードし、通常攻撃を出さない");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(forward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsGuarding && !player.IsCounterAttacking && !player.IsHeavyStriking,
+                    "攻撃を保持して前に入れ直しても、防御成功までは攻撃しない");
+                int commandGuardHealth = player.Health;
+                player.TakeDamage(10, -guardFacing);
+                Require(player.Health == commandGuardHealth && player.IsCounterAttacking && !player.CanCounter,
+                    "正面ガード成功で自動反撃し、反撃受付を一度消費");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+                Require(!player.IsGuarding, "攻撃ボタンを離すとコマンドガード解除");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(backward, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                player.TakeDamage(1, guardFacing);
+                Require(player.Health == commandGuardHealth - 1 && !player.IsCounterAttacking && !player.IsGuarding,
+                    "背後からの攻撃は防げず、自動反撃もしない");
+                player.RestoreHealth(1);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_stunRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .SetValue(player, Vector3.zero);
+                UpdatePlayer(player);
+            }
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
