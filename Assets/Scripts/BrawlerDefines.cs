@@ -3,6 +3,7 @@
 public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
+    public const int StandardShaderFadeMode = 2;
 
     public enum ActionUseStatus
     {

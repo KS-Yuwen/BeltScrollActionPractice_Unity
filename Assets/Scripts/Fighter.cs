@@ -1211,7 +1211,7 @@ public class Fighter : Combatant
             _visual.localRotation = Quaternion.Euler(0, 0, 80);
             if (!IsPlayer)
             {
-                Destroy(gameObject, BrawlerBalance.EnemyRemovalSeconds);
+                gameObject.AddComponent<EnemyDefeatFade>().Initialize(this, _visual);
             }
         }
     }

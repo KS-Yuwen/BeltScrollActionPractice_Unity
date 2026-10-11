@@ -953,6 +953,33 @@ public static class CombatValidation
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
                 && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
+            Fighter fadeTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test defeat fade", Vector3.right * 10, false, false, false, false });
+            Fighter unfadedTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test shared material", Vector3.right * 12, false, false, false, false });
+            Transform fadeVisual = (Transform)GetPrivateField(fadeTarget, "_visual");
+            Transform unfadedVisual = (Transform)GetPrivateField(unfadedTarget, "_visual");
+            Renderer fadeBody = fadeVisual.Find("Body").GetComponent<Renderer>();
+            Renderer unfadedBody = unfadedVisual.Find("Body").GetComponent<Renderer>();
+            Material originalBodyMaterial = fadeBody.sharedMaterial;
+            Require(unfadedBody.sharedMaterial == originalBodyMaterial, "生存中の敵は素材を共有");
+            fadeTarget.TakeDamage(BrawlerBalance.KnockdownDamageThreshold, 1);
+            Require(fadeTarget.IsDowned && fadeTarget.GetComponent<EnemyDefeatFade>() == null, "生存中のダウンには撃破フェードを付けない");
+            SetPrivateField(fadeTarget, "_stunRemaining", 0f);
+            fadeTarget.TakeDamage(1000, 1);
+            EnemyDefeatFade defeatFade = fadeTarget.GetComponent<EnemyDefeatFade>();
+            Require(defeatFade != null && defeatFade.Alpha == 1 && fadeTarget.Health == 0, "撃破時だけフェードを開始");
+            Require(fadeBody.sharedMaterial != originalBodyMaterial && unfadedBody.sharedMaterial == originalBodyMaterial
+                && originalBodyMaterial.color.a == 1, "撃破した個体だけ素材を複製し、共有素材を保持");
+            defeatFade.Advance(BrawlerBalance.EnemyRemovalSeconds / 2);
+            var fadeProperties = new MaterialPropertyBlock();
+            fadeBody.GetPropertyBlock(fadeProperties);
+            Require(Mathf.Abs(defeatFade.Alpha - 0.5f) < 0.01f
+                && Mathf.Abs(fadeProperties.GetColor("_Color").a - 0.5f) < 0.01f, "時間経過で体の透明度を下げる");
+            defeatFade.Advance(0);
+            Require(Mathf.Abs(defeatFade.Alpha - 0.5f) < 0.01f, "ヒットストップ中は消滅時間を進めない");
+            fadeTarget.TakeDamage(1000, 1);
+            Require(fadeTarget.GetComponents<EnemyDefeatFade>().Length == 1, "撃破済みへの追加攻撃で演出を二重生成しない");
+            defeatFade.Advance(BrawlerBalance.EnemyRemovalSeconds);
+            Require(defeatFade.Alpha == 0, "既存の消滅時間で透明になり破棄される");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
