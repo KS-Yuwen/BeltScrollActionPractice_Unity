@@ -3,6 +3,12 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    public const float HitDirectionSeconds = 0.6f;
+    public const float HitDirectionFadeSeconds = 0.2f;
+    public const float HitDirectionWorldOffset = 1f;
+    public const float HitDirectionWorldHeight = 1.4f;
+    public const float HitDirectionLabelSize = 60f;
+    public const int HitDirectionFontSize = 42;
     // HPは即座に反映し、赤い残像だけを待機後に最大HPの一定割合/秒で縮めます。
     public const float HealthTrailDelaySeconds = 0.25f;
     public const float HealthTrailFractionPerSecond = 1.2f;

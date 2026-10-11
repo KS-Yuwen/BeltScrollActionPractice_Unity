@@ -10,6 +10,12 @@ public sealed class BeltBrawler : MonoBehaviour
     // 生存中と撃破直後の敵を保持します。破棄された敵は Update で取り除きます。
     private readonly List<Fighter> _enemies = new List<Fighter>();
     private Fighter _player;
+    private readonly HitDirectionIndicator _hitDirectionIndicator = new HitDirectionIndicator();
+
+    public void ShowHitDirection(float attackDirection)
+    {
+        _hitDirectionIndicator.Show(attackDirection);
+    }
     private readonly HealthBarFeedback _healthBarFeedback = new HealthBarFeedback();
     private Camera _camera;
     // 現在の敵グループの番号。出現のたびに増えます。
@@ -269,6 +275,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
+        _hitDirectionIndicator.Advance(Time.unscaledDeltaTime);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, Time.deltaTime);
         _waveBanner.Advance(Time.deltaTime);
         // Unity の Object は Destroy 後に == null と判定できるため、この条件で整理できます。
@@ -800,5 +807,6 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _waveBanner.Draw();
         }
+        _hitDirectionIndicator.Draw(_player, _camera);
     }
 }

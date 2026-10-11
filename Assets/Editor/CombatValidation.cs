@@ -1006,6 +1006,38 @@ public static class CombatValidation
             Require(banner.Text != "WAVE CLEAR", "出現待ちの敵がいる間はクリア通知しない");
             banner.Advance(BrawlerBalance.WaveBannerSeconds - BrawlerBalance.WaveBannerFadeSeconds / 2);
             Require(Mathf.Abs(banner.Alpha - 0.5f) < 0.01f, "終了前にウェーブ通知をフェード");
+            // 攻撃方向と攻撃元は逆です。有効被弾だけが方向通知を更新することを確認します。
+            var hitDirection = (HitDirectionIndicator)GetPrivateField(game, "_hitDirectionIndicator");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_dashRemaining", 0f);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+            player.TakeDamage(1, 1);
+            Require(hitDirection.SourceSide == -1 && hitDirection.RemainingSeconds == BrawlerBalance.HitDirectionSeconds,
+                "右へ進む攻撃の被弾元を左側へ表示");
+            hitDirection.Advance(0.1f);
+            float directionRemaining = hitDirection.RemainingSeconds;
+            player.TakeDamage(1, -1);
+            Require(hitDirection.SourceSide == -1 && hitDirection.RemainingSeconds == directionRemaining,
+                "硬直で無効な命中は方向通知を更新しない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+            player.TakeDamage(1, -1);
+            Require(hitDirection.SourceSide == -1 && hitDirection.RemainingSeconds == directionRemaining,
+                "ガード成功では被弾方向を通知しない");
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+            SetPrivateField(player, "_dashRemaining", 0.1f);
+            player.TakeDamage(1, -1);
+            Require(hitDirection.RemainingSeconds == directionRemaining, "回避無敵では通知しない");
+            SetPrivateField(player, "_dashRemaining", 0f);
+            player.TakeDamage(1, -1);
+            Require(hitDirection.SourceSide == 1, "左へ進む攻撃の被弾元を右側へ表示");
+            typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+            Require(hitDirection.SourceSide == 1, "振り向いても記憶した被弾側を変更しない");
+            hitDirection.Advance(BrawlerBalance.HitDirectionSeconds - BrawlerBalance.HitDirectionFadeSeconds / 2);
+            Require(Mathf.Abs(hitDirection.Alpha - 0.5f) < 0.01f, "通知終了前に赤い矢印をフェード");
+            hitDirection.Advance(BrawlerBalance.HitDirectionSeconds);
+            Require(hitDirection.RemainingSeconds == 0 && hitDirection.Alpha == 0, "被弾方向通知は時間経過で消える");
             SetPrivateField(player, "_stunRemaining", 0f);
             player.TakeDamage(1000, player.Facing);
             waveProgress.Invoke(game, new object[] { 0f });

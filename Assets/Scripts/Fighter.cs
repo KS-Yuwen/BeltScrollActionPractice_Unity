@@ -1221,6 +1221,10 @@ public class Fighter : Combatant
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
         // 残りHPを超えた攻撃や軽減があっても、表示は実際に減ったHPに合わせます。
+        if (IsPlayer && Health < healthBeforeDamage)
+        {
+            _game.ShowHitDirection(direction);
+        }
         _game.RegisterDamage(this, amount, healthBeforeDamage - Health, kind);
         if (Health == 0)
         {
