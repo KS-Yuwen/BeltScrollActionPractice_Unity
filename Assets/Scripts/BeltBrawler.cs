@@ -712,6 +712,23 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.color = Color.white;
         var healthStyle = new GUIStyle(style) { alignment = TextAnchor.MiddleCenter, fontSize = BrawlerBalance.PlayerHealthBarFontSize };
         GUI.Label(healthArea, $"HP {_player.Health} / {_player.MaxHealth}", healthStyle);
+        // 残像の長さではなく現在HPで判断します。回復・敗北したフレームで表示も切り替わります。
+        if (_player.Health > 0 && healthFraction <= BrawlerBalance.LowHealthWarningFraction)
+        {
+            float pulse = (1 + Mathf.Sin(Time.time * BrawlerBalance.LowHealthWarningPulsesPerSecond * Mathf.PI * 2)) / 2;
+            GUI.color = Color.Lerp(new Color(0.45f, 0.12f, 0.08f), new Color(1, 0.35f, 0.05f), pulse);
+            float border = BrawlerBalance.LowHealthWarningBorderWidth;
+            // 外側だけを強調し、現在HP・赤い残像・HP数値を隠しません。
+            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.y - border,
+                healthArea.width + border * 2, border), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.yMax,
+                healthArea.width + border * 2, border), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.y, border, healthArea.height), Texture2D.whiteTexture);
+            GUI.DrawTexture(new Rect(healthArea.xMax, healthArea.y, border, healthArea.height), Texture2D.whiteTexture);
+            GUI.Label(new Rect(healthArea.xMax + BrawlerBalance.LowHealthWarningLabelGap, healthArea.y,
+                BrawlerBalance.LowHealthWarningLabelWidth, healthArea.height), "LOW HP", healthStyle);
+            GUI.color = Color.white;
+        }
         GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
         string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
         if (_player.IsRunning)

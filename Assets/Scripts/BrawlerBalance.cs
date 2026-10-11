@@ -3,6 +3,11 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    public const float LowHealthWarningFraction = 0.25f;
+    public const float LowHealthWarningPulsesPerSecond = 1.5f;
+    public const float LowHealthWarningBorderWidth = 3f;
+    public const float LowHealthWarningLabelWidth = 110f;
+    public const float LowHealthWarningLabelGap = 8f;
     public const float ProtectionWarningSeconds = 3f;
     public const float ProtectionWarningPulsesPerSecond = 2f;
     public const int SelectionStatusFontSize = 14;
