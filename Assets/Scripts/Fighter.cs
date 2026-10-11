@@ -227,8 +227,24 @@ public class Fighter : Combatant
 
     protected virtual Color? SpecialFeedbackColor => null;
 
-    protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
-        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne && !_isRunning && !IsSliding;
+    // 発動とUIが同じ共通判定を使います。状態を変更せず、理由だけ返します。
+    protected BrawlerDefines.ActionUseStatus CommonActionUseStatus
+    {
+        get
+        {
+            if (!IsPlayer) return BrawlerDefines.ActionUseStatus.Unavailable;
+            if (Health <= 0) return BrawlerDefines.ActionUseStatus.Defeated;
+            if (IsAirborne) return BrawlerDefines.ActionUseStatus.Airborne;
+            if (_stunRemaining > 0 || _attackRemaining > 0 || _dashRemaining > 0
+                || _attackCooldown > 0 || _isRunning || IsSliding || IsUsingSpecialAction)
+            {
+                return BrawlerDefines.ActionUseStatus.Busy;
+            }
+            return BrawlerDefines.ActionUseStatus.Ready;
+        }
+    }
+
+    protected bool CanUseSpecialAction => CommonActionUseStatus == BrawlerDefines.ActionUseStatus.Ready;
 
     protected virtual bool UpdateSpecialAction() => false;
 

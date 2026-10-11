@@ -3,6 +3,17 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // 選択UI。小さい画面では四つの枠をまとめて縮小し、操作説明の上へ配置します。
+    public const float SelectionHudMargin = 24f;
+    public const float SelectionCardWidth = 154f;
+    public const float SelectionCardHeight = 72f;
+    public const float SelectionCardGap = 8f;
+    public const float SelectionCardPadding = 8f;
+    public const float SelectionBorderWidth = 3f;
+    public const float SelectionHintHeight = 30f;
+    public const float SelectionBottomOffset = 52f;
+    public const int SelectionTitleFontSize = 18;
+    public const int SelectionCountFontSize = 22;
     public const float PickupNoticeSeconds = 0.9f;
     public const float PickupNoticeWidth = 280f;
     public const float PickupNoticeHeight = 2.8f;

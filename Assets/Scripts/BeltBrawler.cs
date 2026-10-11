@@ -693,23 +693,11 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         if (_player is ClericFighter cleric)
         {
-            string selectedSpell = cleric.SelectedAction switch
-            {
-                BrawlerDefines.UsableAction.Healing => "HEAL",
-                BrawlerDefines.UsableAction.Protection => "PROTECTION",
-                BrawlerDefines.UsableAction.HealingPotion => "POTION (+20 HP)",
-                BrawlerDefines.UsableAction.ThrowingKnife => "THROWING KNIFE",
-                _ => "NONE"
-            };
-            GUI.Label(new Rect(24, 397, 1000, 40), $"POTIONS {cleric.HealingPotionsHeld}/{BrawlerBalance.PotionCapacity}   KNIVES {cleric.ThrowingKnivesHeld}/{BrawlerBalance.KnifeCapacity}", style);
+            SelectionHud.Draw(cleric);
             string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
-            GUI.Label(new Rect(24, 434, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
+            GUI.Label(new Rect(24, 323, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
                 ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"
                 : $"TURN UNDEAD READY — {turnButton}", style);
-            string spellButtons = BrawlerInput.IsGamepadConnected ? "View / Share: Select   RT / R2: Use" : "Q: Select   E: Use";
-            // 選択中の魔法と残り回数を常に表示し、敵出現予告・継続ダッシュの行とも重ならない位置にします。
-            GUI.Label(new Rect(24, 323, 1100, 40),
-                $"SELECTED: {selectedSpell} ({cleric.SelectedActionUsesRemaining} left) — {spellButtons}", style);
             string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
             GUI.Label(new Rect(24, 212, 900, 40),
                 $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"

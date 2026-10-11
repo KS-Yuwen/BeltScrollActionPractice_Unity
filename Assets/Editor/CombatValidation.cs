@@ -916,6 +916,43 @@ public static class CombatValidation
                 && Mathf.Abs(pickupToAdvance.Alpha - 0.5f) < 0.01f, "取得通知も停止中に上昇・フェード");
             pickupToAdvance.Advance(BrawlerBalance.PickupNoticeSeconds);
             Require(pickupToAdvance.Alpha == 0, "取得通知は表示時間終了で消える");
+            // 使用可否の表示は実際の発動判定と同じ結果になり、照会だけでは消費しません。
+            player.RestoreHealth(player.MaxHealth);
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
+            SetPrivateField(cleric, "_protectionRemaining", 0f);
+            typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+            typeof(ClericFighter).GetProperty("ProtectionUsesRemaining").SetValue(cleric, 1);
+            typeof(Fighter).GetProperty("HealingPotionsHeld").SetValue(player, 1);
+            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 1);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Healing) == BrawlerDefines.ActionUseStatus.HealthFull
+                && !cleric.TryHeal() && cleric.HealingUsesRemaining == 1, "HP満タン表示と回復の拒否が一致");
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.HealingPotion) == BrawlerDefines.ActionUseStatus.HealthFull
+                && !cleric.TryUseHealingPotion() && player.HealingPotionsHeld == 1, "HP満タン表示とポーションの拒否が一致");
+            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingKnife) == BrawlerDefines.ActionUseStatus.Empty
+                && !cleric.TryThrowKnife(), "残りゼロ表示とナイフの拒否が一致");
+            SetPrivateField(cleric, "_protectionRemaining", 1f);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.ProtectionActive
+                && !cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中表示と補助魔法の拒否が一致");
+            foreach (BrawlerDefines.UsableAction statusAction in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
+            {
+                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, statusAction);
+                SetPrivateField(player, "_attackRemaining", 0.1f);
+                Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Busy
+                    && !cleric.TryUseSelectedAction(), "行動中の表示と選択発動の拒否が一致");
+                SetPrivateField(player, "_attackRemaining", 0f);
+                SetPrivateField(player, "_jumpHeight", 1f);
+                Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Airborne
+                    && !cleric.TryUseSelectedAction(), "空中表示と選択発動の拒否が一致");
+                SetPrivateField(player, "_jumpHeight", 0f);
+            }
+            SetPrivateField(cleric, "_protectionRemaining", 0f);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
+                && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

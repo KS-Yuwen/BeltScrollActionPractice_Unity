@@ -4,6 +4,18 @@ public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
 
+    public enum ActionUseStatus
+    {
+        Ready,
+        Empty,
+        HealthFull,
+        ProtectionActive,
+        Busy,
+        Airborne,
+        Defeated,
+        Unavailable
+    }
+
     public enum PickupKind
     {
         HealingPotion,
