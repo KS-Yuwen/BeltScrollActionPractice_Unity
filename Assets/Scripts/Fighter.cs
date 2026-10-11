@@ -134,10 +134,27 @@ public class Fighter : Combatant
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
     public bool IsPlayer { get; private set; }
 
+    protected override void OnHealthRestored(int actualAmount)
+    {
+        // 回復魔法・ポーション・ウェーブ報酬が通る共通の通知で、重複表示を防ぎます。
+        if (IsPlayer && _game != null)
+        {
+            _game.ShowHealingNumber(this, actualAmount);
+        }
+    }
+
     // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
     public int HealingPotionsHeld { get; private set; }
 
     public int ThrowingKnivesHeld { get; private set; }
+
+    public void NotifyItemPickup(BrawlerDefines.PickupKind kind)
+    {
+        if (IsPlayer && _game != null)
+        {
+            _game.ShowPickupNotice(this, kind);
+        }
+    }
 
     public bool TryStoreThrowingKnife()
     {
@@ -1095,7 +1112,7 @@ public class Fighter : Combatant
     }
 
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
-    public void TakeDamage(int amount, float direction)
+    public void TakeDamage(int amount, float direction, BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
         if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
@@ -1119,10 +1136,11 @@ public class Fighter : Combatant
             }
             return;
         }
-        ApplyDamage(amount, direction, false);
+        ApplyDamage(amount, direction, false, kind);
     }
 
-    private void ApplyDamage(int amount, float direction, bool isGroundHit)
+    private void ApplyDamage(int amount, float direction, bool isGroundHit,
+        BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         ClearAttackHold();
         _isDashSpecial = false;
@@ -1135,6 +1153,7 @@ public class Fighter : Combatant
         _lastForwardTapAt = BrawlerDefines.UnsetTime;
         _commandGuardHeld = false;
         IsGuarding = false;
+        int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
         // 被ダメージによって進行中の攻撃を中断します。
@@ -1168,7 +1187,8 @@ public class Fighter : Combatant
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
-        _game.RegisterDamage(this, amount);
+        // 残りHPを超えた攻撃や軽減があっても、表示は実際に減ったHPに合わせます。
+        _game.RegisterDamage(this, amount, healthBeforeDamage - Health, kind);
         if (Health == 0)
         {
             // 仮の倒れる演出。敵だけ 0.5 秒後に消し、プレイヤーは敗北表示のため残します。

@@ -188,11 +188,16 @@ public static class CombatValidation
                 Require(player.TryStoreHealingPotion(), "所持上限まで保存可能");
             }
             potion.transform.position = player.transform.position;
+            int potionNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
             Require(!potion.TryCollect() && !player.TryStoreHealingPotion(), "所持上限では床に残し、超過しない");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == potionNoticesBefore, "所持上限で取得通知を出さない");
             typeof(Fighter).GetProperty("HealingPotionsHeld").SetValue(player, 0);
             Require(potion.TryCollect() && player.Health == 100 && player.HealingPotionsHeld == 1,
                 "HP満タンでも所持品へ入り、拾得時には回復しない");
             Require(!potion.TryCollect() && player.HealingPotionsHeld == 1, "同フレームの二重取得を防止");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == potionNoticesBefore + 1
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.HealingPotion
+                    && n.DisplayText == "ポーション＋1"), "ポーション取得成功時だけ通知を一つ生成");
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "満タンでは使用しても消費しない");
             player.TakeDamage(35, player.Facing);
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "被ダメージ硬直中は消費しない");
@@ -658,14 +663,19 @@ public static class CombatValidation
             knifePickup.transform.position = player.transform.position + Vector3.forward;
             Require(!knifePickup.TryCollect(), "奥行きが離れたナイフは拾わない");
             knifePickup.transform.position = player.transform.position;
+            int knifeNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
             for (int held = 0; held < BrawlerBalance.KnifeCapacity; held++)
             {
                 Require(player.TryStoreThrowingKnife(), "ナイフを上限まで保存可能");
             }
             Require(!knifePickup.TryCollect() && !player.TryStoreThrowingKnife(), "ナイフの所持上限を超えない");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore, "ナイフの所持上限で通知しない");
             typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
             Require(knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "床ナイフを所持品に保存");
             Require(!knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "ナイフの二重取得を防止");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore + 1
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.ThrowingKnife
+                    && n.DisplayText == "ナイフ＋1"), "ナイフ取得時だけ一度通知");
             SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
@@ -815,6 +825,97 @@ public static class CombatValidation
                     + BrawlerBalance.EnemyProjectileSpeed * BrawlerBalance.EnemyProjectileLifetimeSeconds
                 && rangedWarningEnemy.WarningLaneHalfWidth == BrawlerBalance.EnemyProjectileHitRadius,
                 "射線表示は実際の弾の発射位置・飛距離・衝突幅を共用");
+            // 受理された実ダメージだけを表示し、技の種類が表示色へ伝わることを確認します。
+            foreach (Fighter numberEnemy in turnEnemies)
+            {
+                if (numberEnemy != null) numberEnemy.transform.position = new Vector3(20, 0, 3);
+            }
+            player.transform.position = Vector3.zero;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+            foreach (BrawlerDefines.DamageKind numberKind in new BrawlerDefines.DamageKind[]
+                { BrawlerDefines.DamageKind.Normal, BrawlerDefines.DamageKind.Counter, BrawlerDefines.DamageKind.HeavyStrike })
+            {
+                Fighter numberTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test damage number", Vector3.right, false, false, false, false });
+                turnEnemies.Add(numberTarget);
+                int damageNumberCount = UnityEngine.Object.FindObjectsByType<DamageNumber>().Length;
+                int numberDamage = 18;
+                if (numberKind != BrawlerDefines.DamageKind.Normal)
+                {
+                    string actionName = numberKind == BrawlerDefines.DamageKind.Counter ? "StartCounterAttack" : "StartHeavyStrike";
+                    typeof(Fighter).GetMethod(actionName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+                    numberDamage = numberKind == BrawlerDefines.DamageKind.Counter ? BrawlerBalance.CounterDamage : BrawlerBalance.HeavyStrikeDamage;
+                    game.Hit(player, numberDamage);
+                }
+                else
+                {
+                    numberTarget.TakeDamage(numberDamage, 1);
+                }
+                Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "実際の命中で数値を一つ表示");
+                DamageNumber shownNumber = Array.Find(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Amount == numberDamage
+                    && n.Kind == numberKind && Vector3.Distance(n.transform.position, numberTarget.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight) < 0.01f);
+                Require(shownNumber != null, "通常・反撃・大斬りの種類と威力を頭上表示へ渡す");
+                numberTarget.TakeDamage(numberDamage, 1);
+                Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "硬直中の無効な命中では表示を追加しない");
+                Vector3 numberStart = shownNumber.transform.position;
+                shownNumber.Advance(BrawlerBalance.DamageNumberSeconds / 2);
+                Require(shownNumber.transform.position.y > numberStart.y && Mathf.Abs(shownNumber.Alpha - 0.5f) < 0.01f,
+                    "停止中も実時間で上昇し薄くなる");
+                shownNumber.Advance(BrawlerBalance.DamageNumberSeconds);
+                Require(shownNumber.Alpha == 0, "表示時間終了で透明になり破棄される");
+                numberTarget.transform.position = new Vector3(20, 0, 3);
+            }
+            Fighter overkillTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test overkill number", Vector3.right * 3, false, false, false, false });
+            int overkillHealth = overkillTarget.Health;
+            overkillTarget.TakeDamage(1000, 1);
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Amount == overkillHealth
+                && n.transform.parent == null), "撃破時は残りHP分を表示し、敵の破棄に巻き込まれない");
+            // 回復通知は共通HP処理から一度だけ出し、上限で切り止めた実回復量を表示します。
+            player.RestoreHealth(player.MaxHealth);
+            int healingNumberCount = Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing).Length;
+            player.RestoreHealth(10);
+            player.RestoreHealth(0);
+            player.RestoreHealth(-10);
+            Require(Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing).Length == healingNumberCount,
+                "満タン・ゼロ・負の回復量では表示を追加しない");
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
+            SetPrivateField(cleric, "_protectionRemaining", 0f);
+            player.TakeDamage(25, player.Facing);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+            Require(cleric.TryHeal() && player.Health == player.MaxHealth, "回復表示用の魔法を発動");
+            DamageNumber[] healingNumbers = Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing);
+            Require(healingNumbers.Length == healingNumberCount + 1
+                && Array.Exists(healingNumbers, n => n.Amount == 25 && n.DisplayText == "+25" && n.DisplayColor == Color.green),
+                "回復魔法は上限で切り止めた25を緑の＋数値で一度だけ表示");
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            player.TakeDamage(5, player.Facing);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(player.TryStoreHealingPotion() && cleric.TryUseHealingPotion(), "ポーションの回復表示を確認");
+            Require(Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing).Length == healingNumberCount + 2
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing && n.DisplayText == "+5"),
+                "ポーションも実際に増えた5だけを一度表示");
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            player.TakeDamage(20, player.Facing);
+            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+            Require(player.Health == player.MaxHealth - 20 + BrawlerBalance.WaveHealingAmount
+                && Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing).Length == healingNumberCount + 3,
+                "ウェーブ報酬の回復も一度だけ表示");
+            DamageNumber healingToAdvance = Array.Find(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing && n.DisplayText == "+5");
+            healingToAdvance.Advance(BrawlerBalance.DamageNumberSeconds / 2);
+            Require(Mathf.Abs(healingToAdvance.Alpha - 0.5f) < 0.01f, "回復数値も停止中に実時間でフェード");
+            PickupNotice pickupToAdvance = UnityEngine.Object.FindAnyObjectByType<PickupNotice>();
+            Vector3 pickupNoticeStart = pickupToAdvance.transform.position;
+            pickupToAdvance.Advance(BrawlerBalance.PickupNoticeSeconds / 2);
+            Require(pickupToAdvance.transform.position.y > pickupNoticeStart.y
+                && Mathf.Abs(pickupToAdvance.Alpha - 0.5f) < 0.01f, "取得通知も停止中に上昇・フェード");
+            pickupToAdvance.Advance(BrawlerBalance.PickupNoticeSeconds);
+            Require(pickupToAdvance.Alpha == 0, "取得通知は表示時間終了で消える");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

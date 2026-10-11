@@ -9,6 +9,7 @@ public abstract class CollectibleItem : MonoBehaviour
     private bool _wasCollected;
 
     protected abstract float PickupRadius { get; }
+    protected abstract BrawlerDefines.PickupKind Kind { get; }
     protected abstract float LifetimeSeconds { get; }
     protected abstract bool TryStore(Fighter player);
 
@@ -44,6 +45,7 @@ public abstract class CollectibleItem : MonoBehaviour
             return false;
         }
         _wasCollected = true;
+        _player.NotifyItemPickup(Kind);
         _audio.Play(BrawlerSound.Pickup);
         Destroy(gameObject);
         return true;

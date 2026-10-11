@@ -21,8 +21,17 @@ public abstract class Combatant : MonoBehaviour
         {
             return;
         }
+        int healthBeforeRestore = Health;
         Health = Mathf.Min(MaxHealth, Health + Mathf.Max(0, amount));
+        int restoredAmount = Health - healthBeforeRestore;
+        if (restoredAmount > 0)
+        {
+            // 回復の計算は共通化し、演出などの通知だけ派生クラスへ任せます。
+            OnHealthRestored(restoredAmount);
+        }
     }
+
+    protected virtual void OnHealthRestored(int actualAmount) { }
 
     // 被ダメージの可否は派生クラスが判断し、HP の計算だけ基底クラスが担当します。
     protected void ReduceHealth(int amount)

@@ -4,6 +4,20 @@ public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
 
+    public enum PickupKind
+    {
+        HealingPotion,
+        ThrowingKnife
+    }
+
+    public enum DamageKind
+    {
+        Normal,
+        Counter,
+        HeavyStrike,
+        Healing
+    }
+
     public enum ImpactKind
     {
         Normal,

@@ -39,6 +39,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private BrawlerAudio _audio;
+    private Font _pickupNoticeFont;
 
     public void PlaySound(BrawlerSound sound)
     {
@@ -53,6 +54,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private void Start()
     {
         _audio = gameObject.AddComponent<BrawlerAudio>();
+        // 日本語の取得名を描画できるOSフォントを一度だけ作り、通知間で共有します。
+        _pickupNoticeFont = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic", "Meiryo" }, BrawlerBalance.PickupNoticeFontSize);
         // 色別のマテリアルを作り、同じ色のパーツで共有します。
         _floorMaterial = CreateMaterial(new Color(0.10f, 0.15f, 0.23f));
         _playerMaterial = CreateMaterial(new Color(0.1f, 0.65f, 1));
@@ -210,7 +213,7 @@ public sealed class BeltBrawler : MonoBehaviour
         // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
         if (_wave > 1)
         {
-            _player.RestoreHealth(15);
+            _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
         for (int i = 0; i < Mathf.Min(2 + _wave, 7); i++)
         {
@@ -305,6 +308,36 @@ public sealed class BeltBrawler : MonoBehaviour
     // 敵 AI にプレイヤーを公開する読み取り専用プロパティです。
     public Fighter Target => _player;
 
+    public void ShowPickupNotice(Fighter target, BrawlerDefines.PickupKind kind)
+    {
+        var notice = new GameObject("Pickup Notice");
+        // 二種類を同時に拾っても、通知が同じ行に重ならないよう高さを分けます。
+        float height = BrawlerBalance.PickupNoticeHeight + (kind == BrawlerDefines.PickupKind.ThrowingKnife
+            ? BrawlerBalance.PickupNoticeItemSpacing : 0);
+        notice.transform.position = target.transform.position + Vector3.up * height;
+        notice.AddComponent<PickupNotice>().Initialize(_camera, kind, _pickupNoticeFont);
+    }
+
+    private void OnDestroy()
+    {
+        if (_pickupNoticeFont != null)
+        {
+            Destroy(_pickupNoticeFont);
+        }
+    }
+
+    public void ShowHealingNumber(Fighter target, int actualAmount)
+    {
+        if (actualAmount <= 0)
+        {
+            return;
+        }
+        // ダメージ表示と同じ上昇・フェードを共用し、回復は緑色の＋数値にします。
+        var number = new GameObject("Healing Number");
+        number.transform.position = target.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
+        number.AddComponent<DamageNumber>().Initialize(_camera, actualAmount, BrawlerDefines.DamageKind.Healing);
+    }
+
     public void HitUndeadTargets(ClericFighter caster)
     {
         // 対象一覧は管理役が保持します。床上のXZ距離で判定し、背後にも効果を与えます。
@@ -327,12 +360,20 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
-    public void RegisterDamage(Fighter victim, int attackDamage = 18)
+    public void RegisterDamage(Fighter victim, int attackDamage = 18, int actualDamage = 0,
+        BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
         CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
         if (!victim.IsPlayer)
         {
+            if (actualDamage > 0)
+            {
+                var number = new GameObject("Damage Number");
+                // 敵の子にしないことで、撃破・破棄後も表示を最後まで残します。
+                number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
+                number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
+            }
             BeginHitStop(attackDamage >= 30 ? 0.08f : 0.04f);
         }
         _cameraShakeRemaining = 0.16f;
@@ -516,7 +557,9 @@ public sealed class BeltBrawler : MonoBehaviour
                     }
                     else
                     {
-                        enemy.TakeDamage(damage, attacker.Facing);
+                        BrawlerDefines.DamageKind kind = attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
+                            : attacker.IsHeavyStriking ? BrawlerDefines.DamageKind.HeavyStrike : BrawlerDefines.DamageKind.Normal;
+                        enemy.TakeDamage(damage, attacker.Facing, kind);
                     }
                     // 無敵・硬直・撃破済みで拒否された命中や空振りでは、反撃専用の演出を出しません。
                     if (attacker.IsCounterAttacking && enemy.Health < healthBeforeHit)

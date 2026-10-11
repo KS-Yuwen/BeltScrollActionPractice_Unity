@@ -3,6 +3,20 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    public const float PickupNoticeSeconds = 0.9f;
+    public const float PickupNoticeWidth = 280f;
+    public const float PickupNoticeHeight = 2.8f;
+    public const float PickupNoticeItemSpacing = 0.6f;
+    public const int PickupNoticeFontSize = 24;
+    public const int WaveHealingAmount = 15;
+    // ダメージ表示は実時間で上昇・消滅させます。文字サイズと配置もここで調整します。
+    public const float DamageNumberSeconds = 0.7f;
+    public const float DamageNumberRiseSpeed = 1f;
+    public const float DamageNumberHeight = 2.2f;
+    public const int DamageNumberFontSize = 28;
+    public const int SpecialDamageNumberFontSize = 32;
+    public const float DamageNumberWidth = 120f;
+    public const float DamageNumberLabelHeight = 48f;
     // 実際の命中判定と予告表示で共用し、調整後も範囲がずれないようにします。
     public const float PlayerAttackReach = 2.475f;
     public const float EnemyAttackReach = 1.65f;
