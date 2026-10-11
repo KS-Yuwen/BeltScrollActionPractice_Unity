@@ -18,6 +18,29 @@ public sealed class ClericFighter : Fighter
     // 初期選択は回復。残り回数がゼロでも選択は維持し、意図しない別魔法の発動を防ぎます。
     public BrawlerDefines.UsableAction SelectedAction { get; private set; } = BrawlerDefines.UsableAction.Healing;
 
+    public BrawlerDefines.ActionUseStatus SelectedActionUseStatus => GetActionUseStatus(SelectedAction);
+
+    public BrawlerDefines.ActionUseStatus GetActionUseStatus(BrawlerDefines.UsableAction action)
+    {
+        // 複数の理由があるときは死亡・空中・行動中を優先し、その後に回数や効果を判定します。
+        BrawlerDefines.ActionUseStatus commonStatus = CommonActionUseStatus;
+        if (commonStatus != BrawlerDefines.ActionUseStatus.Ready)
+        {
+            return commonStatus;
+        }
+        return action switch
+        {
+            BrawlerDefines.UsableAction.Healing => HealingUsesRemaining <= 0 ? BrawlerDefines.ActionUseStatus.Empty
+                : Health >= MaxHealth ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready,
+            BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining <= 0 ? BrawlerDefines.ActionUseStatus.Empty
+                : IsProtected ? BrawlerDefines.ActionUseStatus.ProtectionActive : BrawlerDefines.ActionUseStatus.Ready,
+            BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty
+                : Health >= MaxHealth ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready,
+            BrawlerDefines.UsableAction.ThrowingKnife => ThrowingKnivesHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty : BrawlerDefines.ActionUseStatus.Ready,
+            _ => BrawlerDefines.ActionUseStatus.Unavailable
+        };
+    }
+
     public int SelectedActionUsesRemaining => SelectedAction switch
     {
         BrawlerDefines.UsableAction.Healing => HealingUsesRemaining,
@@ -29,7 +52,7 @@ public sealed class ClericFighter : Fighter
 
     public void SelectNextAction()
     {
-        if (!IsPlayer || Health <= 0)
+        if (!IsPlayer || Health <= 0 || Game.IsRunFinished)
         {
             return;
         }
@@ -58,7 +81,8 @@ public sealed class ClericFighter : Fighter
 
     public bool TryUseHealingPotion()
     {
-        if (!TryConsumeHealingPotion())
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.HealingPotion) != BrawlerDefines.ActionUseStatus.Ready
+            || !TryConsumeHealingPotion())
         {
             return false;
         }
@@ -69,7 +93,8 @@ public sealed class ClericFighter : Fighter
 
     public bool TryThrowKnife()
     {
-        if (!TryConsumeThrowingKnife())
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingKnife) != BrawlerDefines.ActionUseStatus.Ready
+            || !TryConsumeThrowingKnife())
         {
             return false;
         }
@@ -84,6 +109,10 @@ public sealed class ClericFighter : Fighter
     public float ProtectionSecondsRemaining => _protectionRemaining;
 
     public bool IsProtected => _protectionRemaining > 0;
+
+    // 表示用タイマーを別に持たず、実際の効果時間から終了予告を求めます。
+    public bool IsProtectionExpiring => Health > 0 && IsProtected
+        && _protectionRemaining <= BrawlerBalance.ProtectionWarningSeconds;
 
     // 1 プレイで 3 回。ウェーブを進めても補充せず、リスタートで初期化します。
     public int HealingUsesRemaining { get; private set; } = BrawlerBalance.HealingUses;
@@ -148,8 +177,7 @@ public sealed class ClericFighter : Fighter
 
     public bool TryProtection()
     {
-        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction
-            || ProtectionUsesRemaining <= 0 || IsProtected)
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.Protection) != BrawlerDefines.ActionUseStatus.Ready)
         {
             return false;
         }
@@ -180,8 +208,7 @@ public sealed class ClericFighter : Fighter
     public bool TryHeal()
     {
         // 満タン・死亡・行動中の入力では回数を消費しません。最大 HP は共通の回復処理で守ります。
-        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction
-            || HealingUsesRemaining <= 0 || Health >= MaxHealth)
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.Healing) != BrawlerDefines.ActionUseStatus.Ready)
         {
             return false;
         }

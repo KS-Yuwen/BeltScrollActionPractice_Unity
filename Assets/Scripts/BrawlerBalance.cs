@@ -3,6 +3,139 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // 得点・出現・命中演出の調整値。CSV化する際も呼び出し側ではこの名前を使います。
+    public const int HudFontSize = 24;
+    public const int PlayerMaxHealth = 100;
+    public const int EnemyBaseHealth = 55;
+    public const int EnemyHealthPerWave = 5;
+    public const int HeavyBaseHealth = 100;
+    public const int HeavyHealthPerWave = 8;
+    public const int WaveBaseEnemyCount = 2;
+    public const int WaveMaxEnemyCount = 7;
+    public const int MixedEnemiesStartWave = 2;
+    public const int RangedSpawnInterval = 3;
+    public const int RangedSpawnOffset = 2;
+    public const int HeavySpawnIndex = 3;
+    public const int PotionDropInterval = 3;
+    public const int HitScore = 10;
+    public const int HitScoreMultiplierLimit = 10;
+    public const int DefeatScore = 100;
+    public const float HitChainSeconds = 2;
+    public const float NormalHitStopSeconds = 0.04f;
+    public const float StrongHitStopSeconds = 0.08f;
+    public const float CameraShakeSeconds = 0.16f;
+    public const float CameraShakeStrength = 0.7f;
+    public const float CameraFollowHalfWidth = 16;
+    public const float SpawnBaseDistance = 7;
+    public const float SpawnMinimumDistance = 4;
+    public const float SpawnLaneHalfWidth = 2.5f;
+    public const float HitImpactHeight = 1.2f;
+    public const int HitImpactRayCount = 6;
+    public const float HitImpactRayOffset = 0.3f;
+    public const float HitImpactRayLength = 0.3f;
+    public const float HitImpactRayThickness = 0.06f;
+    public const float StrongHitImpactSize = 1.4f;
+    public const float NormalHitImpactSize = 1;
+    public const float BodyCheckReach = 0.9f;
+    public const float SlideHitReach = 1.1f;
+    public const float ContactLaneHalfWidth = 0.6f;
+    public const float GroundAttackReach = 1.8f;
+    public const int EnemyProjectileDamage = 8;
+
+    public const int StageWaveCount = 5;
+    public const float ResultPanelWidth = 560f;
+    public const float ResultPanelHeight = 300f;
+    public const float ResultPanelMargin = 24f;
+    public const float ResultRowHeight = 48f;
+    public const int ResultTitleFontSize = 44;
+    public const int ResultBodyFontSize = 24;
+    public const float LowHealthWarningFraction = 0.25f;
+    public const float LowHealthWarningPulsesPerSecond = 1.5f;
+    public const float LowHealthWarningBorderWidth = 3f;
+    public const float LowHealthWarningLabelWidth = 110f;
+    public const float LowHealthWarningLabelGap = 8f;
+    public const float ProtectionWarningSeconds = 3f;
+    public const float ProtectionWarningPulsesPerSecond = 2f;
+    public const int SelectionStatusFontSize = 14;
+    public const float HitDirectionSeconds = 0.6f;
+    public const float HitDirectionFadeSeconds = 0.2f;
+    public const float HitDirectionWorldOffset = 1f;
+    public const float HitDirectionWorldHeight = 1.4f;
+    public const float HitDirectionLabelSize = 60f;
+    public const int HitDirectionFontSize = 42;
+    // HPは即座に反映し、赤い残像だけを待機後に最大HPの一定割合/秒で縮めます。
+    public const float HealthTrailDelaySeconds = 0.25f;
+    public const float HealthTrailFractionPerSecond = 1.2f;
+    public const float PlayerHealthBarWidth = 300f;
+    public const float PlayerHealthBarHeight = 24f;
+    public const int PlayerHealthBarFontSize = 18;
+    public const float EnemyHealthBarWidth = 70f;
+    public const float EnemyHealthBarHeight = 10f;
+    public const float EnemyHealthBarWorldHeight = 2.3f;
+    // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
+    public const float NextWaveDelaySeconds = 2f;
+    public const float SpawnWarningSeconds = 1.5f;
+    public const float WaveBannerSeconds = 1.2f;
+    public const float WaveBannerFadeSeconds = 0.3f;
+    public const float WaveBannerWidth = 600f;
+    public const float WaveBannerHeight = 80f;
+    public const int WaveBannerFontSize = 44;
+    // 選択UI。小さい画面では四つの枠をまとめて縮小し、操作説明の上へ配置します。
+    public const float SelectionHudMargin = 24f;
+    public const float SelectionCardWidth = 154f;
+    public const float SelectionCardHeight = 92f;
+    public const float SelectionCardGap = 8f;
+    public const float SelectionCardPadding = 8f;
+    public const float SelectionBorderWidth = 3f;
+    public const float SelectionHintHeight = 30f;
+    public const float SelectionBottomOffset = 52f;
+    public const int SelectionTitleFontSize = 18;
+    public const int SelectionCountFontSize = 22;
+    public const float PickupNoticeSeconds = 0.9f;
+    public const float PickupNoticeWidth = 280f;
+    public const float PickupNoticeHeight = 2.8f;
+    public const float PickupNoticeItemSpacing = 0.6f;
+    public const int PickupNoticeFontSize = 24;
+    public const int WaveHealingAmount = 15;
+    // ダメージ表示は実時間で上昇・消滅させます。文字サイズと配置もここで調整します。
+    public const float DamageNumberSeconds = 0.7f;
+    public const float DamageNumberRiseSpeed = 1f;
+    public const float DamageNumberHeight = 2.2f;
+    public const int DamageNumberFontSize = 28;
+    public const int SpecialDamageNumberFontSize = 32;
+    public const float DamageNumberWidth = 120f;
+    public const float DamageNumberLabelHeight = 48f;
+    // 実際の命中判定と予告表示で共用し、調整後も範囲がずれないようにします。
+    public const float PlayerAttackReach = 2.475f;
+    public const float EnemyAttackReach = 1.65f;
+    public const float AttackLaneHalfWidth = 0.8f;
+    public const float AttackBehindAllowance = 0.25f;
+    public const float EnemyProjectileSpeed = 8f;
+    public const float EnemyProjectileLifetimeSeconds = 4f;
+    public const float EnemyProjectileHitRadius = 0.45f;
+    public const float EnemyProjectileLaunchOffset = 0.7f;
+    public const float EnemyProjectileHeight = 1.2f;
+
+    // 足元の予告枠。床との重なりを避ける高さと、敵の向きを示す短い棒を定義します。
+    public const float WarningMarkerHeight = 0.04f;
+    public const float WarningMarkerWidth = 1.2f;
+    public const float WarningMarkerDepth = 0.8f;
+    public const float WarningMarkerThickness = 0.05f;
+    public const float WarningDirectionOffset = 0.85f;
+    public const float WarningDirectionLength = 0.4f;
+    // 防御・反撃の演出設定。時間は実時間で進め、ヒットストップ中も消えるようにします。
+    public const float GuardImpactSeconds = 0.22f;
+    public const float CounterImpactSeconds = 0.3f;
+    public const float NormalImpactSeconds = 0.18f;
+    public const int GuardSparkCount = 8;
+    public const int CounterRayCount = 4;
+    public const float ImpactFullCircleDegrees = 360f;
+    public const float DefenseRayOffset = 0.3f;
+    public const float DefenseRayLength = 0.45f;
+    public const float DefenseRayThickness = 0.06f;
+    public const float GuardImpactSize = 0.8f;
+    public const float CounterImpactSize = 1.8f;
+    public const float CounterImpactHeight = 1.2f;
     // 方向コマンド：下→斜めに0.9秒、斜め→ジャンプに0.6秒の余裕を持たせます。
     public const float DefaultCommandDirectionThreshold = 0.35f;
     public const float DefaultSlideDirectionWindowSeconds = 0.9f;

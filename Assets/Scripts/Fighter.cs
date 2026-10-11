@@ -5,7 +5,15 @@ public class Fighter : Combatant
 {
     // 敵の属性は派生クラスが宣言します。見た目やクラス名で魔法の対象を判定しません。
     public virtual bool IsUndead => false;
+
+    // 近接予告の範囲。遠距離型は弾の射線へ上書きし、表示側に敵の型判定を持たせません。
+    public virtual float WarningRangeStart => -BrawlerBalance.AttackBehindAllowance;
+    public virtual float WarningRangeEnd => BrawlerBalance.EnemyAttackReach;
+    public virtual float WarningLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
     private BeltBrawler _game;
+    // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
+    private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
+    public float EnemyHealthTrail => _enemyHealthBarFeedback.TrailHealth;
     private Transform _visual;
     private Transform _attackArm;
     private Transform _rightLeg;
@@ -23,6 +31,8 @@ public class Fighter : Combatant
     private int _comboStep;
     // 1 回の攻撃でダメージ判定を繰り返さないためのフラグ。
     private bool _hasDealtHit;
+    // 同時に複数の技が有効にならないよう、種類は一つの値で保持します。
+    private BrawlerDefines.AttackKind _attackKind;
     // 被ダメージ時に押し戻される速度。
     private Vector3 _knockbackVelocity;
     // ダッシュ中だけ入力方向に高速移動し、ダメージを無効にします。
@@ -30,45 +40,36 @@ public class Fighter : Combatant
     private float _dashRemaining;
     private float _dashCooldown;
     private float _windupRemaining;
+    private float _windupDuration;
     private float _flashRemaining;
     private Vector3 _dashDirection;
     private float _attackBufferRemaining;
     private float _attackBufferFacing = 1;
     private bool _attackBufferForward;
-    private bool _isHeavyStrike;
-    private bool _isPushAttack;
     private bool _canPushFromHold;
     private float _attackHoldSeconds;
     private float _attackHoldFacing = 1;
 
-    public bool IsHeavyStriking => _isHeavyStrike && _attackRemaining > 0;
-    public bool IsPushAttacking => _isPushAttack && _attackRemaining > 0;
+    public bool IsHeavyStriking => _attackKind == BrawlerDefines.AttackKind.HeavyStrike && _attackRemaining > 0;
+    public bool IsPushAttacking => _attackKind == BrawlerDefines.AttackKind.Push && _attackRemaining > 0;
     private Renderer[] _bodyRenderers;
     private MaterialPropertyBlock _flashProperties;
     private float _downRemaining;
     private float _blockFlashRemaining;
-    private bool _isDashAttack;
-    private bool _isDashSpecial;
-    private bool _isUppercut;
-    public bool IsUppercutAttacking => _isUppercut && _attackRemaining > 0;
-    public bool IsDashSpecialAttacking => _isDashSpecial && _attackRemaining > 0;
+    public bool IsUppercutAttacking => _attackKind == BrawlerDefines.AttackKind.Uppercut && _attackRemaining > 0;
+    public bool IsDashSpecialAttacking => _attackKind == BrawlerDefines.AttackKind.DashSpecial && _attackRemaining > 0;
     private float _dashAttackMovementRemaining;
     // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
     private float _counterWindowRemaining;
-    private bool _isCounterAttack;
     // 後ろ＋攻撃で構えた盾は、攻撃ボタンを離すまで維持します。
     // 前に入れ直しても向きを変えず、次の防御成功時の自動反撃を予約できます。
     private bool _commandGuardHeld;
-    private bool _isGroundAttack;
     private Fighter _groundAttackTarget;
     private bool _hasReceivedGroundHit;
     private float _jumpHeight;
     private float _jumpVelocity;
     private Vector3 _jumpDrift;
-    private bool _isAirAttack;
-    private bool _isDownThrust;
     private bool _isCrouching;
-    private bool _isCrouchAttack;
     private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
     private bool _canBackstepFromJump;
     private bool _isBackstep;
@@ -90,7 +91,7 @@ public class Fighter : Combatant
 
     public bool IsCrouching => _isCrouching;
 
-    public bool IsCrouchAttacking => _isCrouchAttack && _attackRemaining > 0;
+    public bool IsCrouchAttacking => _attackKind == BrawlerDefines.AttackKind.Crouch && _attackRemaining > 0;
 
     public bool IsBackstepping => _isBackstep && _dashRemaining > 0;
 
@@ -99,9 +100,9 @@ public class Fighter : Combatant
 
     public bool IsAirborne => _jumpHeight > 0 || _jumpVelocity > 0;
 
-    public bool IsAirAttacking => _isAirAttack && _attackRemaining > 0;
+    public bool IsAirAttacking => (_attackKind == BrawlerDefines.AttackKind.Air || _attackKind == BrawlerDefines.AttackKind.DownThrust) && _attackRemaining > 0;
 
-    public bool IsGroundAttacking => _isGroundAttack && _attackRemaining > 0;
+    public bool IsGroundAttacking => _attackKind == BrawlerDefines.AttackKind.Ground && _attackRemaining > 0;
 
     // 通常の硬直無敵とは別に、1回のダウンにつき追撃を一度だけ許可します。
     public bool CanReceiveGroundHit => !IsPlayer && Health > 0 && IsDowned && !_hasReceivedGroundHit;
@@ -109,29 +110,54 @@ public class Fighter : Combatant
     // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
     public bool IsGuarding { get; private set; }
 
+    // 盾はModelの子なので、左向きへの反転や構えの位置を含めた実際の位置を返します。
+    public Vector3 GuardImpactPosition => _visual.Find("Shield") is Transform shield
+        ? shield.position : transform.position;
+
     public bool IsDowned => _downRemaining > 0;
 
     public int ComboStep => _comboStep;
 
-    public bool IsDashAttacking => _isDashAttack && _attackRemaining > 0;
+    public bool IsDashAttacking => (_attackKind == BrawlerDefines.AttackKind.Dash || _attackKind == BrawlerDefines.AttackKind.DashSpecial) && _attackRemaining > 0;
 
     public bool CanCounter => _counterWindowRemaining > 0 && _stunRemaining <= 0
         && _attackRemaining <= 0 && _dashRemaining <= 0 && Health > 0;
 
-    public bool IsCounterAttacking => _isCounterAttack && _attackRemaining > 0;
+    public bool IsCounterAttacking => _attackKind == BrawlerDefines.AttackKind.Counter && _attackRemaining > 0;
 
     // 状態の読み取りは公開し、変更はこのクラスのメソッドを通して行います。
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
     public bool IsPlayer { get; private set; }
+
+    protected override void OnHealthRestored(int actualAmount)
+    {
+        if (!IsPlayer)
+        {
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
+        }
+        // 回復魔法・ポーション・ウェーブ報酬が通る共通の通知で、重複表示を防ぎます。
+        if (IsPlayer && _game != null)
+        {
+            _game.ShowHealingNumber(this, actualAmount);
+        }
+    }
 
     // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
     public int HealingPotionsHeld { get; private set; }
 
     public int ThrowingKnivesHeld { get; private set; }
 
+    public void NotifyItemPickup(BrawlerDefines.PickupKind kind)
+    {
+        if (IsPlayer && _game != null)
+        {
+            _game.ShowPickupNotice(this, kind);
+        }
+    }
+
     public bool TryStoreThrowingKnife()
     {
-        if (!IsPlayer || Health <= 0 || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
+        if (!IsPlayer || Health <= 0 || _game.IsRunFinished || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
         {
             return false;
         }
@@ -155,7 +181,7 @@ public class Fighter : Combatant
     public bool TryStoreHealingPotion()
     {
         // HP満タンでも保存できます。死亡・所持上限では床のポーションを残します。
-        if (!IsPlayer || Health <= 0 || HealingPotionsHeld >= BrawlerBalance.PotionCapacity)
+        if (!IsPlayer || Health <= 0 || _game.IsRunFinished || HealingPotionsHeld >= BrawlerBalance.PotionCapacity)
         {
             return false;
         }
@@ -200,8 +226,37 @@ public class Fighter : Combatant
 
     protected virtual Color? SpecialFeedbackColor => null;
 
-    protected bool CanUseSpecialAction => Health > 0 && _stunRemaining <= 0
-        && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0 && !IsAirborne && !_isRunning && !IsSliding;
+    // 発動とUIが同じ共通判定を使います。状態を変更せず、理由だけ返します。
+    protected BrawlerDefines.ActionUseStatus CommonActionUseStatus
+    {
+        get
+        {
+            if (!IsPlayer)
+            {
+                return BrawlerDefines.ActionUseStatus.Unavailable;
+            }
+            if (Health <= 0)
+            {
+                return BrawlerDefines.ActionUseStatus.Defeated;
+            }
+            if (_game.IsRunFinished)
+            {
+                return BrawlerDefines.ActionUseStatus.Unavailable;
+            }
+            if (IsAirborne)
+            {
+                return BrawlerDefines.ActionUseStatus.Airborne;
+            }
+            if (_stunRemaining > 0 || _attackRemaining > 0 || _dashRemaining > 0
+                || _attackCooldown > 0 || _isRunning || IsSliding || IsUsingSpecialAction)
+            {
+                return BrawlerDefines.ActionUseStatus.Busy;
+            }
+            return BrawlerDefines.ActionUseStatus.Ready;
+        }
+    }
+
+    protected bool CanUseSpecialAction => CommonActionUseStatus == BrawlerDefines.ActionUseStatus.Ready;
 
     protected virtual bool UpdateSpecialAction() => false;
 
@@ -223,6 +278,10 @@ public class Fighter : Combatant
 
     public bool IsWindingUp => _windupRemaining > 0;
 
+    // 敵ごとの予告秒数が異なっても、表示側には0～1の進み具合として渡します。
+    public float AttackWindupProgress => IsWindingUp
+        ? 1 - Mathf.Clamp01(_windupRemaining / Mathf.Max(_windupDuration, Mathf.Epsilon)) : 0;
+
     // 生成直後に管理役から一度だけ呼び、戦闘に必要な状態とパーツをまとめて渡します。
     // Start より前に初期化を完了するため、Start で安全に Renderer を取得できます。
     public void Initialize(BeltBrawler game, bool isPlayer, int maxHealth,
@@ -231,6 +290,7 @@ public class Fighter : Combatant
         _game = game;
         IsPlayer = isPlayer;
         InitializeHealth(maxHealth);
+        _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
         _visual = visual;
         _attackArm = attackArm;
         _rightLeg = rightLeg;
@@ -248,11 +308,15 @@ public class Fighter : Combatant
     protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
-        if (Health <= 0)
+        if (Health <= 0 || _game.IsRunFinished)
         {
             return;
         }
         float deltaTime = Time.deltaTime;
+        if (!IsPlayer)
+        {
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, deltaTime);
+        }
         // 更新順もゲームの挙動の一部です。元の順序を維持し、担当する処理ごとに分けます。
         UpdateTimers(deltaTime);
         Vector3 input = ReadPlayerInput();
@@ -396,17 +460,9 @@ public class Fighter : Combatant
                 _isRunning = false;
                 _isBackstep = false;
                 _isCrouching = false;
-                _isCrouchAttack = false;
                 _dashCooldown = BrawlerBalance.DashCooldownSeconds;
                 _attackRemaining = 0;
-                _isGroundAttack = false;
-                _groundAttackTarget = null;
-                _isDashAttack = false;
-                _isDashSpecial = false;
-                _isUppercut = false;
-                _isHeavyStrike = false;
-                _isPushAttack = false;
-                _isCounterAttack = false;
+                ResetAttackKind();
                 _counterWindowRemaining = 0;
                 _dashAttackMovementRemaining = 0;
                 _attackBufferRemaining = 0;
@@ -555,6 +611,7 @@ public class Fighter : Combatant
 
     protected void BeginAttackWindup(float duration)
     {
+        _windupDuration = duration;
         _windupRemaining = duration;
     }
 
@@ -592,7 +649,7 @@ public class Fighter : Combatant
         // 回避より速度を落とした短い踏み込みです。通常移動と同時には発生しません。
         if (_dashAttackMovementRemaining > 0)
         {
-            float speed = _isDashSpecial ? BrawlerBalance.DashSpecialSpeed : BrawlerBalance.DashAttackSpeed;
+            float speed = _attackKind == BrawlerDefines.AttackKind.DashSpecial ? BrawlerBalance.DashSpecialSpeed : BrawlerBalance.DashAttackSpeed;
             transform.position += _dashDirection * speed * Mathf.Min(deltaTime, _dashAttackMovementRemaining);
             _dashAttackMovementRemaining = Mathf.Max(0, _dashAttackMovementRemaining - deltaTime);
         }
@@ -630,24 +687,20 @@ public class Fighter : Combatant
         {
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
-            _attackArm.localRotation = Quaternion.Euler(0, 0, _isPushAttack ? 35 : _isHeavyStrike ? 135
-                : _isUppercut ? -30 : _isDownThrust ? -90 : _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
-            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f,
-                _isUppercut ? 1.6f : _isGroundAttack || _isCrouchAttack ? 0.65f : 1.35f, -0.1f);
-            // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
-            float hitTiming = _isHeavyStrike ? BrawlerBalance.HeavyStrikeAttackSeconds - BrawlerBalance.HeavyStrikeHitDelaySeconds
-                : _isPushAttack ? BrawlerBalance.PushAttackSeconds - BrawlerBalance.PushHitDelaySeconds
-                : _isUppercut ? BrawlerBalance.UppercutAttackSeconds - BrawlerBalance.UppercutHitDelaySeconds
-                : _isDashSpecial ? BrawlerBalance.DashSpecialAttackSeconds - BrawlerBalance.DashSpecialHitDelaySeconds
-                : _isGroundAttack ? BrawlerBalance.GroundHitRemainingSeconds : _isDashAttack || _isCounterAttack ? BrawlerBalance.FastHitRemainingSeconds : BrawlerBalance.NormalHitRemainingSeconds;
+            _attackArm.localRotation = Quaternion.Euler(0, 0, GetAttackArmAngle());
+            bool isDashAttack = _attackKind == BrawlerDefines.AttackKind.Dash
+                || _attackKind == BrawlerDefines.AttackKind.DashSpecial;
+            bool isLowAttack = _attackKind == BrawlerDefines.AttackKind.Ground
+                || _attackKind == BrawlerDefines.AttackKind.Crouch;
+            _attackArm.localPosition = new Vector3(isDashAttack ? 0.9f : 0.65f,
+                _attackKind == BrawlerDefines.AttackKind.Uppercut ? 1.6f : isLowAttack ? 0.65f : 1.35f, -0.1f);
+            // 技の開始から所定の時間を過ぎたら、一度だけ命中判定を行います。
+            float hitTiming = GetAttackHitRemainingSeconds();
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isHeavyStrike ? BrawlerBalance.HeavyStrikeDamage : _isPushAttack ? BrawlerBalance.PushDamage
-                    : _isUppercut ? BrawlerBalance.UppercutDamage : _isDashSpecial ? BrawlerBalance.DashSpecialDamage
-                    : _isCrouchAttack ? BrawlerBalance.CrouchAttackDamage : _isAirAttack ? (_isDownThrust ? BrawlerBalance.DownThrustDamage : BrawlerBalance.AirAttackDamage)
-                    : _isCounterAttack ? BrawlerBalance.CounterDamage : _isDashAttack ? BrawlerBalance.DashAttackDamage : IsPlayer ? (_comboStep == BrawlerBalance.ComboSteps ? BrawlerBalance.FinisherDamage : BrawlerBalance.NormalDamage) : EnemyAttackDamage;
-                if (_isGroundAttack)
+                int damage = GetAttackDamage();
+                if (_attackKind == BrawlerDefines.AttackKind.Ground)
                 {
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
                     _game.HitGroundTarget(this, _groundAttackTarget, BrawlerBalance.GroundAttackDamage);
@@ -660,21 +713,62 @@ public class Fighter : Combatant
         }
         else
         {
-            _isDashAttack = false;
-            _isDashSpecial = false;
-            _isUppercut = false;
-            _isHeavyStrike = false;
-            _isPushAttack = false;
-            _isCounterAttack = false;
-            _isGroundAttack = false;
-            _groundAttackTarget = null;
-            _isAirAttack = false;
-            _isDownThrust = false;
-            _isCrouchAttack = false;
+            ResetAttackKind();
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
         }
+    }
+
+    // 種類ごとの値はここで選びます。技を増やすときに長い条件式を複数箇所へ追加する必要はありません。
+    private int GetAttackDamage()
+    {
+        return _attackKind switch
+        {
+            BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeDamage,
+            BrawlerDefines.AttackKind.Push => BrawlerBalance.PushDamage,
+            BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutDamage,
+            BrawlerDefines.AttackKind.DashSpecial => BrawlerBalance.DashSpecialDamage,
+            BrawlerDefines.AttackKind.Crouch => BrawlerBalance.CrouchAttackDamage,
+            BrawlerDefines.AttackKind.DownThrust => BrawlerBalance.DownThrustDamage,
+            BrawlerDefines.AttackKind.Air => BrawlerBalance.AirAttackDamage,
+            BrawlerDefines.AttackKind.Counter => BrawlerBalance.CounterDamage,
+            BrawlerDefines.AttackKind.Dash => BrawlerBalance.DashAttackDamage,
+            BrawlerDefines.AttackKind.Ground => BrawlerBalance.GroundAttackDamage,
+            _ => IsPlayer ? (_comboStep == BrawlerBalance.ComboSteps
+                ? BrawlerBalance.FinisherDamage : BrawlerBalance.NormalDamage) : EnemyAttackDamage
+        };
+    }
+
+    // 現在の実装は残り秒数で命中を判定するため、発生までの時間から差し引いて返します。
+    private float GetAttackHitRemainingSeconds()
+    {
+        return _attackKind switch
+        {
+            BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeAttackSeconds - BrawlerBalance.HeavyStrikeHitDelaySeconds,
+            BrawlerDefines.AttackKind.Push => BrawlerBalance.PushAttackSeconds - BrawlerBalance.PushHitDelaySeconds,
+            BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutAttackSeconds - BrawlerBalance.UppercutHitDelaySeconds,
+            BrawlerDefines.AttackKind.DashSpecial => BrawlerBalance.DashSpecialAttackSeconds - BrawlerBalance.DashSpecialHitDelaySeconds,
+            BrawlerDefines.AttackKind.Ground => BrawlerBalance.GroundHitRemainingSeconds,
+            BrawlerDefines.AttackKind.Dash => BrawlerBalance.FastHitRemainingSeconds,
+            BrawlerDefines.AttackKind.Counter => BrawlerBalance.FastHitRemainingSeconds,
+            _ => BrawlerBalance.NormalHitRemainingSeconds
+        };
+    }
+
+    private float GetAttackArmAngle()
+    {
+        return _attackKind switch
+        {
+            BrawlerDefines.AttackKind.Push => 35,
+            BrawlerDefines.AttackKind.HeavyStrike => 135,
+            BrawlerDefines.AttackKind.Uppercut => -30,
+            BrawlerDefines.AttackKind.DownThrust => -90,
+            BrawlerDefines.AttackKind.Ground => -65,
+            BrawlerDefines.AttackKind.Dash => 110,
+            BrawlerDefines.AttackKind.DashSpecial => 110,
+            _ => 90
+        };
     }
 
     private void UpdateVisualFeedback()
@@ -711,19 +805,12 @@ public class Fighter : Combatant
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     private void Attack()
     {
+        ResetAttackKind();
+        _attackKind = BrawlerDefines.AttackKind.Normal;
         if (IsPlayer)
         {
             _canPushFromHold = true;
         }
-        _isCrouchAttack = false;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCounterAttack = false;
         _counterWindowRemaining = 0;
         // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
         // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
@@ -738,22 +825,15 @@ public class Fighter : Combatant
     // 回避を攻撃へ変換します。通常コンボとは別の技として、コンボ段数をリセットします。
     private void StartDashAttack()
     {
+        ResetAttackKind();
         ClearAttackHold();
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCrouchAttack = false;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
-        _isCounterAttack = false;
         _counterWindowRemaining = 0;
         if (Mathf.Abs(_dashDirection.x) > BrawlerBalance.FacingInputThreshold)
         {
             Facing = Mathf.Sign(_dashDirection.x);
         }
         _dashRemaining = 0;
-        _isDashAttack = true;
+        _attackKind = BrawlerDefines.AttackKind.Dash;
         _dashAttackMovementRemaining = BrawlerBalance.DashAttackMovementSeconds;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         _attackCooldown = BrawlerBalance.DashAttackCooldownSeconds;
@@ -763,6 +843,25 @@ public class Fighter : Combatant
         _hasDealtHit = false;
         _commandGuardHeld = false;
         IsGuarding = false;
+    }
+
+    // 時間や入力バッファは各行動の規則に従って更新し、技の種類と対象だけを共通で解除します。
+    private void ResetAttackKind()
+    {
+        _attackKind = BrawlerDefines.AttackKind.None;
+        _groundAttackTarget = null;
+    }
+
+    // 着地など、一部の行動だけを解除する場面で使います。他の技は変更しません。
+    private void ClearAttackKind(BrawlerDefines.AttackKind kind)
+    {
+        bool matches = _attackKind == kind
+            || kind == BrawlerDefines.AttackKind.Air && _attackKind == BrawlerDefines.AttackKind.DownThrust
+            || kind == BrawlerDefines.AttackKind.Dash && _attackKind == BrawlerDefines.AttackKind.DashSpecial;
+        if (matches)
+        {
+            ResetAttackKind();
+        }
     }
 
     private void ClearAttackHold()
@@ -789,8 +888,7 @@ public class Fighter : Combatant
         }
         Facing = _attackHoldFacing;
         StartCounterAttack();
-        _isCounterAttack = false;
-        _isPushAttack = true;
+        _attackKind = BrawlerDefines.AttackKind.Push;
         _attackRemaining = BrawlerBalance.PushAttackSeconds;
         _attackCooldown = BrawlerBalance.PushCooldownSeconds;
         return true;
@@ -799,8 +897,7 @@ public class Fighter : Combatant
     private void StartHeavyStrike()
     {
         StartCounterAttack();
-        _isCounterAttack = false;
-        _isHeavyStrike = true;
+        _attackKind = BrawlerDefines.AttackKind.HeavyStrike;
         _canPushFromHold = true;
         _attackRemaining = BrawlerBalance.HeavyStrikeAttackSeconds;
         _attackCooldown = BrawlerBalance.HeavyStrikeCooldownSeconds;
@@ -820,8 +917,7 @@ public class Fighter : Combatant
     {
         // 共通の単発攻撃初期化を使い、対空技の威力・時間・振り上げ演出を適用します。
         StartCounterAttack();
-        _isCounterAttack = false;
-        _isUppercut = true;
+        _attackKind = BrawlerDefines.AttackKind.Uppercut;
         _isRunning = false;
         _isCrouching = false;
         _dashAttackMovementRemaining = 0;
@@ -834,7 +930,7 @@ public class Fighter : Combatant
         // 基本のダッシュ攻撃を共用し、コマンド技の調整値だけを差し替えます。無敵はありません。
         _dashDirection = new Vector3(direction, 0, 0);
         StartDashAttack();
-        _isDashSpecial = true;
+        _attackKind = BrawlerDefines.AttackKind.DashSpecial;
         _isRunning = false;
         _isCrouching = false;
         _knockbackVelocity = Vector3.zero;
@@ -846,17 +942,10 @@ public class Fighter : Combatant
     // 反撃には無敵を付けず、防御から攻撃へ移る判断にリスクを残します。
     private void StartCounterAttack()
     {
+        ResetAttackKind();
         ClearAttackHold();
-        _isCrouchAttack = false;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
         _counterWindowRemaining = 0;
-        _isCounterAttack = true;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
+        _attackKind = BrawlerDefines.AttackKind.Counter;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         _attackCooldown = BrawlerBalance.CounterCooldownSeconds;
         _attackBufferRemaining = 0;
@@ -942,7 +1031,7 @@ public class Fighter : Combatant
 
     private void StartJump(Vector3 input)
     {
-        _isCrouchAttack = false;
+        ClearAttackKind(BrawlerDefines.AttackKind.Crouch);
         _isCrouching = false;
         _canBackstepFromJump = input.z <= BrawlerBalance.JumpDirectionThreshold && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
@@ -971,29 +1060,20 @@ public class Fighter : Combatant
             _jumpHeight = 0;
             _jumpVelocity = 0;
             _jumpDrift = Vector3.zero;
-            if (_isAirAttack)
+            if ((_attackKind == BrawlerDefines.AttackKind.Air || _attackKind == BrawlerDefines.AttackKind.DownThrust))
             {
                 _attackRemaining = 0;
-                _isAirAttack = false;
-                _isDownThrust = false;
+                ClearAttackKind(BrawlerDefines.AttackKind.Air);
             }
         }
     }
 
     private void StartAirAttack(bool isDownThrust)
     {
+        ResetAttackKind();
         ClearAttackHold();
         _canBackstepFromJump = false;
-        _isAirAttack = true;
-        _isDownThrust = isDownThrust;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCounterAttack = false;
+        _attackKind = isDownThrust ? BrawlerDefines.AttackKind.DownThrust : BrawlerDefines.AttackKind.Air;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         _attackCooldown = BrawlerBalance.AirAttackCooldownSeconds;
         _hasDealtHit = false;
@@ -1006,18 +1086,10 @@ public class Fighter : Combatant
 
     private void StartCrouchAttack()
     {
+        ResetAttackKind();
         ClearAttackHold();
         // しゃがみ攻撃は低い位置の素早い一撃。通常コンボとは分けて段数をリセットします。
-        _isCrouchAttack = true;
-        _isAirAttack = false;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCounterAttack = false;
+        _attackKind = BrawlerDefines.AttackKind.Crouch;
         _counterWindowRemaining = 0;
         _attackRemaining = BrawlerBalance.CrouchAttackSeconds;
         _attackCooldown = BrawlerBalance.CrouchAttackCooldownSeconds;
@@ -1047,16 +1119,10 @@ public class Fighter : Combatant
 
     private void StartGroundAttack(Fighter target)
     {
+        ResetAttackKind();
         ClearAttackHold();
-        _isCrouchAttack = false;
-        _isGroundAttack = true;
+        _attackKind = BrawlerDefines.AttackKind.Ground;
         _groundAttackTarget = target;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCounterAttack = false;
         _counterWindowRemaining = 0;
         _attackRemaining = BrawlerBalance.GroundAttackSeconds;
         _attackCooldown = BrawlerBalance.GroundAttackCooldownSeconds;
@@ -1070,7 +1136,7 @@ public class Fighter : Combatant
 
     public bool TryTakeGroundHit(int amount, float direction)
     {
-        if (!CanReceiveGroundHit || amount <= 0)
+        if (_game.IsRunFinished || !CanReceiveGroundHit || amount <= 0)
         {
             return false;
         }
@@ -1080,10 +1146,10 @@ public class Fighter : Combatant
     }
 
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
-    public void TakeDamage(int amount, float direction)
+    public void TakeDamage(int amount, float direction, BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (Health <= 0 || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
+        if (Health <= 0 || _game.IsRunFinished || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
         {
             return;
         }
@@ -1091,6 +1157,7 @@ public class Fighter : Combatant
         if (IsGuarding && direction * Facing < 0)
         {
             _game.PlaySound(BrawlerSound.Guard);
+            _game.CreateGuardImpact(this);
             _blockFlashRemaining = BrawlerBalance.BlockFlashSeconds;
             _counterWindowRemaining = BrawlerBalance.CounterWindowSeconds;
             _knockbackVelocity = new Vector3(direction * BrawlerBalance.BlockKnockbackSpeed, 0, 0);
@@ -1103,39 +1170,32 @@ public class Fighter : Combatant
             }
             return;
         }
-        ApplyDamage(amount, direction, false);
+        ApplyDamage(amount, direction, false, kind);
     }
 
-    private void ApplyDamage(int amount, float direction, bool isGroundHit)
+    private void ApplyDamage(int amount, float direction, bool isGroundHit,
+        BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
+        ResetAttackKind();
         ClearAttackHold();
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
         _slideRemaining = 0;
         _isRunning = false;
         _wasForwardHeld = false;
         _lastForwardTapAt = BrawlerDefines.UnsetTime;
         _commandGuardHeld = false;
         IsGuarding = false;
+        int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
+        if (!IsPlayer)
+        {
+            // 被弾確定時に残像の待機を開始し、同フレームの描画にも直前HPを残します。
+            _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
+        }
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
         _isCrouching = false;
-        _isCrouchAttack = false;
         _canBackstepFromJump = false;
-        _isAirAttack = false;
-        _isDownThrust = false;
-        _isGroundAttack = false;
-        _groundAttackTarget = null;
-        _isDashAttack = false;
-        _isDashSpecial = false;
-        _isUppercut = false;
-        _isHeavyStrike = false;
-        _isPushAttack = false;
-        _isCounterAttack = false;
         _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;
         _attackBufferRemaining = 0;
@@ -1152,14 +1212,19 @@ public class Fighter : Combatant
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
         _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
-        _game.RegisterDamage(this, amount);
+        // 残りHPを超えた攻撃や軽減があっても、表示は実際に減ったHPに合わせます。
+        if (IsPlayer && Health < healthBeforeDamage)
+        {
+            _game.ShowHitDirection(direction);
+        }
+        _game.RegisterDamage(this, amount, healthBeforeDamage - Health, kind);
         if (Health == 0)
         {
             // 仮の倒れる演出。敵だけ 0.5 秒後に消し、プレイヤーは敗北表示のため残します。
             _visual.localRotation = Quaternion.Euler(0, 0, 80);
             if (!IsPlayer)
             {
-                Destroy(gameObject, BrawlerBalance.EnemyRemovalSeconds);
+                gameObject.AddComponent<EnemyDefeatFade>().Initialize(this, _visual);
             }
         }
     }
