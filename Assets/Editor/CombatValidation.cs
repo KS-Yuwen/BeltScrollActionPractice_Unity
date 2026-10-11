@@ -435,6 +435,46 @@ public static class CombatValidation
             Require(!player.IsSliding && Mathf.Approximately(player.transform.position.x, 0.96f), "短押しの移動は0.12秒分で制限");
             updateStop.Invoke(game, new object[] { 1f });
 
+            // CSVは部分指定も許可しますが、不正な値があれば全体を既定値へ戻します。
+            Require(SlideBalanceSettings.TryParse("key,value\nSlideSpeed,10\nSlideDamage,22\nSlideMinSeconds,0.2\n", out SlideBalanceSettings customSlide, out _),
+                "CSVから有効なスライディング設定を読み込み");
+            Require(customSlide.Speed == 10 && customSlide.Damage == 22 && customSlide.DirectionWindowSeconds == 0.9f,
+                "指定値を適用し省略項目には既定値を使用");
+            string[] invalidCsvs = {
+                "", "key,value\nSlideSpeed,NaN", "key,value\nSlideSpeed,-1",
+                "key,value\nSlideDamage,2.5", "key,value\nUnknown,1",
+                "key,value\nSlideSpeed,10\nSlideSpeed,12", "key,value\nSlideMinSeconds,1\nSlideMaxSeconds,0.4"
+            };
+            foreach (string invalidCsv in invalidCsvs)
+            {
+                Require(!SlideBalanceSettings.TryParse(invalidCsv, out SlideBalanceSettings fallback, out string error)
+                    && fallback.Speed == BrawlerBalance.DefaultSlideSpeed && !string.IsNullOrEmpty(error),
+                    "不正なCSVは理由を返して既定値へフォールバック");
+            }
+            // 読み込みだけでなく、実際の移動・ダメージも設定窓口経由で変わることを確認します。
+            FieldInfo settingsField = typeof(BrawlerBalance).GetField("s_slideSettings", BindingFlags.Static | BindingFlags.NonPublic);
+            object originalSettings = settingsField.GetValue(null);
+            try
+            {
+                settingsField.SetValue(null, customSlide);
+                SetPrivateField(player, "_stunRemaining", 0f);
+                player.transform.position = Vector3.zero;
+                typeof(Fighter).GetMethod("StartSlide", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 1f });
+                heavy.RestoreHealth(200);
+                SetPrivateField(heavy, "_stunRemaining", 0f);
+                heavy.transform.position = Vector3.right * 0.5f;
+                int csvHitHealth = heavy.Health;
+                game.HitSlidingTargets(player);
+                Require(heavy.Health == csvHitHealth - 22, "CSVのダメージが実際の接触に反映");
+                typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { Vector3.zero, 1f });
+                Require(Mathf.Approximately(player.transform.position.x, 2), "CSVの速度と最短時間が実際の移動に反映");
+            }
+            finally
+            {
+                settingsField.SetValue(null, originalSettings);
+            }
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

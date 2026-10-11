@@ -1,0 +1,13 @@
+key,value
+# 秒：下から斜め前下に入れる受付時間
+SlideDirectionWindowSeconds,0.9
+# 秒：斜め入力後にジャンプを押す受付時間
+SlideButtonWindowSeconds,0.6
+# 入力の判定しきい値（Input Systemのデッドゾーン処理後）
+CommandDirectionThreshold,0.35
+# Unity単位/秒
+SlideSpeed,8
+SlideMinSeconds,0.12
+SlideMaxSeconds,0.4
+SlideCooldownSeconds,0.55
+SlideDamage,12

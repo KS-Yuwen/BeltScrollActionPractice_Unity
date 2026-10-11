@@ -1,12 +1,42 @@
 // 戦闘・操作の調整値を集約します。単位は名前とコメントで示します。
-// 現段階では const の既定値です。将来CSV対応時はこの窓口を読み込み済み設定に置き換え、
-// 呼び出し側へCSVの列名やファイル操作を広げない方針です。
+// スライディングはCSVから検証済み設定を読み込み、他の戦闘設定は名前付き定数を使います。
+// 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
     // 方向コマンド：下→斜めに0.9秒、斜め→ジャンプに0.6秒の余裕を持たせます。
-    public const float CommandDirectionThreshold = 0.35f;
-    public const float SlideDirectionWindowSeconds = 0.9f;
-    public const float SlideButtonWindowSeconds = 0.6f;
+    public const float DefaultCommandDirectionThreshold = 0.35f;
+    public const float DefaultSlideDirectionWindowSeconds = 0.9f;
+    public const float DefaultSlideButtonWindowSeconds = 0.6f;
+    private static SlideBalanceSettings s_slideSettings = SlideBalanceSettings.CreateDefault();
+    public static float CommandDirectionThreshold => s_slideSettings.DirectionThreshold;
+    public static float SlideDirectionWindowSeconds => s_slideSettings.DirectionWindowSeconds;
+    public static float SlideButtonWindowSeconds => s_slideSettings.ButtonWindowSeconds;
+    public static float SlideSpeed => s_slideSettings.Speed;
+    public static float SlideMinSeconds => s_slideSettings.MinSeconds;
+    public static float SlideMaxSeconds => s_slideSettings.MaxSeconds;
+    public static float SlideCooldownSeconds => s_slideSettings.CooldownSeconds;
+    public static int SlideDamage => s_slideSettings.Damage;
+
+    [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void LoadSlideSettings()
+    {
+        // Play開始時に必ずリセットし、ドメインリロード無効時も前回の値を残しません。
+        s_slideSettings = SlideBalanceSettings.CreateDefault();
+        UnityEngine.TextAsset asset = UnityEngine.Resources.Load<UnityEngine.TextAsset>("Balance/slide_balance");
+        if (asset == null)
+        {
+            UnityEngine.Debug.LogWarning("スライディングCSVがないため既定値を使用します。");
+            return;
+        }
+        if (SlideBalanceSettings.TryParse(asset.text, out SlideBalanceSettings settings, out string error))
+        {
+            s_slideSettings = settings;
+        }
+        else
+        {
+            UnityEngine.Debug.LogWarning("スライディングCSVを適用できず既定値を使用します：" + error);
+        }
+    }
     public const float JumpDirectionThreshold = 0.5f;
     public const float ForwardInputThreshold = 0.6f;
     public const float DoubleTapWindowSeconds = 0.25f;
@@ -15,11 +45,11 @@ public static class BrawlerBalance
     // 移動速度（Unity単位/秒）・行動時間（秒）。
     public const float WalkSpeed = 5;
     public const float RunSpeed = 8;
-    public const float SlideSpeed = 8;
-    public const float SlideMinSeconds = 0.12f;
-    public const float SlideMaxSeconds = 0.4f;
-    public const float SlideCooldownSeconds = 0.55f;
-    public const int SlideDamage = 12;
+    public const float DefaultSlideSpeed = 8;
+    public const float DefaultSlideMinSeconds = 0.12f;
+    public const float DefaultSlideMaxSeconds = 0.4f;
+    public const float DefaultSlideCooldownSeconds = 0.55f;
+    public const int DefaultSlideDamage = 12;
     public const int BodyCheckDamage = 8;
     public const float DashSpeed = 13;
     public const float DashSeconds = 0.2f;
