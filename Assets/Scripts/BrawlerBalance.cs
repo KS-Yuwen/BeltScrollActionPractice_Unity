@@ -3,6 +3,19 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // 防御・反撃の演出設定。時間は実時間で進め、ヒットストップ中も消えるようにします。
+    public const float GuardImpactSeconds = 0.22f;
+    public const float CounterImpactSeconds = 0.3f;
+    public const float NormalImpactSeconds = 0.18f;
+    public const int GuardSparkCount = 8;
+    public const int CounterRayCount = 4;
+    public const float ImpactFullCircleDegrees = 360f;
+    public const float DefenseRayOffset = 0.3f;
+    public const float DefenseRayLength = 0.45f;
+    public const float DefenseRayThickness = 0.06f;
+    public const float GuardImpactSize = 0.8f;
+    public const float CounterImpactSize = 1.8f;
+    public const float CounterImpactHeight = 1.2f;
     // 方向コマンド：下→斜めに0.9秒、斜め→ジャンプに0.6秒の余裕を持たせます。
     public const float DefaultCommandDirectionThreshold = 0.35f;
     public const float DefaultSlideDirectionWindowSeconds = 0.9f;

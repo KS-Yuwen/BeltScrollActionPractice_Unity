@@ -109,6 +109,10 @@ public class Fighter : Combatant
     // ガードは前方だけ有効です。向きを固定して守るため、背後は位置取りで対処します。
     public bool IsGuarding { get; private set; }
 
+    // 盾はModelの子なので、左向きへの反転や構えの位置を含めた実際の位置を返します。
+    public Vector3 GuardImpactPosition => _visual.Find("Shield") is Transform shield
+        ? shield.position : transform.position;
+
     public bool IsDowned => _downRemaining > 0;
 
     public int ComboStep => _comboStep;
@@ -1091,6 +1095,7 @@ public class Fighter : Combatant
         if (IsGuarding && direction * Facing < 0)
         {
             _game.PlaySound(BrawlerSound.Guard);
+            _game.CreateGuardImpact(this);
             _blockFlashRemaining = BrawlerBalance.BlockFlashSeconds;
             _counterWindowRemaining = BrawlerBalance.CounterWindowSeconds;
             _knockbackVelocity = new Vector3(direction * BrawlerBalance.BlockKnockbackSpeed, 0, 0);

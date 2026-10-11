@@ -33,6 +33,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
     private Material _impactMaterial;
+    private Material _guardImpactMaterial;
+    private Material _counterImpactMaterial;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private BrawlerAudio _audio;
@@ -63,6 +65,11 @@ public sealed class BeltBrawler : MonoBehaviour
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = new Material(Shader.Find("Unlit/Color"));
         _impactMaterial.color = new Color(1, 0.85f, 0.25f);
+        // Unlit素材を共有し、暗い場所でも盾の火花と青白い反撃の十字が見えるようにします。
+        _guardImpactMaterial = new Material(Shader.Find("Unlit/Color"));
+        _guardImpactMaterial.color = new Color(1, 1, 0.75f);
+        _counterImpactMaterial = new Material(Shader.Find("Unlit/Color"));
+        _counterImpactMaterial.color = new Color(0.45f, 0.9f, 1);
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -364,6 +371,32 @@ public sealed class BeltBrawler : MonoBehaviour
         }
     }
 
+    public void CreateGuardImpact(Fighter defender)
+    {
+        CreateDefenseImpact(defender.GuardImpactPosition, BrawlerDefines.ImpactKind.Guard);
+    }
+
+    private void CreateDefenseImpact(Vector3 position, BrawlerDefines.ImpactKind kind)
+    {
+        bool isGuard = kind == BrawlerDefines.ImpactKind.Guard;
+        var impact = new GameObject(isGuard ? "Guard Sparks" : "Counter Cross");
+        impact.transform.position = position;
+        int count = isGuard ? BrawlerBalance.GuardSparkCount : BrawlerBalance.CounterRayCount;
+        Material material = isGuard ? _guardImpactMaterial : _counterImpactMaterial;
+        for (int i = 0; i < count; i++)
+        {
+            float angle = i * BrawlerBalance.ImpactFullCircleDegrees / count;
+            Vector3 direction = Quaternion.Euler(0, 0, angle) * Vector3.right;
+            Transform ray = CreateBodyPart("Ray", direction * BrawlerBalance.DefenseRayOffset,
+                new Vector3(BrawlerBalance.DefenseRayLength, BrawlerBalance.DefenseRayThickness,
+                    BrawlerBalance.DefenseRayThickness), material, impact.transform);
+            ray.localRotation = Quaternion.Euler(0, 0, angle);
+        }
+        impact.AddComponent<HitImpact>().Initialize(
+            isGuard ? BrawlerBalance.GuardImpactSize : BrawlerBalance.CounterImpactSize,
+            isGuard ? BrawlerBalance.GuardImpactSeconds : BrawlerBalance.CounterImpactSeconds, kind);
+    }
+
     private void CreateHitImpact(Vector3 position, bool isStrong)
     {
         var impactObject = new GameObject("Hit Impact");
@@ -451,6 +484,7 @@ public sealed class BeltBrawler : MonoBehaviour
             {
                 if (enemy != null && IsInAttackRange(attacker, enemy))
                 {
+                    int healthBeforeHit = enemy.Health;
                     if (attacker.IsPushAttacking)
                     {
                         enemy.TakePushDamage(damage, attacker.Facing);
@@ -458,6 +492,12 @@ public sealed class BeltBrawler : MonoBehaviour
                     else
                     {
                         enemy.TakeDamage(damage, attacker.Facing);
+                    }
+                    // 無敵・硬直・撃破済みで拒否された命中や空振りでは、反撃専用の演出を出しません。
+                    if (attacker.IsCounterAttacking && enemy.Health < healthBeforeHit)
+                    {
+                        CreateDefenseImpact(enemy.transform.position + Vector3.up * BrawlerBalance.CounterImpactHeight,
+                            BrawlerDefines.ImpactKind.Counter);
                     }
                 }
             }

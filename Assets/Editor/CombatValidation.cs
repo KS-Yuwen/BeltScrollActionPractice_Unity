@@ -713,6 +713,42 @@ public static class CombatValidation
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
                 Require(player.TryStoreThrowingKnife(), "次の左右検証用に補充");
             }
+            // 成功した防御・反撃だけが専用演出を生成することを確認します。
+            foreach (Fighter effectEnemy in turnEnemies)
+            {
+                if (effectEnemy != null) effectEnemy.transform.position = new Vector3(20, 0, 3);
+            }
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+            int guardEffectCount = Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Guard).Length;
+            int guardEffectHealth = player.Health;
+            player.TakeDamage(10, -player.Facing);
+            HitImpact[] guardEffects = Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Guard);
+            Require(guardEffects.Length == guardEffectCount + 1 && player.Health == guardEffectHealth, "正面ガード成功で盾の火花を一つ生成");
+            Require(Array.Exists(guardEffects, f => Vector3.Distance(f.transform.position, player.GuardImpactPosition) < 0.01f), "実際の盾の位置に火花を生成");
+            player.TakeDamage(1, player.Facing);
+            Require(Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Guard).Length == guardEffects.Length,
+                "背後からの被弾ではガード火花を生成しない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Fighter counterEffectEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test counter effect", player.transform.position + Vector3.right * player.Facing, false, false, false, false });
+            turnEnemies.Add(counterEffectEnemy);
+            typeof(Fighter).GetMethod("StartCounterAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            int counterEffectCount = Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Counter).Length;
+            game.Hit(player, BrawlerBalance.CounterDamage);
+            HitImpact[] counterEffects = Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Counter);
+            Require(counterEffects.Length == counterEffectCount + 1, "カウンター命中で専用の十字演出を生成");
+            game.Hit(player, BrawlerBalance.CounterDamage);
+            counterEffectEnemy.transform.position = new Vector3(20, 0, 3);
+            game.Hit(player, BrawlerBalance.CounterDamage);
+            Require(Array.FindAll(UnityEngine.Object.FindObjectsByType<HitImpact>(), f => f.Kind == BrawlerDefines.ImpactKind.Counter).Length == counterEffects.Length,
+                "硬直で拒否された命中と空振りでは反撃演出を追加しない");
+            HitImpact effectToAdvance = counterEffects[counterEffects.Length - 1];
+            effectToAdvance.Advance(BrawlerBalance.CounterImpactSeconds);
+            Require(effectToAdvance.transform.localScale == Vector3.zero, "ヒットストップ中も実時間で専用演出が終了");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
