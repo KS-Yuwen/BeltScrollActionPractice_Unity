@@ -1069,25 +1069,7 @@ public static class CombatValidation
             // この後のクリア検証は別のプレイ状況として実行するため、検証内だけで終了状態を戻します。
             typeof(BeltBrawler).GetProperty("IsDefeated").SetValue(game, false);
 
-            // HP残像は実HPを変えず、待機・連続被弾・回復・死亡を正しく表示します。
-            var healthFeedback = new HealthBarFeedback();
-            healthFeedback.Refresh(100, 100, 0);
-            healthFeedback.Refresh(80, 100, 0);
-            Require(healthFeedback.TrailHealth == 100, "被弾直後は以前のHPを赤い残像として保持");
-            healthFeedback.Refresh(80, 100, BrawlerBalance.HealthTrailDelaySeconds);
-            Require(healthFeedback.TrailHealth == 100, "待機中は赤い残像を縮めない");
-            healthFeedback.Refresh(80, 100, 0.05f);
-            Require(healthFeedback.TrailHealth < 100 && healthFeedback.TrailHealth > 80, "待機後は残像が現在HPへ徐々に追いつく");
-            float trailBeforeSecondHit = healthFeedback.TrailHealth;
-            healthFeedback.Refresh(60, 100, 0);
-            healthFeedback.Refresh(60, 100, 0);
-            Require(healthFeedback.TrailHealth == trailBeforeSecondHit, "連続被弾と時間停止では残像を保持");
-            healthFeedback.Refresh(90, 100, 0);
-            Require(healthFeedback.TrailHealth == 90, "回復すると古い被ダメージ残像を消す");
-            healthFeedback.Refresh(0, 100, 0);
-            Require(healthFeedback.TrailHealth == 90, "死亡時も直前HPを残像として保持");
-            healthFeedback.Refresh(0, 100, 10);
-            Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
+            ValidateHealthFeedback();
             Fighter trailEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test enemy HP trail", Vector3.right * 10, false, false, true, false });
             Fighter separateTrailEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test separate HP trail", Vector3.right * 12, false, true, false, false });
             int trailEnemyMaxHealth = trailEnemy.MaxHealth;
@@ -1109,45 +1091,8 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
-            // 最終ウェーブの出現待ち・戦闘中はクリアせず、全滅して消えた時点だけ結果を確定します。
-            Fighter resultPlayer = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test result player", Vector3.zero, true, false, false, false });
-            SetPrivateField(game, "_player", resultPlayer);
-            turnEnemies.Clear();
-            bannerPending.Clear();
-            SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
-            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
-            waveProgress.Invoke(game, new object[] { 0f });
-            Require(!game.IsStageCleared && bannerPending.Count > 0, "最終ウェーブの出現予告中はクリアしない");
-            typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
-                .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds });
-            Require(turnEnemies.Count > 0 && !game.IsStageCleared, "最終ウェーブにも敵を配置");
-            foreach (Fighter finalEnemy in turnEnemies)
-            {
-                finalEnemy.TakeDamage(1000, 1);
-            }
-            waveProgress.Invoke(game, new object[] { 0f });
-            Require(!game.IsStageCleared, "撃破フェード中は結果画面へ移らない");
-            foreach (Fighter finalEnemy in turnEnemies)
-            {
-                UnityEngine.Object.DestroyImmediate(finalEnemy.gameObject);
-            }
-            turnEnemies.Clear();
-            int finalScore = (int)GetPrivateField(game, "_score");
-            int finalKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
-            waveProgress.Invoke(game, new object[] { 0f });
-            Require(game.IsStageCleared && game.ResultScore == finalScore && game.ResultDefeatedEnemies == finalKills,
-                "最終全滅後にクリアとスコア・撃破数を確定");
-            waveProgress.Invoke(game, new object[] { 10f });
-            typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
-            Require(bannerPending.Count == 0 && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount,
-                "クリア後は第六ウェーブを予約しない");
-            int resultHealth = resultPlayer.Health;
-            resultPlayer.TakeDamage(10, 1);
-            game.RegisterDamage(resultPlayer, 10, 10);
-            Require(resultPlayer.Health == resultHealth && game.ResultScore == finalScore
-                && (int)GetPrivateField(game, "_score") == finalScore, "クリア後は被ダメージと得点更新を停止");
-            Require(((ClericFighter)resultPlayer).SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable
-                && !resultPlayer.TryStoreHealingPotion(), "クリア後は魔法・アイテム使用と取得を停止");
+            ValidateAttackTransitions(game, createTurnEnemy);
+            ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }
@@ -1158,6 +1103,98 @@ public static class CombatValidation
             Debug.LogException(error);
             Finish(1);
         }
+    }
+
+    // 表示用の計算はゲーム進行と切り離して検証し、テスト同士の状態の持ち越しを減らします。
+    private static void ValidateHealthFeedback()
+    {
+        // HP残像は実HPを変えず、待機・連続被弾・回復・死亡を正しく表示します。
+        var healthFeedback = new HealthBarFeedback();
+        healthFeedback.Refresh(100, 100, 0);
+        healthFeedback.Refresh(80, 100, 0);
+        Require(healthFeedback.TrailHealth == 100, "被弾直後は以前のHPを赤い残像として保持");
+        healthFeedback.Refresh(80, 100, BrawlerBalance.HealthTrailDelaySeconds);
+        Require(healthFeedback.TrailHealth == 100, "待機中は赤い残像を縮めない");
+        healthFeedback.Refresh(80, 100, 0.05f);
+        Require(healthFeedback.TrailHealth < 100 && healthFeedback.TrailHealth > 80, "待機後は残像が現在HPへ徐々に追いつく");
+        float trailBeforeSecondHit = healthFeedback.TrailHealth;
+        healthFeedback.Refresh(60, 100, 0);
+        healthFeedback.Refresh(60, 100, 0);
+        Require(healthFeedback.TrailHealth == trailBeforeSecondHit, "連続被弾と時間停止では残像を保持");
+        healthFeedback.Refresh(90, 100, 0);
+        Require(healthFeedback.TrailHealth == 90, "回復すると古い被ダメージ残像を消す");
+        healthFeedback.Refresh(0, 100, 0);
+        Require(healthFeedback.TrailHealth == 90, "死亡時も直前HPを残像として保持");
+        healthFeedback.Refresh(0, 100, 10);
+        Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
+    }
+
+    private static void ValidateStageClear(BeltBrawler game, MethodInfo createTurnEnemy,
+        System.Collections.Generic.List<Fighter> turnEnemies,
+        System.Collections.Generic.List<Vector3> bannerPending, MethodInfo waveProgress)
+    {
+        // 最終ウェーブの出現待ち・戦闘中はクリアせず、全滅して消えた時点だけ結果を確定します。
+        Fighter resultPlayer = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test result player", Vector3.zero, true, false, false, false });
+        SetPrivateField(game, "_player", resultPlayer);
+        turnEnemies.Clear();
+        bannerPending.Clear();
+        SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
+        typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+        waveProgress.Invoke(game, new object[] { 0f });
+        Require(!game.IsStageCleared && bannerPending.Count > 0, "最終ウェーブの出現予告中はクリアしない");
+        typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds });
+        Require(turnEnemies.Count > 0 && !game.IsStageCleared, "最終ウェーブにも敵を配置");
+        foreach (Fighter finalEnemy in turnEnemies)
+        {
+            finalEnemy.TakeDamage(1000, 1);
+        }
+        waveProgress.Invoke(game, new object[] { 0f });
+        Require(!game.IsStageCleared, "撃破フェード中は結果画面へ移らない");
+        foreach (Fighter finalEnemy in turnEnemies)
+        {
+            UnityEngine.Object.DestroyImmediate(finalEnemy.gameObject);
+        }
+        turnEnemies.Clear();
+        int finalScore = (int)GetPrivateField(game, "_score");
+        int finalKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+        waveProgress.Invoke(game, new object[] { 0f });
+        Require(game.IsStageCleared && game.ResultScore == finalScore && game.ResultDefeatedEnemies == finalKills,
+            "最終全滅後にクリアとスコア・撃破数を確定");
+        waveProgress.Invoke(game, new object[] { 10f });
+        typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+        Require(bannerPending.Count == 0 && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount,
+            "クリア後は第六ウェーブを予約しない");
+        int resultHealth = resultPlayer.Health;
+        resultPlayer.TakeDamage(10, 1);
+        game.RegisterDamage(resultPlayer, 10, 10);
+        Require(resultPlayer.Health == resultHealth && game.ResultScore == finalScore
+            && (int)GetPrivateField(game, "_score") == finalScore, "クリア後は被ダメージと得点更新を停止");
+        Require(((ClericFighter)resultPlayer).SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable
+            && !resultPlayer.TryStoreHealingPotion(), "クリア後は魔法・アイテム使用と取得を停止");
+        Fighter stoppedTarget = (Fighter)createTurnEnemy.Invoke(game,
+            new object[] { "Test stopped ground target", Vector3.zero, false, false, false, false });
+        SetPrivateField(stoppedTarget, "_downRemaining", BrawlerBalance.DownSeconds);
+        int stoppedHealth = stoppedTarget.Health;
+        Require(!stoppedTarget.TryTakeGroundHit(BrawlerBalance.GroundAttackDamage, 1)
+            && stoppedTarget.Health == stoppedHealth, "終了後は追撃経路でもHPを変更しない");
+    }
+
+    // 本番の開始処理を呼び、技を切り替えたときに前の攻撃種別が残らないことを確認します。
+    private static void ValidateAttackTransitions(BeltBrawler game, MethodInfo createFighter)
+    {
+        Fighter fighter = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test attack transitions", Vector3.zero, true, false, false, false });
+        typeof(Fighter).GetMethod("StartHeavyStrike", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(fighter, null);
+        Require(fighter.IsHeavyStriking && !fighter.IsCounterAttacking, "強攻撃は反撃の種類を残さない");
+        typeof(Fighter).GetMethod("StartAirAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(fighter, new object[] { true });
+        Require(fighter.IsAirAttacking && !fighter.IsHeavyStriking, "下突きへ切替後は強攻撃を解除");
+        typeof(Fighter).GetMethod("StartCounterAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(fighter, null);
+        Require(fighter.IsCounterAttacking && !fighter.IsAirAttacking, "反撃へ切替後は空中攻撃を解除");
+        typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(fighter, null);
+        Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
+            "通常攻撃へ切替後は特殊技の種類を解除");
+        UnityEngine.Object.DestroyImmediate(fighter.gameObject);
     }
 
     // テスト用に内部状態を設定します。ゲーム側の公開 API を増やさず確認するための仕組みです。

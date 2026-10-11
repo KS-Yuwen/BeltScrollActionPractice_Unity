@@ -40,7 +40,10 @@ public sealed class WaveBanner
 
     public void Draw()
     {
-        if (RemainingSeconds <= 0) return;
+        if (RemainingSeconds <= 0)
+        {
+            return;
+        }
         if (_style == null)
         {
             _style = new GUIStyle(GUI.skin.label)

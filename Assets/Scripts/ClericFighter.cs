@@ -52,7 +52,7 @@ public sealed class ClericFighter : Fighter
 
     public void SelectNextAction()
     {
-        if (!IsPlayer || Health <= 0)
+        if (!IsPlayer || Health <= 0 || Game.IsRunFinished)
         {
             return;
         }

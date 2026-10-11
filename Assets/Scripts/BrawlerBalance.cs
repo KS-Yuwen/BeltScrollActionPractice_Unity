@@ -3,6 +3,45 @@
 // 呼び出し側へCSVの列名やファイル操作を広げず、この窓口から値を読みます。
 public static class BrawlerBalance
 {
+    // 得点・出現・命中演出の調整値。CSV化する際も呼び出し側ではこの名前を使います。
+    public const int HudFontSize = 24;
+    public const int PlayerMaxHealth = 100;
+    public const int EnemyBaseHealth = 55;
+    public const int EnemyHealthPerWave = 5;
+    public const int HeavyBaseHealth = 100;
+    public const int HeavyHealthPerWave = 8;
+    public const int WaveBaseEnemyCount = 2;
+    public const int WaveMaxEnemyCount = 7;
+    public const int MixedEnemiesStartWave = 2;
+    public const int RangedSpawnInterval = 3;
+    public const int RangedSpawnOffset = 2;
+    public const int HeavySpawnIndex = 3;
+    public const int PotionDropInterval = 3;
+    public const int HitScore = 10;
+    public const int HitScoreMultiplierLimit = 10;
+    public const int DefeatScore = 100;
+    public const float HitChainSeconds = 2;
+    public const float NormalHitStopSeconds = 0.04f;
+    public const float StrongHitStopSeconds = 0.08f;
+    public const float CameraShakeSeconds = 0.16f;
+    public const float CameraShakeStrength = 0.7f;
+    public const float CameraFollowHalfWidth = 16;
+    public const float SpawnBaseDistance = 7;
+    public const float SpawnMinimumDistance = 4;
+    public const float SpawnLaneHalfWidth = 2.5f;
+    public const float HitImpactHeight = 1.2f;
+    public const int HitImpactRayCount = 6;
+    public const float HitImpactRayOffset = 0.3f;
+    public const float HitImpactRayLength = 0.3f;
+    public const float HitImpactRayThickness = 0.06f;
+    public const float StrongHitImpactSize = 1.4f;
+    public const float NormalHitImpactSize = 1;
+    public const float BodyCheckReach = 0.9f;
+    public const float SlideHitReach = 1.1f;
+    public const float ContactLaneHalfWidth = 0.6f;
+    public const float GroundAttackReach = 1.8f;
+    public const int EnemyProjectileDamage = 8;
+
     public const int StageWaveCount = 5;
     public const float ResultPanelWidth = 560f;
     public const float ResultPanelHeight = 300f;

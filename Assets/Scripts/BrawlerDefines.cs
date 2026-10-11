@@ -5,6 +5,23 @@ public static class BrawlerDefines
     public const float UnsetTime = -10;
     public const int StandardShaderFadeMode = 2;
 
+    // 攻撃の排他的な種類。移動・空中・防御の状態とは分けて扱います。
+    public enum AttackKind
+    {
+        None,
+        Normal,
+        Dash,
+        DashSpecial,
+        Uppercut,
+        HeavyStrike,
+        Push,
+        Counter,
+        Ground,
+        Air,
+        DownThrust,
+        Crouch
+    }
+
     public enum ActionUseStatus
     {
         Ready,

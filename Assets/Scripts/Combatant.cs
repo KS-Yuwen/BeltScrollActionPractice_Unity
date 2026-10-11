@@ -31,7 +31,9 @@ public abstract class Combatant : MonoBehaviour
         }
     }
 
-    protected virtual void OnHealthRestored(int actualAmount) { }
+    protected virtual void OnHealthRestored(int actualAmount)
+    {
+    }
 
     // 被ダメージの可否は派生クラスが判断し、HP の計算だけ基底クラスが担当します。
     protected void ReduceHealth(int amount)

@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-// ゲーム全体の管理役。ステージ生成、敵の出現、攻撃判定、カメラ、画面表示を担当します。
+// ゲーム進行と戦闘対象を管理します。生成とHUD描画は専用クラスへ委譲します。
 // MonoBehaviour を継承すると、Unity が Start / Update などを自動的に呼び出します。
 // 座標の約束：X = 左右、Y = 高さ、Z = 道路の奥行き。移動は XZ 平面で行います。
 public sealed class BeltBrawler : MonoBehaviour
@@ -10,6 +10,8 @@ public sealed class BeltBrawler : MonoBehaviour
     // 生存中と撃破直後の敵を保持します。破棄された敵は Update で取り除きます。
     private readonly List<Fighter> _enemies = new List<Fighter>();
     private Fighter _player;
+    private BrawlerSceneFactory _factory;
+    private readonly BrawlerHud _hud = new BrawlerHud();
     private readonly HitDirectionIndicator _hitDirectionIndicator = new HitDirectionIndicator();
 
     public void ShowHitDirection(float attackDirection)
@@ -31,15 +33,6 @@ public sealed class BeltBrawler : MonoBehaviour
     private float _nextWaveElapsed;
     private readonly WaveBanner _waveBanner = new WaveBanner();
     private bool _waveClearAnnounced;
-    private Material _floorMaterial;
-    private Material _playerMaterial;
-    private Material _enemyMaterial;
-    private Material _skinMaterial;
-    private Material _rangedEnemyMaterial;
-    private Material _heavyEnemyMaterial;
-    private Material _undeadEnemyMaterial;
-    private Material _potionMaterial;
-    private Material _knifeMaterial;
     private int _defeatedEnemyCount;
     private int _score;
     private int _hitChain;
@@ -48,10 +41,6 @@ public sealed class BeltBrawler : MonoBehaviour
     // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
-    private Material _impactMaterial;
-    private Material _guardImpactMaterial;
-    private Material _counterImpactMaterial;
-    private Material _warningMaterial;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private BrawlerAudio _audio;
@@ -72,154 +61,17 @@ public sealed class BeltBrawler : MonoBehaviour
         _audio = gameObject.AddComponent<BrawlerAudio>();
         // 日本語の取得名を描画できるOSフォントを一度だけ作り、通知間で共有します。
         _pickupNoticeFont = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic", "Meiryo" }, BrawlerBalance.PickupNoticeFontSize);
-        // 色別のマテリアルを作り、同じ色のパーツで共有します。
-        _floorMaterial = CreateMaterial(new Color(0.10f, 0.15f, 0.23f));
-        _playerMaterial = CreateMaterial(new Color(0.1f, 0.65f, 1));
-        _enemyMaterial = CreateMaterial(new Color(1, 0.25f, 0.25f));
-        _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
-        _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
-        _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
-        _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
-        _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
-        _knifeMaterial = CreateMaterial(new Color(0.8f, 0.85f, 0.95f));
-        // 発光風の色を、照明に左右されない素材で描きます。
-        _impactMaterial = new Material(Shader.Find("Unlit/Color"));
-        _impactMaterial.color = new Color(1, 0.85f, 0.25f);
-        // Unlit素材を共有し、暗い場所でも盾の火花と青白い反撃の十字が見えるようにします。
-        _guardImpactMaterial = new Material(Shader.Find("Unlit/Color"));
-        _guardImpactMaterial.color = new Color(1, 1, 0.75f);
-        _counterImpactMaterial = new Material(Shader.Find("Unlit/Color"));
-        _counterImpactMaterial.color = new Color(0.45f, 0.9f, 1);
-        _warningMaterial = new Material(Shader.Find("Unlit/Color"));
-        _warningMaterial.color = Color.white;
-        // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
-        RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
-        var sun = new GameObject("Sun").AddComponent<Light>();
-        sun.type = LightType.Directional;
-        sun.transform.rotation = Quaternion.Euler(45, -30, 0);
-        // 床の上面が Y = 0 になるように、中心を高さの半分だけ下げています。
-        CreateBox("Street", new Vector3(0, -0.2f, 0), new Vector3(48, 0.4f, 8), _floorMaterial);
-        for (int x = -24; x <= 24; x += 4)
-        {
-            CreateBox("Road marking", new Vector3(x, 0.015f, 0), new Vector3(1.6f, 0.02f, 0.08f), _skinMaterial);
-            CreateBox("Backdrop", new Vector3(x, 2, 5), new Vector3(3.6f, 4, 1), _floorMaterial);
-        }
-        // 正投影カメラでは遠近によるサイズ変化がなく、横スクロールの距離感をつかみやすくなります。
-        _camera = new GameObject("Side Camera").AddComponent<Camera>();
-        _camera.tag = "MainCamera";
-        // 実行時に作るカメラに耳を置きます。既存リスナーがある場合は重複させません。
-        if (FindAnyObjectByType<AudioListener>() == null)
-        {
-            _camera.gameObject.AddComponent<AudioListener>();
-        }
-        _camera.orthographic = true;
-        // 映る範囲の縦方向の半分。大きくすると広い範囲が映ります。
-        _camera.orthographicSize = 6;
-        _camera.backgroundColor = new Color(0.035f, 0.055f, 0.1f);
+        _factory = new BrawlerSceneFactory(this);
+        _camera = _factory.BuildStage();
         _player = CreateFighter("Player", new Vector3(-5, 0, 0), true);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, 0);
         SpawnWave();
     }
 
-    // Built-in レンダーパイプラインの Standard シェーダーで、指定色の素材を作ります。
-    private Material CreateMaterial(Color color)
-    {
-        var material = new Material(Shader.Find("Standard"));
-        material.color = color;
-        return material;
-    }
-
-    // 立方体を指定の位置・大きさ・素材で生成する共通処理です。
-    private GameObject CreateBox(string label, Vector3 position, Vector3 scale, Material material)
-    {
-        var boxObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        boxObject.name = label;
-        boxObject.transform.position = position;
-        boxObject.transform.localScale = scale;
-        boxObject.GetComponent<Renderer>().sharedMaterial = material;
-        // この試作では物理衝突を使わず、移動範囲と攻撃距離をコードで判定します。
-        // CreatePrimitive が自動で付ける Collider は不要なので取り除きます。
-        Destroy(boxObject.GetComponent<Collider>());
-        return boxObject;
-    }
-
     // プレイヤーと敵は同じ Fighter を使い、isPlayer によって操作方法を切り替えます。
     private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false, bool isHeavy = false, bool isUndead = false)
     {
-        var root = new GameObject(label);
-        root.transform.position = position;
-        Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
-            : isHeavy ? root.AddComponent<HeavyFighter>()
-            : isRanged ? root.AddComponent<RangedFighter>()
-            : isUndead ? root.AddComponent<UndeadFighter>() : root.AddComponent<Fighter>();
-        // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
-        int maxHealth = isPlayer ? 100 : isHeavy ? 100 + _wave * 8 : 55 + _wave * 5;
-        // 移動を担う親と、見た目を担う Model を分離します。
-        // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
-        var visual = new GameObject("Model").transform;
-        visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : isHeavy ? _heavyEnemyMaterial
-            : isRanged ? _rangedEnemyMaterial : isUndead ? _undeadEnemyMaterial : _enemyMaterial;
-        CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
-        CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
-        var attackArm = CreateBodyPart("Punch arm", new Vector3(0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
-        CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
-        var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
-        var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
-        if (isUndead)
-        {
-            // 胸の骨と頭の色で区別し、通常敵と同じ判定サイズを維持します。
-            CreateBodyPart("Undead ribs", new Vector3(0, 1.15f, -0.25f), new Vector3(0.45f, 0.12f, 0.1f), bodyMaterial, visual);
-            visual.Find("Head").GetComponent<Renderer>().sharedMaterial = bodyMaterial;
-        }
-        if (isHeavy)
-        {
-            // 大きな胴鎧と肩当てで区別します。判定用の親や通常のリーチは拡大しません。
-            CreateBodyPart("Heavy armor", new Vector3(0, 1.15f, 0), new Vector3(0.8f, 0.9f, 0.55f), bodyMaterial, visual);
-            CreateBodyPart("Right pauldron", new Vector3(0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
-            CreateBodyPart("Left pauldron", new Vector3(-0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
-        }
-        if (isPlayer)
-        {
-            // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
-            Transform mace = CreateBodyPart("Mace", new Vector3(0.4f, 1.65f, -0.1f), new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
-            mace.SetParent(attackArm, true);
-            CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
-        }
-        fighter.Initialize(this, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);
-        if (!isPlayer)
-        {
-            CreateAttackWarning(fighter);
-        }
-        return fighter;
-    }
-
-    private void CreateAttackWarning(Fighter fighter)
-    {
-        // 毎回の予告で生成せず、敵一体につき一つだけ作ってRendererを切り替えます。
-        var marker = new GameObject("Attack Warning").transform;
-        marker.SetParent(fighter.transform, false);
-        marker.localPosition = Vector3.up * BrawlerBalance.WarningMarkerHeight;
-        float width = BrawlerBalance.WarningMarkerWidth;
-        float depth = BrawlerBalance.WarningMarkerDepth;
-        float thickness = BrawlerBalance.WarningMarkerThickness;
-        CreateBodyPart("Front edge", Vector3.forward * (depth / 2), new Vector3(width, thickness, thickness), _warningMaterial, marker);
-        CreateBodyPart("Back edge", Vector3.back * (depth / 2), new Vector3(width, thickness, thickness), _warningMaterial, marker);
-        CreateBodyPart("Right edge", Vector3.right * (width / 2), new Vector3(thickness, thickness, depth), _warningMaterial, marker);
-        CreateBodyPart("Left edge", Vector3.left * (width / 2), new Vector3(thickness, thickness, depth), _warningMaterial, marker);
-        Transform direction = CreateBodyPart("Attack direction", Vector3.zero,
-            new Vector3(BrawlerBalance.WarningDirectionLength, thickness, thickness), _warningMaterial, marker);
-        marker.gameObject.AddComponent<EnemyAttackWarning>().Initialize(fighter, direction);
-    }
-
-    // 各身体パーツの位置は、世界全体ではなく親 Model を基準に指定します。
-    private Transform CreateBodyPart(string label, Vector3 position, Vector3 scale, Material material, Transform parent)
-    {
-        var part = CreateBox(label, Vector3.zero, scale, material).transform;
-        // false は、親の変更時にワールド座標を維持しない指定です。
-        part.SetParent(parent, false);
-        part.localPosition = position;
-        return part;
+        return _factory.CreateFighter(label, position, isPlayer, _wave, isRanged, isHeavy, isUndead);
     }
 
     // 敵の人数はウェーブごとに増えますが、最大 7 体で止めます。
@@ -238,7 +90,7 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
-        for (int i = 0; i < Mathf.Min(2 + _wave, 7); i++)
+        for (int i = 0; i < Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount); i++)
         {
             _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
         }
@@ -247,14 +99,14 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
     {
-        float side = wave >= 2 && index % 2 == 1 ? -1 : 1;
-        float x = Mathf.Clamp(playerPosition.x + side * (7 + index), -22, 22);
+        float side = wave >= BrawlerBalance.MixedEnemiesStartWave && index % 2 == 1 ? -1 : 1;
+        float x = Mathf.Clamp(playerPosition.x + side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
         // 端では反対側に回し、プレイヤーのすぐ上に突然出現することを防ぎます。
-        if (Mathf.Abs(x - playerPosition.x) < 4)
+        if (Mathf.Abs(x - playerPosition.x) < BrawlerBalance.SpawnMinimumDistance)
         {
-            x = Mathf.Clamp(playerPosition.x - side * (7 + index), -22, 22);
+            x = Mathf.Clamp(playerPosition.x - side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
         }
-        return new Vector3(x, 0, Random.Range(-2.5f, 2.5f));
+        return new Vector3(x, 0, Random.Range(-BrawlerBalance.SpawnLaneHalfWidth, BrawlerBalance.SpawnLaneHalfWidth));
     }
 
     private void UpdateSpawnWarning(float deltaTime)
@@ -271,9 +123,9 @@ public sealed class BeltBrawler : MonoBehaviour
         for (int i = 0; i < _pendingSpawnPositions.Count; i++)
         {
             // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
-            bool isRanged = i % 3 == 2;
+            bool isRanged = i % BrawlerBalance.RangedSpawnInterval == BrawlerBalance.RangedSpawnOffset;
             // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
-            bool isHeavy = _wave >= 2 && i == 3;
+            bool isHeavy = _wave >= BrawlerBalance.MixedEnemiesStartWave && i == BrawlerBalance.HeavySpawnIndex;
             bool isUndead = i == BrawlerBalance.UndeadSpawnIndex;
             _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : isUndead ? "Undead Enemy" : "Melee Enemy",
                 _pendingSpawnPositions[i], false, isRanged, isHeavy, isUndead));
@@ -309,7 +161,10 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void UpdateWaveProgress(float deltaTime)
     {
-        if (IsRunFinished) return;
+        if (IsRunFinished)
+        {
+            return;
+        }
         if (_player.Health <= 0)
         {
             FinishRun(false);
@@ -342,7 +197,10 @@ public sealed class BeltBrawler : MonoBehaviour
     // 終了した瞬間の値を保存します。以後は呼び直しても結果を上書きしません。
     private void FinishRun(bool cleared)
     {
-        if (IsRunFinished) return;
+        if (IsRunFinished)
+        {
+            return;
+        }
         IsStageCleared = cleared;
         IsDefeated = !cleared;
         ResultWave = Mathf.Clamp(_wave, 1, BrawlerBalance.StageWaveCount);
@@ -357,14 +215,14 @@ public sealed class BeltBrawler : MonoBehaviour
     private void LateUpdate()
     {
         // カメラは左右だけ追従。端で Clamp するとステージ外が映りすぎるのを抑えられます。
-        var focus = new Vector3(Mathf.Clamp(_player.transform.position.x, -16, 16), 1, 0);
+        var focus = new Vector3(Mathf.Clamp(_player.transform.position.x, -BrawlerBalance.CameraFollowHalfWidth, BrawlerBalance.CameraFollowHalfWidth), 1, 0);
         _camera.transform.position = focus + new Vector3(0, 6, -13);
         _camera.transform.LookAt(focus);
         // 一瞬だけカメラをずらし、攻撃が命中した重さを表現します。
         // 毎フレーム基準位置から計算するため、揺れが積み重なって位置がずれることはありません。
         if (_cameraShakeRemaining > 0)
         {
-            _camera.transform.position += Random.insideUnitSphere * _cameraShakeRemaining * 0.7f;
+            _camera.transform.position += Random.insideUnitSphere * _cameraShakeRemaining * BrawlerBalance.CameraShakeStrength;
         }
     }
 
@@ -383,6 +241,7 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void OnDestroy()
     {
+        _factory?.Dispose();
         if (_pickupNoticeFont != null)
         {
             Destroy(_pickupNoticeFont);
@@ -404,7 +263,7 @@ public sealed class BeltBrawler : MonoBehaviour
     public void HitUndeadTargets(ClericFighter caster)
     {
         // 対象一覧は管理役が保持します。床上のXZ距離で判定し、背後にも効果を与えます。
-        CreateHitImpact(caster.transform.position + Vector3.up * 1.2f, true);
+        CreateHitImpact(caster.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, true);
         float radiusSquared = BrawlerBalance.TurnUndeadRadius * BrawlerBalance.TurnUndeadRadius;
         foreach (Fighter enemy in _enemies)
         {
@@ -423,12 +282,15 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
-    public void RegisterDamage(Fighter victim, int attackDamage = 18, int actualDamage = 0,
+    public void RegisterDamage(Fighter victim, int attackDamage = BrawlerBalance.NormalDamage, int actualDamage = 0,
         BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
-        if (IsRunFinished) return;
-        PlaySound(attackDamage >= 30 ? BrawlerSound.StrongHit : BrawlerSound.Hit);
-        CreateHitImpact(victim.transform.position + Vector3.up * 1.2f, attackDamage >= 30);
+        if (IsRunFinished)
+        {
+            return;
+        }
+        PlaySound(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerSound.StrongHit : BrawlerSound.Hit);
+        CreateHitImpact(victim.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, attackDamage >= BrawlerBalance.KnockdownDamageThreshold);
         if (!victim.IsPlayer)
         {
             if (actualDamage > 0)
@@ -438,9 +300,9 @@ public sealed class BeltBrawler : MonoBehaviour
                 number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
                 number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
             }
-            BeginHitStop(attackDamage >= 30 ? 0.08f : 0.04f);
+            BeginHitStop(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
         }
-        _cameraShakeRemaining = 0.16f;
+        _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
         if (victim.IsPlayer)
         {
             _hitChain = 0;
@@ -450,11 +312,11 @@ public sealed class BeltBrawler : MonoBehaviour
             return;
         }
         _hitChain++;
-        _hitChainRemaining = 2;
-        _score += 10 * Mathf.Min(_hitChain, 10);
+        _hitChainRemaining = BrawlerBalance.HitChainSeconds;
+        _score += BrawlerBalance.HitScore * Mathf.Min(_hitChain, BrawlerBalance.HitScoreMultiplierLimit);
         if (victim.Health == 0)
         {
-            _score += 100;
+            _score += BrawlerBalance.DefeatScore;
             // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
             // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
             _defeatedEnemyCount++;
@@ -462,7 +324,7 @@ public sealed class BeltBrawler : MonoBehaviour
             {
                 DropKnife(victim.transform.position);
             }
-            if (_defeatedEnemyCount % 3 == 0)
+            if (_defeatedEnemyCount % BrawlerBalance.PotionDropInterval == 0)
             {
                 DropPotion(victim.transform.position);
             }
@@ -514,12 +376,12 @@ public sealed class BeltBrawler : MonoBehaviour
         var impact = new GameObject(isGuard ? "Guard Sparks" : "Counter Cross");
         impact.transform.position = position;
         int count = isGuard ? BrawlerBalance.GuardSparkCount : BrawlerBalance.CounterRayCount;
-        Material material = isGuard ? _guardImpactMaterial : _counterImpactMaterial;
+        Material material = isGuard ? _factory.GuardImpactMaterial : _factory.CounterImpactMaterial;
         for (int i = 0; i < count; i++)
         {
             float angle = i * BrawlerBalance.ImpactFullCircleDegrees / count;
             Vector3 direction = Quaternion.Euler(0, 0, angle) * Vector3.right;
-            Transform ray = CreateBodyPart("Ray", direction * BrawlerBalance.DefenseRayOffset,
+            Transform ray = _factory.CreateBodyPart("Ray", direction * BrawlerBalance.DefenseRayOffset,
                 new Vector3(BrawlerBalance.DefenseRayLength, BrawlerBalance.DefenseRayThickness,
                     BrawlerBalance.DefenseRayThickness), material, impact.transform);
             ray.localRotation = Quaternion.Euler(0, 0, angle);
@@ -534,15 +396,15 @@ public sealed class BeltBrawler : MonoBehaviour
         var impactObject = new GameObject("Hit Impact");
         impactObject.transform.position = position;
         // 横向きカメラから見える XY 平面に、6 本の短い光線を並べます。
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < BrawlerBalance.HitImpactRayCount; i++)
         {
-            float angle = i * 60;
+            float angle = i * BrawlerBalance.ImpactFullCircleDegrees / BrawlerBalance.HitImpactRayCount;
             Vector3 direction = Quaternion.Euler(0, 0, angle) * Vector3.right;
-            Transform ray = CreateBodyPart("Impact ray", direction * 0.3f,
-                new Vector3(0.3f, 0.06f, 0.06f), _impactMaterial, impactObject.transform);
+            Transform ray = _factory.CreateBodyPart("Impact ray", direction * BrawlerBalance.HitImpactRayOffset,
+                new Vector3(BrawlerBalance.HitImpactRayLength, BrawlerBalance.HitImpactRayThickness, BrawlerBalance.HitImpactRayThickness), _factory.ImpactMaterial, impactObject.transform);
             ray.localRotation = Quaternion.Euler(0, 0, angle);
         }
-        impactObject.AddComponent<HitImpact>().Initialize(isStrong ? 1.4f : 1);
+        impactObject.AddComponent<HitImpact>().Initialize(isStrong ? BrawlerBalance.StrongHitImpactSize : BrawlerBalance.NormalHitImpactSize);
     }
 
     public void ThrowKnife(Fighter owner)
@@ -551,8 +413,8 @@ public sealed class BeltBrawler : MonoBehaviour
             + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
         var knife = new GameObject("Thrown Knife");
         knife.transform.position = position;
-        CreateBodyPart("Knife blade", Vector3.zero, new Vector3(0.65f, 0.08f, 0.12f), _knifeMaterial, knife.transform);
-        CreateBodyPart("Knife grip", Vector3.left * (owner.Facing * 0.4f), new Vector3(0.2f, 0.12f, 0.14f), _floorMaterial, knife.transform);
+        _factory.CreateBodyPart("Knife blade", Vector3.zero, new Vector3(0.65f, 0.08f, 0.12f), _factory.KnifeMaterial, knife.transform);
+        _factory.CreateBodyPart("Knife grip", Vector3.left * (owner.Facing * 0.4f), new Vector3(0.2f, 0.12f, 0.14f), _factory.FloorMaterial, knife.transform);
         knife.AddComponent<ThrowingKnifeProjectile>().Initialize(this, owner);
     }
 
@@ -590,8 +452,8 @@ public sealed class BeltBrawler : MonoBehaviour
         var knife = new GameObject("Knife Pickup");
         // ポーションと同時に落ちても重ならず、床に銀色の刃が見えるよう少しずらします。
         knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + 0.4f, -3, 3));
-        CreateBodyPart("Blade", new Vector3(0, 0.2f, 0), new Vector3(0.6f, 0.08f, 0.18f), _knifeMaterial, knife.transform);
-        CreateBodyPart("Grip", new Vector3(-0.4f, 0.2f, 0), new Vector3(0.2f, 0.12f, 0.2f), _floorMaterial, knife.transform);
+        _factory.CreateBodyPart("Blade", new Vector3(0, 0.2f, 0), new Vector3(0.6f, 0.08f, 0.18f), _factory.KnifeMaterial, knife.transform);
+        _factory.CreateBodyPart("Grip", new Vector3(-0.4f, 0.2f, 0), new Vector3(0.2f, 0.12f, 0.2f), _factory.FloorMaterial, knife.transform);
         knife.AddComponent<ThrowingKnifePickup>().Initialize(_player, _audio);
     }
 
@@ -600,10 +462,10 @@ public sealed class BeltBrawler : MonoBehaviour
         var potionObject = new GameObject("Healing Potion");
         potionObject.transform.position = new Vector3(position.x, 0, position.z);
         // 瓶の本体と口を作ります。見た目の高さと、床上の拾得位置は分離します。
-        CreateBodyPart("Bottle", new Vector3(0, 0.3f, 0), new Vector3(0.35f, 0.4f, 0.35f),
-            _potionMaterial, potionObject.transform);
-        CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
-            _skinMaterial, potionObject.transform);
+        _factory.CreateBodyPart("Bottle", new Vector3(0, 0.3f, 0), new Vector3(0.35f, 0.4f, 0.35f),
+            _factory.PotionMaterial, potionObject.transform);
+        _factory.CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
+            _factory.SkinMaterial, potionObject.transform);
         potionObject.AddComponent<HealingPotion>().Initialize(_player, _audio);
     }
 
@@ -652,7 +514,7 @@ public sealed class BeltBrawler : MonoBehaviour
             }
             Vector3 delta = enemy.transform.position - attacker.transform.position;
             // 体当たりは通常攻撃より近い、前方への接触だけを判定します。
-            if (Mathf.Abs(delta.x) < 0.9f && Mathf.Abs(delta.z) < 0.6f && delta.x * attacker.Facing > -0.25f)
+            if (Mathf.Abs(delta.x) < BrawlerBalance.BodyCheckReach && Mathf.Abs(delta.z) < BrawlerBalance.ContactLaneHalfWidth && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance)
             {
                 attacker.TryBodyCheck(enemy);
             }
@@ -668,7 +530,7 @@ public sealed class BeltBrawler : MonoBehaviour
                 continue;
             }
             Vector3 delta = enemy.transform.position - attacker.transform.position;
-            if (Mathf.Abs(delta.x) < 1.1f && Mathf.Abs(delta.z) < 0.6f && delta.x * attacker.Facing > -0.25f)
+            if (Mathf.Abs(delta.x) < BrawlerBalance.SlideHitReach && Mathf.Abs(delta.z) < BrawlerBalance.ContactLaneHalfWidth && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance)
             {
                 attacker.TrySlideHit(enemy);
             }
@@ -706,8 +568,8 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
         // 追撃は通常攻撃より短いリーチで、向いている側の倒れた敵を狙います。
-        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < 1.8f
-            && Mathf.Abs(delta.z) < 0.8f && delta.x * attacker.Facing > -0.25f;
+        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < BrawlerBalance.GroundAttackReach
+            && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }
 
     // コライダーではなく、攻撃者と対象の位置の差から当たり判定を作ります。
@@ -732,138 +594,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
-        if (IsRunFinished)
-        {
-            StageResultHud.Draw(IsStageCleared, ResultWave, ResultScore, ResultDefeatedEnemies);
-            return;
-        }
-        var style = new GUIStyle(GUI.skin.label) { fontSize = 24 };
-        GUI.Label(new Rect(24, 20, 700, 40), "NEON STREET  |  WAVE " + _wave + "  |  ENEMIES " + _enemies.Count, style);
-        // 背景→遅れて縮む赤い残像→現在HPの順に重ね、HPゼロでも数値を表示します。
-        var healthArea = new Rect(24, 65, BrawlerBalance.PlayerHealthBarWidth, BrawlerBalance.PlayerHealthBarHeight);
-        GUI.color = new Color(0.12f, 0.12f, 0.15f);
-        GUI.DrawTexture(healthArea, Texture2D.whiteTexture);
-        float trailFraction = Mathf.Clamp01(Mathf.Max(_player.Health, _healthBarFeedback.TrailHealth) / _player.MaxHealth);
-        float healthFraction = Mathf.Clamp01((float)_player.Health / _player.MaxHealth);
-        GUI.color = Color.red;
-        GUI.DrawTexture(new Rect(healthArea.x, healthArea.y, healthArea.width * trailFraction, healthArea.height), Texture2D.whiteTexture);
-        GUI.color = new Color(0.1f, 0.7f, 1);
-        GUI.DrawTexture(new Rect(healthArea.x, healthArea.y, healthArea.width * healthFraction, healthArea.height), Texture2D.whiteTexture);
-        GUI.color = Color.white;
-        var healthStyle = new GUIStyle(style) { alignment = TextAnchor.MiddleCenter, fontSize = BrawlerBalance.PlayerHealthBarFontSize };
-        GUI.Label(healthArea, $"HP {_player.Health} / {_player.MaxHealth}", healthStyle);
-        // 残像の長さではなく現在HPで判断します。回復・敗北したフレームで表示も切り替わります。
-        if (_player.Health > 0 && healthFraction <= BrawlerBalance.LowHealthWarningFraction)
-        {
-            float pulse = (1 + Mathf.Sin(Time.time * BrawlerBalance.LowHealthWarningPulsesPerSecond * Mathf.PI * 2)) / 2;
-            GUI.color = Color.Lerp(new Color(0.45f, 0.12f, 0.08f), new Color(1, 0.35f, 0.05f), pulse);
-            float border = BrawlerBalance.LowHealthWarningBorderWidth;
-            // 外側だけを強調し、現在HP・赤い残像・HP数値を隠しません。
-            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.y - border,
-                healthArea.width + border * 2, border), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.yMax,
-                healthArea.width + border * 2, border), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(healthArea.x - border, healthArea.y, border, healthArea.height), Texture2D.whiteTexture);
-            GUI.DrawTexture(new Rect(healthArea.xMax, healthArea.y, border, healthArea.height), Texture2D.whiteTexture);
-            GUI.Label(new Rect(healthArea.xMax + BrawlerBalance.LowHealthWarningLabelGap, healthArea.y,
-                BrawlerBalance.LowHealthWarningLabelWidth, healthArea.height), "LOW HP", healthStyle);
-            GUI.color = Color.white;
-        }
-        GUI.Label(new Rect(24, 100, 700, 40), "SCORE " + _score + "   |   " + _hitChain + " HITS", style);
-        string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
-        if (_player.IsRunning)
-        {
-            GUI.Label(new Rect(24, 360, 900, 40), "RUNNING — Attack / Jump, release direction to stop", style);
-        }
-        GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
-        if (_player.CanCounter)
-        {
-            GUI.Label(new Rect(24, 175, 700, 40), "COUNTER READY — Press Attack", style);
-        }
-        else if (FindGroundAttackTarget(_player) != null)
-        {
-            GUI.Label(new Rect(24, 175, 700, 40), "GROUND ATTACK — Press Attack", style);
-        }
-        string controls = BrawlerInput.IsGamepadConnected
-            ? "Stick: Move  X / Square: Attack  A / Cross: Jump  RB: Dash  LB / LT: Guard"
-            : "WASD / Arrows: Move   J / Space: Attack   U: Jump   Shift: Dash   K: Guard   R: Restart";
-        GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
-        if (_player is ClericFighter cleric)
-        {
-            SelectionHud.Draw(cleric, _pickupNoticeFont);
-            string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
-            GUI.Label(new Rect(24, 323, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
-                ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"
-                : $"TURN UNDEAD READY — {turnButton}", style);
-            string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
-            GUI.Label(new Rect(24, 212, 900, 40),
-                $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"
-                + (cleric.IsRecoveringFromHeal ? "  RECOVERING" : ""), style);
-            string protectionButton = BrawlerInput.IsGamepadConnected ? "B / Circle" : "I";
-            GUI.Label(new Rect(24, 249, 1000, 40),
-                $"PROTECTION {cleric.ProtectionUsesRemaining}/2 — {protectionButton}"
-                + (cleric.IsProtected ? $"  ACTIVE {cleric.ProtectionSecondsRemaining:F1}s" : "  8s: Half Damage"), style);
-        }
-        // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
-        // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。
-        foreach (var enemy in _enemies)
-        {
-            if (enemy == null || enemy.Health <= 0)
-            {
-                continue;
-            }
-            Vector3 screen = _camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * BrawlerBalance.EnemyHealthBarWorldHeight);
-            if (screen.z <= 0)
-            {
-                continue;
-            }
-            float y = Screen.height - screen.y;
-            var enemyHealthArea = new Rect(screen.x - BrawlerBalance.EnemyHealthBarWidth / 2, y,
-                BrawlerBalance.EnemyHealthBarWidth, BrawlerBalance.EnemyHealthBarHeight);
-            GUI.color = new Color(0.12f, 0.12f, 0.15f);
-            GUI.DrawTexture(enemyHealthArea, Texture2D.whiteTexture);
-            GUI.color = Color.red;
-            float enemyTrailFraction = Mathf.Clamp01(Mathf.Max(enemy.Health, enemy.EnemyHealthTrail) / enemy.MaxHealth);
-            GUI.DrawTexture(new Rect(enemyHealthArea.x, y, enemyHealthArea.width * enemyTrailFraction, enemyHealthArea.height), Texture2D.whiteTexture);
-            // 現在HPは橙色、予告中は黄色。赤い残像と色を分けて削った量を見せます。
-            GUI.color = enemy.IsWindingUp ? Color.yellow : new Color(1, 0.65f, 0.2f);
-            GUI.DrawTexture(new Rect(enemyHealthArea.x, y, enemyHealthArea.width * enemy.Health / enemy.MaxHealth,
-                enemyHealthArea.height), Texture2D.whiteTexture);
-            if (enemy.IsWindingUp)
-            {
-                GUI.Label(new Rect(screen.x - 12, y - 35, 40, 35), "!", style);
-            }
-        }
-        GUI.color = Color.white;
-        if (!BrawlerInput.HasInputDevice)
-        {
-            GUI.Label(new Rect(24, 180, 1100, 40), "No input devices — Apply Input Settings and Restart from Tools / Neon Street", style);
-        }
-        if (_player.Health <= 0)
-        {
-            string restartHint = BrawlerInput.IsGamepadConnected ? "Start" : "R";
-            GUI.Label(new Rect(Screen.width / 2 - 150, Screen.height / 2, 450, 50), $"DEFEATED — Press {restartHint}", style);
-        }
-        else if (_pendingSpawnPositions.Count > 0)
-        {
-            GUI.color = Color.yellow;
-            GUI.Label(new Rect(24, 286, 900, 40), $"ENEMIES INCOMING — {_spawnWarningRemaining:F1}s", style);
-            foreach (Vector3 position in _pendingSpawnPositions)
-            {
-                Vector3 screen = _camera.WorldToScreenPoint(position + Vector3.up * 0.3f);
-                // 画面外の出現も端の矢印で知らせます。画面内では実際の出現位置に表示します。
-                bool offLeft = screen.x < 70;
-                bool offRight = screen.x > Screen.width - 70;
-                float x = Mathf.Clamp(screen.x, 70, Mathf.Max(70, Screen.width - 70));
-                float y = Mathf.Clamp(Screen.height - screen.y, 335, Mathf.Max(335, Screen.height - 90));
-                GUI.Label(new Rect(x - 60, y, 160, 40), offLeft ? "< INCOMING" : offRight ? "INCOMING >" : "! SPAWN", style);
-            }
-            GUI.color = Color.white;
-        }
-        if (_player.Health > 0)
-        {
-            _waveBanner.Draw();
-        }
-        _hitDirectionIndicator.Draw(_player, _camera);
+        _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
+            _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
     }
 }

@@ -22,11 +22,17 @@ public sealed class HitDirectionIndicator
 
     public void Draw(Fighter player, Camera camera)
     {
-        if (RemainingSeconds <= 0 || player == null || camera == null) return;
+        if (RemainingSeconds <= 0 || player == null || camera == null)
+        {
+            return;
+        }
         Vector3 position = player.transform.position + Vector3.up * BrawlerBalance.HitDirectionWorldHeight
             + Vector3.right * (SourceSide * BrawlerBalance.HitDirectionWorldOffset);
         Vector3 screen = camera.WorldToScreenPoint(position);
-        if (screen.z <= 0) return;
+        if (screen.z <= 0)
+        {
+            return;
+        }
         if (_style == null)
         {
             _style = new GUIStyle(GUI.skin.label)
