@@ -4,6 +4,14 @@ public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
 
+    // 魔法と所持品を名前で扱い、選択・使用・表示で共用します。
+    public enum UsableAction
+    {
+        Healing,
+        Protection,
+        HealingPotion
+    }
+
     public enum CommandDirection
     {
         Neutral,

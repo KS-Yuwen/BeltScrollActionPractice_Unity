@@ -481,7 +481,7 @@ public sealed class BeltBrawler : MonoBehaviour
         string dashHint = BrawlerInput.IsGamepadConnected ? "RB / R1: Dash" : "Shift: Dash";
         if (_player.IsRunning)
         {
-            GUI.Label(new Rect(24, 323, 900, 40), "RUNNING — Attack / Jump, release direction to stop", style);
+            GUI.Label(new Rect(24, 360, 900, 40), "RUNNING — Attack / Jump, release direction to stop", style);
         }
         GUI.Label(new Rect(24, 138, 700, 40), _player.DashReady ? $"DASH READY — {dashHint}" : "DASH RECHARGING", style);
         if (_player.CanCounter)
@@ -498,6 +498,18 @@ public sealed class BeltBrawler : MonoBehaviour
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
         if (_player is ClericFighter cleric)
         {
+            string selectedSpell = cleric.SelectedAction switch
+            {
+                BrawlerDefines.UsableAction.Healing => "HEAL",
+                BrawlerDefines.UsableAction.Protection => "PROTECTION",
+                BrawlerDefines.UsableAction.HealingPotion => "POTION (+20 HP)",
+                _ => "NONE"
+            };
+            GUI.Label(new Rect(24, 397, 900, 40), $"POTIONS {cleric.HealingPotionsHeld}/{BrawlerBalance.PotionCapacity}", style);
+            string spellButtons = BrawlerInput.IsGamepadConnected ? "View / Share: Select   RT / R2: Use" : "Q: Select   E: Use";
+            // 選択中の魔法と残り回数を常に表示し、敵出現予告・継続ダッシュの行とも重ならない位置にします。
+            GUI.Label(new Rect(24, 323, 1100, 40),
+                $"SELECTED: {selectedSpell} ({cleric.SelectedActionUsesRemaining} left) — {spellButtons}", style);
             string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
             GUI.Label(new Rect(24, 212, 900, 40),
                 $"HEAL {cleric.HealingUsesRemaining}/3 — {healButton}: +30 HP"

@@ -130,12 +130,12 @@ public static class CombatValidation
             Require(cleric != null, "プレイヤーはクレリックを使用");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            Require(!cleric.TryHeal() && cleric.HealingUsesRemaining == 3, "満タンでは回数を消費しない");
+            Require(!cleric.TryUseSelectedAction() && cleric.HealingUsesRemaining == 3, "選択使用でも満タンでは回数を消費しない");
             player.TakeDamage(45, player.Facing);
             Require(!cleric.TryHeal(), "被ダメージ硬直中は回復できない");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            Require(cleric.TryHeal() && player.Health == 85 && cleric.HealingUsesRemaining == 2, "HP を30回復し1回消費");
+            Require(cleric.TryUseSelectedAction() && player.Health == 85 && cleric.HealingUsesRemaining == 2, "選択した回復でHP を30回復し1回消費");
             Require(!cleric.TryHeal(), "回復後の隙では再使用不可");
             player.TakeDamage(5, player.Facing);
             Require(player.Health == 80, "回復中も無敵にはならない");
@@ -149,10 +149,12 @@ public static class CombatValidation
             SetPrivateField(player, "_attackCooldown", 0f);
             Require(cleric.TryHeal() && cleric.HealingUsesRemaining == 0, "3回目で残り0回");
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
-            Require(!cleric.TryHeal(), "回数を使い切ると発動できない");
+            Require(!cleric.TryUseSelectedAction(), "選択使用でも回数を使い切ると発動できない");
 
             // 回復の使用回数を使い切っても、補助魔法は独立した回数で使えます。
-            Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "補助魔法は回復と独立した回数");
+            cleric.SelectNextAction();
+            Require(cleric.SelectedActionUsesRemaining == BrawlerBalance.ProtectionUses, "選択表示は補助魔法の独立した残り回数");
+            Require(cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == 1, "選択した補助魔法は回復と独立した回数");
             Require(!cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中の再使用は消費しない");
             int beforeProtectionHit = player.Health;
             player.TakeDamage(9, player.Facing);
@@ -175,17 +177,34 @@ public static class CombatValidation
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryProtection(), "回数0では補助魔法を使用できない");
+            cleric.SelectNextAction();
 
             player.RestoreHealth(100);
-            potion.transform.position = player.transform.position;
-            Require(!potion.TryCollect(), "満タンではポーションを残す");
-            player.TakeDamage(35, player.Facing);
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.HealingPotion, "補助魔法の次はポーションを選択");
             potion.transform.position = player.transform.position + Vector3.forward;
             Require(!potion.TryCollect(), "奥行きが離れたポーションを拾わない");
+            for (int held = 0; held < BrawlerBalance.PotionCapacity; held++)
+            {
+                Require(player.TryStoreHealingPotion(), "所持上限まで保存可能");
+            }
             potion.transform.position = player.transform.position;
-            Require(potion.TryCollect() && player.Health == 85, "近づくとHPを20回復");
-            Require(!potion.TryCollect() && player.Health == 85, "同フレームの二重取得を防止");
+            Require(!potion.TryCollect() && !player.TryStoreHealingPotion(), "所持上限では床に残し、超過しない");
+            typeof(Fighter).GetProperty("HealingPotionsHeld").SetValue(player, 0);
+            Require(potion.TryCollect() && player.Health == 100 && player.HealingPotionsHeld == 1,
+                "HP満タンでも所持品へ入り、拾得時には回復しない");
+            Require(!potion.TryCollect() && player.HealingPotionsHeld == 1, "同フレームの二重取得を防止");
+            Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "満タンでは使用しても消費しない");
+            player.TakeDamage(35, player.Facing);
+            Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "被ダメージ硬直中は消費しない");
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            Require(cleric.TryUseSelectedAction() && player.Health == 85 && player.HealingPotionsHeld == 0,
+                "選択使用でHPを20回復し、所持数だけを一つ消費");
+            Require(!cleric.TryUseSelectedAction(), "使用直後は再使用できない");
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            Require(!cleric.TryUseSelectedAction() && player.Health == 85, "所持数ゼロでは回復しない");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
+            cleric.SelectNextAction();
 
             // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
             player.transform.position = Vector3.zero;

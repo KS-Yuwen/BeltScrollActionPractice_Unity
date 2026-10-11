@@ -114,7 +114,38 @@ public static class GamepadValidation
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             Require(!BrawlerInput.WasProtectionPressed(), "補助魔法の長押しでは再入力しない");
 
+            // 選択は回数を消費せず、押し続けても切り替わり続けません。
+            var spellCaster = (ClericFighter)player;
+            int healingBeforeSelection = spellCaster.HealingUsesRemaining;
+            int protectionBeforeSelection = spellCaster.ProtectionUsesRemaining;
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select));
+            Require(BrawlerInput.WasActionSelectPressed(), "View・Shareで魔法選択入力");
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.Protection, "パッド入力で補助魔法へ切り替え");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select));
+            UpdatePlayer(player);
+            Require(!BrawlerInput.WasActionSelectPressed() && spellCaster.SelectedAction == BrawlerDefines.UsableAction.Protection,
+                "選択長押しでは連続切り替えしない");
+            SendState(pad, new GamepadState { rightTrigger = 1 });
+            Require(BrawlerInput.WasActionUsePressed(), "RT・R2で選択魔法の使用入力");
+            SendState(pad, new GamepadState { rightTrigger = 1 });
+            Require(!BrawlerInput.WasActionUsePressed(), "使用長押しでは再発動しない");
             SendState(pad, new GamepadState());
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.HealingPotion, "Qでポーションへ切り替え");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.Healing, "Qで回復へ循環して戻る");
+            Require(spellCaster.HealingUsesRemaining == healingBeforeSelection
+                && spellCaster.ProtectionUsesRemaining == protectionBeforeSelection, "選択だけでは使用回数を消費しない");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            Require(BrawlerInput.WasActionUsePressed(), "Eで選択魔法の使用入力");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.D, Key.J, Key.LeftShift, Key.R));
             InputSystem.Update();
             Require(Mathf.Approximately(BrawlerInput.ReadMovement().magnitude, 1), "キーボードの斜め移動は速度を制限");
@@ -322,6 +353,25 @@ public static class GamepadValidation
                     .SetValue(player, Vector3.zero);
                 UpdatePlayer(player);
             }
+            // 共通使用キーを実際の戦闘更新まで通し、直接発動と同じ回数管理を確認します。
+            player.TakeDamage(10, player.Facing);
+            SetPlayerTimer(player, "_stunRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.Health == player.MaxHealth && spellCaster.HealingUsesRemaining == healingBeforeSelection - 1,
+                "E入力で選択した回復を実際に発動し、一度だけ消費");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.HealingUsesRemaining == healingBeforeSelection - 1, "共通使用キーの保持で連続消費しない");
+            // 後続の戦闘検証には開始時の使用回数と硬直を引き継ぎます。
+            typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(spellCaster, healingBeforeSelection);
+            typeof(ClericFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, Vector3.zero);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

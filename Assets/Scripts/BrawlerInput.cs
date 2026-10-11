@@ -104,6 +104,19 @@ public static class BrawlerInput
             || (Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame);
     }
 
+    // 選択と使用は別操作です。どちらも押した瞬間だけ受け付けます。
+    public static bool WasActionSelectPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.qKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.selectButton.wasPressedThisFrame);
+    }
+
+    public static bool WasActionUsePressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.rightTrigger.wasPressedThisFrame);
+    }
+
     // 回復と独立したボタンにし、場面に応じて補助魔法を使い分けられるようにします。
     public static bool WasProtectionPressed()
     {

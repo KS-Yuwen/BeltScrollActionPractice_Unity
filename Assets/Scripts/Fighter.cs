@@ -122,6 +122,35 @@ public class Fighter : Combatant
     // private set により、他クラスが HP や向きを直接書き換えることを防ぎます。
     public bool IsPlayer { get; private set; }
 
+    // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
+    public int HealingPotionsHeld { get; private set; }
+
+    public bool TryStoreHealingPotion()
+    {
+        // HP満タンでも保存できます。死亡・所持上限では床のポーションを残します。
+        if (!IsPlayer || Health <= 0 || HealingPotionsHeld >= BrawlerBalance.PotionCapacity)
+        {
+            return false;
+        }
+        HealingPotionsHeld++;
+        return true;
+    }
+
+    protected bool TryConsumeHealingPotion()
+    {
+        // 不成立時は消費しません。最大HPでの切り止めは共通の回復処理に任せます。
+        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction
+            || HealingPotionsHeld <= 0 || Health >= MaxHealth)
+        {
+            return false;
+        }
+        RestoreHealth(BrawlerBalance.PotionHealingAmount);
+        HealingPotionsHeld--;
+        Game.PlaySound(BrawlerSound.Heal);
+        ReleaseDefenseForSpecialAction();
+        return true;
+    }
+
     // 右向きは +1、左向きは -1。見た目と攻撃判定で共用します。
     public float Facing { get; protected set; } = 1;
 

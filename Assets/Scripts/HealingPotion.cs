@@ -1,9 +1,8 @@
 using UnityEngine;
 
-// 床に落ちた回復ポーション。魔法の回数を消費せず、近づくだけで拾えます。
+// 床に落ちた回復ポーション。近づくと所持品に入り、使用するまでHPは回復しません。
 public sealed class HealingPotion : MonoBehaviour
 {
-    private const int HealingAmount = BrawlerBalance.PotionHealingAmount;
     private const float PickupRadius = BrawlerBalance.PotionPickupRadius;
     private Fighter _player;
     private float _remainingLifetime = BrawlerBalance.PotionLifetimeSeconds;
@@ -30,9 +29,9 @@ public sealed class HealingPotion : MonoBehaviour
 
     public bool TryCollect()
     {
-        // 満タン・死亡時には拾いません。Destroy はフレーム末なのでフラグでも二重取得を防ぎます。
+        // Destroy はフレーム末なのでフラグでも二重取得を防ぎます。
         if (_wasCollected || _remainingLifetime <= 0 || _player == null
-            || _player.Health <= 0 || _player.Health >= _player.MaxHealth)
+            || _player.Health <= 0)
         {
             return false;
         }
@@ -43,8 +42,11 @@ public sealed class HealingPotion : MonoBehaviour
         {
             return false;
         }
+        if (!_player.TryStoreHealingPotion())
+        {
+            return false;
+        }
         _wasCollected = true;
-        _player.RestoreHealth(HealingAmount);
         _audio.Play(BrawlerSound.Pickup);
         Destroy(gameObject);
         return true;

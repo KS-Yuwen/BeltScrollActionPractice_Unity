@@ -9,6 +9,55 @@ public sealed class ClericFighter : Fighter
     private const float ProtectionDuration = BrawlerBalance.ProtectionSeconds;
     private float _protectionRemaining;
 
+    // 初期選択は回復。残り回数がゼロでも選択は維持し、意図しない別魔法の発動を防ぎます。
+    public BrawlerDefines.UsableAction SelectedAction { get; private set; } = BrawlerDefines.UsableAction.Healing;
+
+    public int SelectedActionUsesRemaining => SelectedAction switch
+    {
+        BrawlerDefines.UsableAction.Healing => HealingUsesRemaining,
+        BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining,
+        BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld,
+        _ => 0
+    };
+
+    public void SelectNextAction()
+    {
+        if (!IsPlayer || Health <= 0)
+        {
+            return;
+        }
+        // 所持数ゼロの項目も表示し、取得後に選択順が変わらないようにします。
+        SelectedAction = SelectedAction switch
+        {
+            BrawlerDefines.UsableAction.Healing => BrawlerDefines.UsableAction.Protection,
+            BrawlerDefines.UsableAction.Protection => BrawlerDefines.UsableAction.HealingPotion,
+            _ => BrawlerDefines.UsableAction.Healing
+        };
+    }
+
+    public bool TryUseSelectedAction()
+    {
+        // 既存の発動処理に委譲し、回数・硬直・満タン時の制限を共通にします。
+        return SelectedAction switch
+        {
+            BrawlerDefines.UsableAction.Healing => TryHeal(),
+            BrawlerDefines.UsableAction.Protection => TryProtection(),
+            BrawlerDefines.UsableAction.HealingPotion => TryUseHealingPotion(),
+            _ => false
+        };
+    }
+
+    public bool TryUseHealingPotion()
+    {
+        if (!TryConsumeHealingPotion())
+        {
+            return false;
+        }
+        // 使用直後は魔法と同様に足を止めます。回復量・使用後の隙は専用の定数です。
+        _recoveryRemaining = BrawlerBalance.PotionRecoverySeconds;
+        return true;
+    }
+
     // 回復とは別に 2 回使用できます。効果中の再使用では回数を消費しません。
     public int ProtectionUsesRemaining { get; private set; } = BrawlerBalance.ProtectionUses;
 
@@ -47,15 +96,21 @@ public sealed class ClericFighter : Fighter
 
     protected override bool UpdateSpecialAction()
     {
+        // 選択だけなら攻撃中や発動後の硬直中も可能です。選択と使用の同時押しは新しい選択を使います。
+        if (BrawlerInput.WasActionSelectPressed())
+        {
+            SelectNextAction();
+        }
         // 回復後の短い隙には移動・攻撃・回避・ガードを止めます。無敵は付けません。
         if (IsRecoveringFromHeal)
         {
             _recoveryRemaining = Mathf.Max(0, _recoveryRemaining - Time.deltaTime);
             return IsRecoveringFromHeal;
         }
-        // 同時押しは回復を優先し、一度に二つの魔法を消費しません。
+        // 直接発動を優先します。成立したら短絡評価で終了し、一度に二つ消費しません。
         return (BrawlerInput.WasHealPressed() && TryHeal())
-            || (BrawlerInput.WasProtectionPressed() && TryProtection());
+            || (BrawlerInput.WasProtectionPressed() && TryProtection())
+            || (BrawlerInput.WasActionUsePressed() && TryUseSelectedAction());
     }
 
     public bool TryProtection()
