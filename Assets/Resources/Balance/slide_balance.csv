@@ -11,3 +11,10 @@ SlideMinSeconds,0.12
 SlideMaxSeconds,0.4
 SlideCooldownSeconds,0.55
 SlideDamage,12
+# ダッシュ必殺技：威力、速度、移動時間、攻撃時間、再使用待ち、命中までの時間
+DashSpecialDamage,40
+DashSpecialSpeed,10
+DashSpecialMovementSeconds,0.25
+DashSpecialAttackSeconds,0.4
+DashSpecialCooldownSeconds,0.75
+DashSpecialHitDelaySeconds,0.1

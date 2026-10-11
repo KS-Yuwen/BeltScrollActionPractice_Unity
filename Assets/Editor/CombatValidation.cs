@@ -402,20 +402,20 @@ public static class CombatValidation
             var commands = new DirectionCommandBuffer();
             commands.Record(Vector3.back, 1, 0);
             commands.Record(new Vector3(1, 0, -1), 1, 0.1f);
-            Require(commands.TryConsumeSlide(new Vector3(1, 0, -1), 0.15f, out float slideFacing) && slideFacing == 1,
+            Require(commands.TryConsumeDownForward(new Vector3(1, 0, -1), 0.15f, out float slideFacing) && slideFacing == 1,
                 "下から斜め前下で右向きコマンド成立");
-            Require(!commands.TryConsumeSlide(new Vector3(1, 0, -1), 0.16f, out _), "コマンドの二重消費を防止");
+            Require(!commands.TryConsumeDownForward(new Vector3(1, 0, -1), 0.16f, out _), "コマンドの二重消費を防止");
             commands.Record(Vector3.back, -1, 1);
             commands.Record(new Vector3(-1, 0, -1), -1, 1.1f);
-            Require(commands.TryConsumeSlide(new Vector3(-1, 0, -1), 1.15f, out slideFacing) && slideFacing == -1,
+            Require(commands.TryConsumeDownForward(new Vector3(-1, 0, -1), 1.15f, out slideFacing) && slideFacing == -1,
                 "左向きでは方向コマンドを反転");
             commands.Record(Vector3.back, 1, 2);
             commands.Record(new Vector3(1, 0, -1), 1, 2.95f);
-            Require(!commands.TryConsumeSlide(new Vector3(1, 0, -1), 2.96f, out _), "遅い入力は不成立");
+            Require(!commands.TryConsumeDownForward(new Vector3(1, 0, -1), 2.96f, out _), "遅い入力は不成立");
             commands.Record(Vector3.back, 1, 3);
             commands.Record(new Vector3(0.32f, 0, -0.8f), 1, 3.2f);
             commands.Record(new Vector3(0.45f, 0, -0.6f), 1, 3.8f);
-            Require(commands.TryConsumeSlide(new Vector3(0.45f, 0, -0.6f), 4.35f, out _),
+            Require(commands.TryConsumeDownForward(new Vector3(0.45f, 0, -0.6f), 4.35f, out _),
                 "浅い斜め入力への移行とゆっくりしたジャンプ入力を受理");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackRemaining", 0f);
@@ -491,6 +491,28 @@ public static class CombatValidation
                 heavy.transform.position = player.transform.position - Vector3.right * expectedFacing;
                 Require(!(bool)rangeFacingCheck.Invoke(game, new object[] { player, heavy }), "左右の背後命中を拒否");
             }
+            updateStop.Invoke(game, new object[] { 1f });
+
+            player.transform.position = Vector3.zero;
+            heavy.transform.position = Vector3.right;
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            player.RestoreHealth(100);
+            typeof(Fighter).GetMethod("StartDashSpecial", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 1f });
+            int specialHitHealth = heavy.Health;
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
+            Require(heavy.Health == specialHitHealth - 40 && heavy.IsDowned, "必殺技は40ダメージで転倒を誘発");
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.01f });
+            Require(heavy.Health == specialHitHealth - 40, "必殺技の命中は1回だけ");
+            player.TakeDamage(5, -player.Facing);
+            Require(player.Health == 95 && !player.IsDashSpecialAttacking
+                && (float)GetPrivateField(player, "_dashAttackMovementRemaining") == 0,
+                "必殺技は無敵でなく被ダメージで踏み込みも中断");
+            Require(SlideBalanceSettings.TryParse("key,value\nDashSpecialDamage,55\nDashSpecialSpeed,12", out SlideBalanceSettings specialSettings, out _)
+                && specialSettings.DashSpecialDamage == 55 && specialSettings.DashSpecialSpeed == 12, "CSVから必殺技の調整値を読み込み");
+            Require(!SlideBalanceSettings.TryParse("key,value\nDashSpecialHitDelaySeconds,1", out _, out _), "攻撃終了後の命中時刻を拒否");
             updateStop.Invoke(game, new object[] { 1f });
 
             Debug.Log("COMBAT_VALIDATION_PASSED");

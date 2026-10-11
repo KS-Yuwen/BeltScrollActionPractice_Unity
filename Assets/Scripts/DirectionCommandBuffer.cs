@@ -40,7 +40,7 @@ public sealed class DirectionCommandBuffer
         }
     }
 
-    public bool TryConsumeSlide(Vector3 input, float time, out float direction)
+    public bool TryConsumeDownForward(Vector3 input, float time, out float direction)
     {
         direction = _facing;
         if (time - _diagonalAt > BrawlerBalance.SlideButtonWindowSeconds

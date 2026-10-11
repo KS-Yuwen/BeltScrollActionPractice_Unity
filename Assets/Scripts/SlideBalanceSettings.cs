@@ -13,6 +13,13 @@ public sealed class SlideBalanceSettings
     public float MaxSeconds { get; }
     public float CooldownSeconds { get; }
     public int Damage { get; }
+    // 同じ方向コマンドで出す技なので、ダッシュ必殺技も同じCSVで管理します。
+    public int DashSpecialDamage { get; }
+    public float DashSpecialSpeed { get; }
+    public float DashSpecialMovementSeconds { get; }
+    public float DashSpecialAttackSeconds { get; }
+    public float DashSpecialCooldownSeconds { get; }
+    public float DashSpecialHitDelaySeconds { get; }
 
     private SlideBalanceSettings(Dictionary<string, float> values)
     {
@@ -24,6 +31,12 @@ public sealed class SlideBalanceSettings
         MaxSeconds = values["SlideMaxSeconds"];
         CooldownSeconds = values["SlideCooldownSeconds"];
         Damage = (int)values["SlideDamage"];
+        DashSpecialDamage = (int)values["DashSpecialDamage"];
+        DashSpecialSpeed = values["DashSpecialSpeed"];
+        DashSpecialMovementSeconds = values["DashSpecialMovementSeconds"];
+        DashSpecialAttackSeconds = values["DashSpecialAttackSeconds"];
+        DashSpecialCooldownSeconds = values["DashSpecialCooldownSeconds"];
+        DashSpecialHitDelaySeconds = values["DashSpecialHitDelaySeconds"];
     }
 
     private static Dictionary<string, float> CreateDefaults()
@@ -37,7 +50,13 @@ public sealed class SlideBalanceSettings
             { "SlideMinSeconds", BrawlerBalance.DefaultSlideMinSeconds },
             { "SlideMaxSeconds", BrawlerBalance.DefaultSlideMaxSeconds },
             { "SlideCooldownSeconds", BrawlerBalance.DefaultSlideCooldownSeconds },
-            { "SlideDamage", BrawlerBalance.DefaultSlideDamage }
+            { "SlideDamage", BrawlerBalance.DefaultSlideDamage },
+            { "DashSpecialDamage", BrawlerBalance.DefaultDashSpecialDamage },
+            { "DashSpecialSpeed", BrawlerBalance.DefaultDashSpecialSpeed },
+            { "DashSpecialMovementSeconds", BrawlerBalance.DefaultDashSpecialMovementSeconds },
+            { "DashSpecialAttackSeconds", BrawlerBalance.DefaultDashSpecialAttackSeconds },
+            { "DashSpecialCooldownSeconds", BrawlerBalance.DefaultDashSpecialCooldownSeconds },
+            { "DashSpecialHitDelaySeconds", BrawlerBalance.DefaultDashSpecialHitDelaySeconds }
         };
     }
 
@@ -94,6 +113,13 @@ public sealed class SlideBalanceSettings
             error = "設定行がないか、最短時間が最長時間を超えています。";
             return false;
         }
+        if (values["DashSpecialMovementSeconds"] > values["DashSpecialAttackSeconds"]
+            || values["DashSpecialHitDelaySeconds"] >= values["DashSpecialAttackSeconds"]
+            || values["DashSpecialCooldownSeconds"] < values["DashSpecialAttackSeconds"])
+        {
+            error = "ダッシュ必殺技は移動・命中時刻が攻撃時間内に収まり、再使用待ちは攻撃時間以上にしてください。";
+            return false;
+        }
         settings = new SlideBalanceSettings(values);
         return true;
     }
@@ -106,8 +132,10 @@ public sealed class SlideBalanceSettings
             case "CommandDirectionThreshold":
                 return value >= 0.05f && value <= 0.9f;
             case "SlideSpeed":
+            case "DashSpecialSpeed":
                 return value >= 0.1f && value <= 30;
             case "SlideDamage":
+            case "DashSpecialDamage":
                 return value >= 1 && value <= 1000 && value == Math.Floor(value);
             default:
                 return value >= 0.01f && value <= 3;

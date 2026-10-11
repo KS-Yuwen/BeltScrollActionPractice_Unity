@@ -16,6 +16,18 @@ public static class BrawlerBalance
     public static float SlideMaxSeconds => s_slideSettings.MaxSeconds;
     public static float SlideCooldownSeconds => s_slideSettings.CooldownSeconds;
     public static int SlideDamage => s_slideSettings.Damage;
+    public const int DefaultDashSpecialDamage = 40;
+    public const float DefaultDashSpecialSpeed = 10;
+    public const float DefaultDashSpecialMovementSeconds = 0.25f;
+    public const float DefaultDashSpecialAttackSeconds = 0.4f;
+    public const float DefaultDashSpecialCooldownSeconds = 0.75f;
+    public const float DefaultDashSpecialHitDelaySeconds = 0.1f;
+    public static int DashSpecialDamage => s_slideSettings.DashSpecialDamage;
+    public static float DashSpecialSpeed => s_slideSettings.DashSpecialSpeed;
+    public static float DashSpecialMovementSeconds => s_slideSettings.DashSpecialMovementSeconds;
+    public static float DashSpecialAttackSeconds => s_slideSettings.DashSpecialAttackSeconds;
+    public static float DashSpecialCooldownSeconds => s_slideSettings.DashSpecialCooldownSeconds;
+    public static float DashSpecialHitDelaySeconds => s_slideSettings.DashSpecialHitDelaySeconds;
 
     [UnityEngine.RuntimeInitializeOnLoadMethod(UnityEngine.RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void LoadSlideSettings()

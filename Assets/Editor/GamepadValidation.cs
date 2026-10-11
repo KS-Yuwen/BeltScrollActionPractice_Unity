@@ -224,6 +224,27 @@ public static class GamepadValidation
             }
             SetPlayerTimer(player, "_attackRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
+            foreach (float specialFacing in new float[] { -1, 1 })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, specialFacing);
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, specialFacing < 0 ? Key.A : Key.D, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsDashSpecialAttacking && !player.IsSliding && player.Facing == specialFacing,
+                    "左右の下→斜め前下＋攻撃はダッシュ必殺技へ分岐");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+                UpdatePlayer(player);
+            }
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
