@@ -8,6 +8,12 @@ public sealed class ClericFighter : Fighter
     private float _recoveryRemaining;
     private const float ProtectionDuration = BrawlerBalance.ProtectionSeconds;
     private float _protectionRemaining;
+    private float _turnUndeadCooldownRemaining;
+    private float _turnUndeadRecoveryRemaining;
+
+    public float TurnUndeadCooldownRemaining => _turnUndeadCooldownRemaining;
+
+    public bool IsTurningUndead => _turnUndeadRecoveryRemaining > 0;
 
     // 初期選択は回復。残り回数がゼロでも選択は維持し、意図しない別魔法の発動を防ぎます。
     public BrawlerDefines.UsableAction SelectedAction { get; private set; } = BrawlerDefines.UsableAction.Healing;
@@ -70,15 +76,16 @@ public sealed class ClericFighter : Fighter
 
     public bool IsRecoveringFromHeal => _recoveryRemaining > 0;
 
-    protected override bool IsUsingSpecialAction => IsRecoveringFromHeal;
+    protected override bool IsUsingSpecialAction => IsRecoveringFromHeal || IsTurningUndead;
 
-    protected override Color? SpecialFeedbackColor => IsRecoveringFromHeal
+    protected override Color? SpecialFeedbackColor => IsTurningUndead ? new Color(1, 1, 0.65f) : IsRecoveringFromHeal
         ? new Color(0.4f, 1, 0.6f) : IsProtected ? new Color(1, 0.8f, 0.3f) : (Color?)null;
 
     protected override void Update()
     {
         // 硬直中や回復中も効果時間が経過します。共通の戦闘更新より先に終了を判定します。
         UpdateProtection(Time.deltaTime);
+        _turnUndeadCooldownRemaining = Mathf.Max(0, _turnUndeadCooldownRemaining - Time.deltaTime);
         base.Update();
     }
 
@@ -101,11 +108,23 @@ public sealed class ClericFighter : Fighter
         {
             SelectNextAction();
         }
+        if (IsTurningUndead)
+        {
+            _turnUndeadRecoveryRemaining = Mathf.Max(0, _turnUndeadRecoveryRemaining - Time.deltaTime);
+            return IsTurningUndead;
+        }
         // 回復後の短い隙には移動・攻撃・回避・ガードを止めます。無敵は付けません。
         if (IsRecoveringFromHeal)
         {
             _recoveryRemaining = Mathf.Max(0, _recoveryRemaining - Time.deltaTime);
             return IsRecoveringFromHeal;
+        }
+        // 下＋ジャンプのしゃがみ・スライディング操作は維持し、それ以外の攻撃＋ジャンプを優先します。
+        if (BrawlerInput.WasTurnUndeadPressed()
+            && BrawlerInput.ReadMovement().z >= -BrawlerBalance.JumpDirectionThreshold
+            && TryTurnUndead())
+        {
+            return true;
         }
         // 直接発動を優先します。成立したら短絡評価で終了し、一度に二つ消費しません。
         return (BrawlerInput.WasHealPressed() && TryHeal())
@@ -129,10 +148,25 @@ public sealed class ClericFighter : Fighter
         return true;
     }
 
+    public bool TryTurnUndead()
+    {
+        // 無敵は付けません。対象がいなくても発動し、向きに関係なく周囲を攻撃します。
+        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction || _turnUndeadCooldownRemaining > 0)
+        {
+            return false;
+        }
+        ReleaseDefenseForSpecialAction();
+        _turnUndeadCooldownRemaining = BrawlerBalance.TurnUndeadCooldownSeconds;
+        _turnUndeadRecoveryRemaining = BrawlerBalance.TurnUndeadRecoverySeconds;
+        Game.PlaySound(BrawlerSound.Protection);
+        Game.HitUndeadTargets(this);
+        return true;
+    }
+
     public bool TryHeal()
     {
         // 満タン・死亡・行動中の入力では回数を消費しません。最大 HP は共通の回復処理で守ります。
-        if (!IsPlayer || !CanUseSpecialAction || IsRecoveringFromHeal
+        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction
             || HealingUsesRemaining <= 0 || Health >= MaxHealth)
         {
             return false;

@@ -89,6 +89,13 @@ public static class BrawlerInput
             || (Gamepad.current != null && Gamepad.current.buttonSouth.isPressed);
     }
 
+    // 二つのボタンを全く同じフレームに押す必要はなく、片方を保持してもう片方を押しても成立します。
+    // 両方を保持し続けるだけでは再発動しません。
+    public static bool WasTurnUndeadPressed()
+    {
+        return (WasAttackPressed() && IsJumpHeld()) || (WasJumpPressed() && IsAttackHeld());
+    }
+
     public static bool WasRestartPressed()
     {
         Keyboard keyboard = Keyboard.current;

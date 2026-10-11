@@ -597,6 +597,54 @@ public static class CombatValidation
             Require(!SlideBalanceSettings.TryParse("key,value\nPushHitDelaySeconds,1", out _, out _), "突き飛ばしの不正な命中時刻を拒否");
             updateStop.Invoke(game, new object[] { 1f });
 
+            // 属性と範囲を独立に確認します。正面・背後・範囲外・通常敵を同時に配置します。
+            var turnEnemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(game, "_enemies");
+            foreach (Fighter turnEnemy in turnEnemies)
+            {
+                if (turnEnemy != null)
+                {
+                    turnEnemy.transform.position = new Vector3(20, 0, 3);
+                }
+            }
+            Require(turnEnemies.Exists(f => f != null && f.IsUndead), "ウェーブにアンデッドを配置");
+            MethodInfo createTurnEnemy = typeof(BeltBrawler).GetMethod("CreateFighter", BindingFlags.Instance | BindingFlags.NonPublic);
+            player.transform.position = Vector3.zero;
+            Fighter frontUndead = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test front undead", Vector3.right, false, false, false, true });
+            Fighter backUndead = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test back undead", Vector3.left, false, false, false, true });
+            Fighter farUndead = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test far undead", Vector3.forward * (BrawlerBalance.TurnUndeadRadius + 1), false, false, false, true });
+            Fighter normalTurnEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test living enemy", Vector3.right, false, false, false, false });
+            turnEnemies.AddRange(new Fighter[] { frontUndead, backUndead, farUndead, normalTurnEnemy });
+            SetPrivateField(player, "_attackRemaining", 0f);
+            SetPrivateField(player, "_attackCooldown", 0f);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_dashRemaining", 0f);
+            SetPrivateField(player, "_jumpHeight", 0f);
+            SetPrivateField(player, "_jumpVelocity", 0f);
+            SetPrivateField(player, "_isRunning", false);
+            SetPrivateField(player, "_slideRemaining", 0f);
+            SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            int turnHealth = player.Health;
+            int turnHealUses = cleric.HealingUsesRemaining;
+            int turnProtectionUses = cleric.ProtectionUsesRemaining;
+            int undeadHealth = frontUndead.Health;
+            Require(cleric.TryTurnUndead(), "行動可能時にターニングアンデッドを発動");
+            Require(frontUndead.Health == undeadHealth - BrawlerBalance.TurnUndeadDamage
+                && backUndead.Health == undeadHealth - BrawlerBalance.TurnUndeadDamage,
+                "正面と背後のアンデッドに一度だけダメージ");
+            Require(farUndead.Health == undeadHealth && normalTurnEnemy.Health == undeadHealth,
+                "奥行きの範囲外と通常敵には効果なし");
+            Require(player.Health == turnHealth && cleric.HealingUsesRemaining == turnHealUses
+                && cleric.ProtectionUsesRemaining == turnProtectionUses, "HP・魔法回数を消費しない");
+            Require(frontUndead.IsDowned && !cleric.TryTurnUndead(), "敵を転倒させ、発動直後の連続使用を拒否");
+            SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
+            Require(!cleric.TryTurnUndead(), "硬直終了後も再使用待ち時間を守る");
+            SetPrivateField(cleric, "_turnUndeadCooldownRemaining", 0f);
+            SetPrivateField(player, "_jumpHeight", 1f);
+            Require(!cleric.TryTurnUndead(), "空中で発動しない");
+            SetPrivateField(player, "_jumpHeight", 0f);
+            Require(cleric.TryTurnUndead(), "再使用待ち時間終了後は再発動可能");
+            player.TakeDamage(5, player.Facing);
+            Require(player.Health < turnHealth, "発動中にも被ダメージを受け、無敵は付かない");
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

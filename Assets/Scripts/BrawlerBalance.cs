@@ -171,6 +171,12 @@ public static class BrawlerBalance
     public const float HeavyAttackIntervalSeconds = 1.8f;
     public const int HeavyDamage = 24;
     public const int HealingAmount = 30;
+    // ターニングアンデッドの試作用設定。HPや魔法回数は消費せず、再使用時間で連打を制限します。
+    public const int TurnUndeadDamage = 40;
+    public const float TurnUndeadRadius = 4f;
+    public const float TurnUndeadRecoverySeconds = 0.6f;
+    public const float TurnUndeadCooldownSeconds = 4f;
+    public const int UndeadSpawnIndex = 1;
     public const int HealingUses = 3;
     public const int ProtectionUses = 2;
     public const float SpellRecoverySeconds = 0.6f;

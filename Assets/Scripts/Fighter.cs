@@ -3,6 +3,8 @@ using UnityEngine;
 // キャラクター単体の管理役。入力または AI、移動、攻撃演出、被ダメージを担当します。
 public class Fighter : Combatant
 {
+    // 敵の属性は派生クラスが宣言します。見た目やクラス名で魔法の対象を判定しません。
+    public virtual bool IsUndead => false;
     private BeltBrawler _game;
     private Transform _visual;
     private Transform _attackArm;

@@ -372,6 +372,20 @@ public static class GamepadValidation
             typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, Vector3.zero);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(spellCaster.IsTurningUndead && !player.IsAirborne,
+                "攻撃＋ジャンプ同時押しは通常攻撃・ジャンプより優先して発動");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J, Key.U));
+            InputSystem.Update();
+            Require(!BrawlerInput.WasTurnUndeadPressed(), "両ボタン保持では発動を繰り返さない");
+            typeof(ClericFighter).GetField("_turnUndeadRecoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            typeof(ClericFighter).GetField("_turnUndeadCooldownRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

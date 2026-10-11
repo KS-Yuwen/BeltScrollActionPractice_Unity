@@ -21,6 +21,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
     private Material _heavyEnemyMaterial;
+    private Material _undeadEnemyMaterial;
     private Material _potionMaterial;
     private int _defeatedEnemyCount;
     private int _score;
@@ -55,6 +56,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
         _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
+        _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = new Material(Shader.Find("Unlit/Color"));
@@ -110,13 +112,14 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // プレイヤーと敵は同じ Fighter を使い、isPlayer によって操作方法を切り替えます。
-    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false, bool isHeavy = false)
+    private Fighter CreateFighter(string label, Vector3 position, bool isPlayer, bool isRanged = false, bool isHeavy = false, bool isUndead = false)
     {
         var root = new GameObject(label);
         root.transform.position = position;
         Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
             : isHeavy ? root.AddComponent<HeavyFighter>()
-            : isRanged ? root.AddComponent<RangedFighter>() : root.AddComponent<Fighter>();
+            : isRanged ? root.AddComponent<RangedFighter>()
+            : isUndead ? root.AddComponent<UndeadFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
         int maxHealth = isPlayer ? 100 : isHeavy ? 100 + _wave * 8 : 55 + _wave * 5;
         // 移動を担う親と、見た目を担う Model を分離します。
@@ -124,13 +127,19 @@ public sealed class BeltBrawler : MonoBehaviour
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
         var bodyMaterial = isPlayer ? _playerMaterial : isHeavy ? _heavyEnemyMaterial
-            : isRanged ? _rangedEnemyMaterial : _enemyMaterial;
+            : isRanged ? _rangedEnemyMaterial : isUndead ? _undeadEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
         var attackArm = CreateBodyPart("Punch arm", new Vector3(0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
         var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
+        if (isUndead)
+        {
+            // 胸の骨と頭の色で区別し、通常敵と同じ判定サイズを維持します。
+            CreateBodyPart("Undead ribs", new Vector3(0, 1.15f, -0.25f), new Vector3(0.45f, 0.12f, 0.1f), bodyMaterial, visual);
+            visual.Find("Head").GetComponent<Renderer>().sharedMaterial = bodyMaterial;
+        }
         if (isHeavy)
         {
             // 大きな胴鎧と肩当てで区別します。判定用の親や通常のリーチは拡大しません。
@@ -205,8 +214,9 @@ public sealed class BeltBrawler : MonoBehaviour
             bool isRanged = i % 3 == 2;
             // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
             bool isHeavy = _wave >= 2 && i == 3;
-            _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : "Melee Enemy",
-                _pendingSpawnPositions[i], false, isRanged, isHeavy));
+            bool isUndead = i == BrawlerBalance.UndeadSpawnIndex;
+            _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : isUndead ? "Undead Enemy" : "Melee Enemy",
+                _pendingSpawnPositions[i], false, isRanged, isHeavy, isUndead));
         }
         _pendingSpawnPositions.Clear();
     }
@@ -260,6 +270,27 @@ public sealed class BeltBrawler : MonoBehaviour
 
     // 敵 AI にプレイヤーを公開する読み取り専用プロパティです。
     public Fighter Target => _player;
+
+    public void HitUndeadTargets(ClericFighter caster)
+    {
+        // 対象一覧は管理役が保持します。床上のXZ距離で判定し、背後にも効果を与えます。
+        CreateHitImpact(caster.transform.position + Vector3.up * 1.2f, true);
+        float radiusSquared = BrawlerBalance.TurnUndeadRadius * BrawlerBalance.TurnUndeadRadius;
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0 || !enemy.IsUndead)
+            {
+                continue;
+            }
+            Vector3 offset = enemy.transform.position - caster.transform.position;
+            offset.y = 0;
+            if (offset.sqrMagnitude <= radiusSquared)
+            {
+                // 共通被ダメージ処理に渡し、転倒・得点・撃破報酬・重複命中防止を維持します。
+                enemy.TakeDamage(BrawlerBalance.TurnUndeadDamage, offset.x >= 0 ? 1 : -1);
+            }
+        }
+    }
 
     // Damage が実際に受理された場合だけ呼びます。無敵中の攻撃はスコアに含めません。
     public void RegisterDamage(Fighter victim, int attackDamage = 18)
@@ -506,6 +537,10 @@ public sealed class BeltBrawler : MonoBehaviour
                 _ => "NONE"
             };
             GUI.Label(new Rect(24, 397, 900, 40), $"POTIONS {cleric.HealingPotionsHeld}/{BrawlerBalance.PotionCapacity}", style);
+            string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
+            GUI.Label(new Rect(24, 434, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
+                ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"
+                : $"TURN UNDEAD READY — {turnButton}", style);
             string spellButtons = BrawlerInput.IsGamepadConnected ? "View / Share: Select   RT / R2: Use" : "Q: Select   E: Use";
             // 選択中の魔法と残り回数を常に表示し、敵出現予告・継続ダッシュの行とも重ならない位置にします。
             GUI.Label(new Rect(24, 323, 1100, 40),
