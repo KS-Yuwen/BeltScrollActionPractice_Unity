@@ -192,6 +192,38 @@ public static class GamepadValidation
                 "ジャンプ保持では長いスライディング");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
+            foreach (float expectedFacing in new float[] { -1, 1 })
+            {
+                SetPlayerTimer(player, "_attackRemaining", 0.1f);
+                SetPlayerTimer(player, "_attackCooldown", 0.1f);
+                Key directionKey = expectedFacing < 0 ? Key.A : Key.D;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(directionKey, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                // 先行入力後に方向を離し、攻撃開始時のフレームには方向入力がない状況を再現します。
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+                Transform model = (Transform)typeof(Fighter).GetField("_visual", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+                Require(player.Facing == expectedFacing && Mathf.Sign(model.localScale.x) == expectedFacing,
+                    "左右どちらも先行入力した攻撃方向と見た目が一致");
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                // しゃがみ攻撃でも、方向＋攻撃の同時入力を開始方向に反映します。
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U, directionKey, Key.J));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                Require(player.IsCrouchAttacking && player.Facing == expectedFacing, "しゃがみ攻撃の方向入力を反映");
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                UpdatePlayer(player);
+            }
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

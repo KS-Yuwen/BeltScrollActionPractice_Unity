@@ -475,6 +475,24 @@ public static class CombatValidation
             }
             updateStop.Invoke(game, new object[] { 1f });
 
+            // 空中攻撃中に逆方向へ移動しても、攻撃とモデルの向きを反転しません。
+            MethodInfo moveFacingCheck = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo rangeFacingCheck = typeof(BeltBrawler).GetMethod("IsInAttackRange", BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (float expectedFacing in new float[] { -1, 1 })
+            {
+                player.transform.position = Vector3.zero;
+                typeof(Fighter).GetProperty("Facing").SetValue(player, expectedFacing);
+                SetPrivateField(player, "_attackRemaining", BrawlerBalance.AttackSeconds);
+                moveFacingCheck.Invoke(player, new object[] { new Vector3(-expectedFacing, 0, 0), 0.01f });
+                Require(player.Facing == expectedFacing, "攻撃中の逆方向移動でも向きを固定");
+                heavy.RestoreHealth(200);
+                heavy.transform.position = player.transform.position + Vector3.right * expectedFacing;
+                Require((bool)rangeFacingCheck.Invoke(game, new object[] { player, heavy }), "左右の前方命中判定が正しい");
+                heavy.transform.position = player.transform.position - Vector3.right * expectedFacing;
+                Require(!(bool)rangeFacingCheck.Invoke(game, new object[] { player, heavy }), "左右の背後命中を拒否");
+            }
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

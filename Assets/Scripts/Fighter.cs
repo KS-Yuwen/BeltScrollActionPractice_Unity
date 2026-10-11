@@ -31,6 +31,7 @@ public class Fighter : Combatant
     private float _flashRemaining;
     private Vector3 _dashDirection;
     private float _attackBufferRemaining;
+    private float _attackBufferFacing = 1;
     private Renderer[] _bodyRenderers;
     private MaterialPropertyBlock _flashProperties;
     private float _downRemaining;
@@ -259,6 +260,7 @@ public class Fighter : Combatant
                 // 空中では攻撃ボタンを1回押して発動。奥行きの下入力＋攻撃で下突きに変化します。
                 if (attackPressed && _attackRemaining <= 0 && _attackCooldown <= 0 && _stunRemaining <= 0)
                 {
+                    Facing = GetInputFacing(input);
                     StartAirAttack(input.z < -BrawlerBalance.JumpDirectionThreshold);
                 }
                 return input;
@@ -281,6 +283,8 @@ public class Fighter : Combatant
             if (attackPressed && !IsGuarding)
             {
                 _attackBufferRemaining = BrawlerBalance.AttackBufferSeconds;
+                // 先行入力はボタンを押した時点の向きも記憶します。方向を離しても失いません。
+                _attackBufferFacing = GetInputFacing(input);
             }
             // 攻撃の後隙からも回避できますが、被ダメージ硬直中は回避できません。
             if (BrawlerInput.WasDashPressed() && DashReady && _stunRemaining <= 0)
@@ -371,6 +375,7 @@ public class Fighter : Combatant
                 {
                     if (_attackCooldown <= 0 && _attackBufferRemaining > 0)
                     {
+                        Facing = _attackBufferFacing;
                         StartCrouchAttack();
                     }
                     return Vector3.zero;
@@ -383,10 +388,7 @@ public class Fighter : Combatant
                 {
                     // 反対方向＋攻撃を同時に入力したとき、攻撃開始前に向きを更新します。
                     // 攻撃開始後は向きを固定し、途中で判定だけが裏返らないようにします。
-                    if (Mathf.Abs(input.x) > BrawlerBalance.FacingInputThreshold)
-                    {
-                        Facing = Mathf.Sign(input.x);
-                    }
+                    Facing = _attackBufferFacing;
                     Fighter groundTarget = _game.FindGroundAttackTarget(this);
                     if (groundTarget != null)
                     {
@@ -435,10 +437,17 @@ public class Fighter : Combatant
         _game.Hit(this, damage);
     }
 
+    private float GetInputFacing(Vector3 input)
+    {
+        return Mathf.Abs(input.x) > BrawlerBalance.PlayerFacingInputThreshold ? Mathf.Sign(input.x) : Facing;
+    }
+
     private void Move(Vector3 movement, float deltaTime)
     {
         // 奥行きだけの移動では向きを維持し、左右に動いた場合だけ向きを変更します。
-        if (Mathf.Abs(movement.x) > BrawlerBalance.FacingInputThreshold)
+        float facingThreshold = IsPlayer ? BrawlerBalance.PlayerFacingInputThreshold : BrawlerBalance.FacingInputThreshold;
+        // 空中では攻撃中も移動可能ですが、攻撃の向きは開始時のまま固定します。
+        if (_attackRemaining <= 0 && Mathf.Abs(movement.x) > facingThreshold)
         {
             Facing = Mathf.Sign(movement.x);
         }

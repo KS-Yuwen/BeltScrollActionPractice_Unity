@@ -41,6 +41,8 @@ public static class BrawlerBalance
     public const float ForwardInputThreshold = 0.6f;
     public const float DoubleTapWindowSeconds = 0.25f;
     public const float FacingInputThreshold = 0.01f;
+    // パッドの奥行き操作に混じる微小な左右入力で、意図せず反転するのを抑えます。
+    public const float PlayerFacingInputThreshold = 0.2f;
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
     public const float WalkSpeed = 5;
