@@ -77,6 +77,12 @@ public static class BrawlerInput
             || (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
     }
 
+    public static bool IsJumpHeld()
+    {
+        return (Keyboard.current != null && Keyboard.current.uKey.isPressed)
+            || (Gamepad.current != null && Gamepad.current.buttonSouth.isPressed);
+    }
+
     public static bool WasRestartPressed()
     {
         Keyboard keyboard = Keyboard.current;

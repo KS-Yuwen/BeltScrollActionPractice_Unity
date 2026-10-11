@@ -350,6 +350,20 @@ public static class CombatValidation
             updateJump.Invoke(player, new object[] { 1f });
             updateStop.Invoke(game, new object[] { 1f });
 
+            SetPrivateField(player, "_stunRemaining", 0f);
+            SetPrivateField(player, "_dashRemaining", 0f);
+            heavy.RestoreHealth(200);
+            SetPrivateField(heavy, "_stunRemaining", 0f);
+            SetPrivateField(heavy, "_downRemaining", 0f);
+            player.transform.position = Vector3.zero;
+            heavy.transform.position = Vector3.right;
+            int beforeCrouchHit = heavy.Health;
+            typeof(Fighter).GetMethod("StartCrouchAttack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { 0.1f });
+            Require(heavy.Health == beforeCrouchHit - 12, "しゃがみ攻撃は12ダメージ");
+            updateStop.Invoke(game, new object[] { 1f });
+
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
         }

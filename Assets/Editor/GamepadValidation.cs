@@ -102,6 +102,7 @@ public static class GamepadValidation
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンでも回避");
             SendState(pad, new GamepadState().WithButton(GamepadButton.South));
             Require(BrawlerInput.WasJumpPressed() && !BrawlerInput.WasDashPressed(), "パッド下側はジャンプ専用");
+            Require(BrawlerInput.IsJumpHeld(), "パッドのジャンプ保持を認識");
             SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
             Require(BrawlerInput.WasRestartPressed(), "Start でリスタート");
             SendState(pad, new GamepadState().WithButton(GamepadButton.North));
@@ -133,6 +134,48 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
             InputSystem.Update();
             Require(BrawlerInput.WasJumpPressed(), "Uキーでジャンプ入力");
+            // 通常の Update まで通して、組み合わせ入力と2回押しの分岐を確認します。
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            SetPlayerTimer(player, "_dashRemaining", 0);
+            SetPlayerTimer(player, "_dashCooldown", 0);
+            SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U));
+            InputSystem.Update();
+            // 先の被ダメージ検証による押し戻しを取り除き、しゃがみ入力による移動だけを調べます。
+            typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(player, Vector3.zero);
+            Vector3 beforeCrouch = player.transform.position;
+            UpdatePlayer(player);
+            Require(player.IsCrouching && !player.IsAirborne && player.transform.position == beforeCrouch,
+                "下＋ジャンプは移動やジャンプではなくしゃがみ");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U, Key.J));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsCrouchAttacking, "しゃがみ中の攻撃入力で専用攻撃");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(!player.IsCrouching, "保持を離すとしゃがみ解除");
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            UpdatePlayer(player);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(player.IsAirborne, "1回目のジャンプは通常ジャンプ");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            float beforeBackstepFacing = player.Facing;
+            UpdatePlayer(player);
+            Require(player.IsBackstepping && !player.IsAirborne && player.Facing == beforeBackstepFacing,
+                "素早い2回押しは向きを変えずバックステップ");
+            SetPlayerTimer(player, "_dashRemaining", 0);
+            SetPlayerTimer(player, "_dashCooldown", 0);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally

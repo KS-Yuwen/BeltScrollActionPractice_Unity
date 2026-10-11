@@ -48,6 +48,17 @@ public class Fighter : Combatant
     private Vector3 _jumpDrift;
     private bool _isAirAttack;
     private bool _isDownThrust;
+    private bool _isCrouching;
+    private bool _isCrouchAttack;
+    private float _lastJumpPressedAt = -10;
+    private bool _canBackstepFromJump;
+    private bool _isBackstep;
+
+    public bool IsCrouching => _isCrouching;
+
+    public bool IsCrouchAttacking => _isCrouchAttack && _attackRemaining > 0;
+
+    public bool IsBackstepping => _isBackstep && _dashRemaining > 0;
 
     // 攻撃距離の基準位置は床に残し、見た目の高さだけ別に管理します。
     public float JumpHeight => _jumpHeight;
@@ -187,11 +198,22 @@ public class Fighter : Combatant
             // 固有行動が成立したフレームは、同時押しの攻撃・回避より優先します。
             if (UpdateSpecialAction())
             {
+                _isCrouching = false;
                 return Vector3.zero;
             }
             input = BrawlerInput.ReadMovement();
             bool attackPressed = BrawlerInput.WasAttackPressed();
-            if (BrawlerInput.WasJumpPressed() && !IsAirborne && _stunRemaining <= 0
+            bool jumpPressed = BrawlerInput.WasJumpPressed();
+            // 下入力は奥行き移動にも使うため、ジャンプボタンを保持した時だけしゃがみます。
+            _isCrouching = !IsAirborne && _dashRemaining <= 0 && _stunRemaining <= 0
+                && input.z < -0.5f && BrawlerInput.IsJumpHeld();
+            if (jumpPressed && _canBackstepFromJump && Time.time - _lastJumpPressedAt <= 0.25f
+                && input.z >= -0.5f && _stunRemaining <= 0 && _attackRemaining <= 0 && DashReady)
+            {
+                StartBackstep();
+                return Vector3.zero;
+            }
+            if (jumpPressed && !_isCrouching && !IsAirborne && _stunRemaining <= 0
                 && _attackRemaining <= 0 && !IsUsingSpecialAction)
             {
                 StartJump(input);
@@ -207,7 +229,7 @@ public class Fighter : Combatant
                 return input;
             }
             IsGuarding = BrawlerInput.IsGuardHeld() && _stunRemaining <= 0
-                && _attackRemaining <= 0 && _dashRemaining <= 0;
+                && _attackRemaining <= 0 && _dashRemaining <= 0 && !_isCrouching;
             // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
             if (attackPressed && !IsGuarding)
             {
@@ -219,6 +241,9 @@ public class Fighter : Combatant
                 // 回避距離はスティックの倒し具合によらず一定にするため、回避方向だけ正規化します。
                 _dashDirection = input.sqrMagnitude > 0 ? input.normalized : new Vector3(Facing, 0, 0);
                 _dashRemaining = 0.2f;
+                _isBackstep = false;
+                _isCrouching = false;
+                _isCrouchAttack = false;
                 _dashCooldown = 0.85f;
                 _attackRemaining = 0;
                 _isGroundAttack = false;
@@ -233,7 +258,7 @@ public class Fighter : Combatant
             }
             // 回避＋攻撃の同時押しも、回避中に攻撃を追加する操作も受け付けます。
             // 無敵の回避を攻撃へ変換するため、発動後は被ダメージを受けるようになります。
-            if (attackPressed && _dashRemaining > 0 && _stunRemaining <= 0)
+            if (attackPressed && _dashRemaining > 0 && _stunRemaining <= 0 && !_isBackstep)
             {
                 StartDashAttack();
             }
@@ -288,6 +313,14 @@ public class Fighter : Combatant
                 if (IsGuarding)
                 {
                     _attackBufferRemaining = 0;
+                    return Vector3.zero;
+                }
+                if (_isCrouching)
+                {
+                    if (_attackCooldown <= 0 && _attackBufferRemaining > 0)
+                    {
+                        StartCrouchAttack();
+                    }
                     return Vector3.zero;
                 }
                 // 入力の縦方向は Y ではなく Z に対応させます。
@@ -397,13 +430,14 @@ public class Fighter : Combatant
             _attackRemaining -= deltaTime;
             // 攻撃中は腕を横に伸ばします。角度から Quaternion を作って回転を指定します。
             _attackArm.localRotation = Quaternion.Euler(0, 0, _isDownThrust ? -90 : _isGroundAttack ? -65 : _isDashAttack ? 110 : 90);
-            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f, _isGroundAttack ? 0.65f : 1.35f, -0.1f);
+            _attackArm.localPosition = new Vector3(_isDashAttack ? 0.9f : 0.65f,
+                _isGroundAttack || _isCrouchAttack ? 0.65f : 1.35f, -0.1f);
             // 攻撃開始から約 0.14 秒後に一度だけ命中判定。3 段目はダメージを増やします。
             float hitTiming = _isGroundAttack ? 0.23f : _isDashAttack || _isCounterAttack ? 0.24f : 0.16f;
             if (!_hasDealtHit && _attackRemaining < hitTiming)
             {
                 _hasDealtHit = true;
-                int damage = _isAirAttack ? (_isDownThrust ? 32 : 20)
+                int damage = _isCrouchAttack ? 12 : _isAirAttack ? (_isDownThrust ? 32 : 20)
                     : _isCounterAttack ? 36 : _isDashAttack ? 32 : IsPlayer ? (_comboStep == 3 ? 30 : 18) : EnemyAttackDamage;
                 if (_isGroundAttack)
                 {
@@ -424,6 +458,7 @@ public class Fighter : Combatant
             _groundAttackTarget = null;
             _isAirAttack = false;
             _isDownThrust = false;
+            _isCrouchAttack = false;
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -434,6 +469,10 @@ public class Fighter : Combatant
     {
         // 生存中の転倒は一定時間で起き上がります。死亡姿勢は Update の早期終了で保持します。
         _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
+        // モデルだけ縦に縮めます。HPや通常の攻撃判定には影響しません。
+        Vector3 visualScale = _visual.localScale;
+        visualScale.y = _isCrouching || IsCrouchAttacking ? 0.6f : 1;
+        _visual.localScale = visualScale;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         _visual.localPosition = new Vector3(0, _jumpHeight + (_stunRemaining > 0 ? 0.08f : 0), 0);
         // 被ダメージは白、回避中は水色、敵の攻撃予告は黄色で見分けられるようにします。
@@ -460,6 +499,7 @@ public class Fighter : Combatant
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     private void Attack()
     {
+        _isCrouchAttack = false;
         _isGroundAttack = false;
         _groundAttackTarget = null;
         _isDashAttack = false;
@@ -478,6 +518,7 @@ public class Fighter : Combatant
     // 回避を攻撃へ変換します。通常コンボとは別の技として、コンボ段数をリセットします。
     private void StartDashAttack()
     {
+        _isCrouchAttack = false;
         _isGroundAttack = false;
         _groundAttackTarget = null;
         _isCounterAttack = false;
@@ -501,6 +542,7 @@ public class Fighter : Combatant
     // 反撃には無敵を付けず、防御から攻撃へ移る判断にリスクを残します。
     private void StartCounterAttack()
     {
+        _isCrouchAttack = false;
         _isGroundAttack = false;
         _groundAttackTarget = null;
         _counterWindowRemaining = 0;
@@ -518,6 +560,10 @@ public class Fighter : Combatant
 
     private void StartJump(Vector3 input)
     {
+        _isCrouchAttack = false;
+        _isCrouching = false;
+        _canBackstepFromJump = input.z <= 0.5f && _dashRemaining <= 0;
+        _lastJumpPressedAt = Time.time;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
         _jumpVelocity = input.z > 0.5f ? 9 : 7;
         _jumpDrift = _dashRemaining > 0 ? _dashDirection * 4 : Vector3.zero;
@@ -551,6 +597,7 @@ public class Fighter : Combatant
 
     private void StartAirAttack(bool isDownThrust)
     {
+        _canBackstepFromJump = false;
         _isAirAttack = true;
         _isDownThrust = isDownThrust;
         _isGroundAttack = false;
@@ -567,8 +614,43 @@ public class Fighter : Combatant
         }
     }
 
+    private void StartCrouchAttack()
+    {
+        // しゃがみ攻撃は低い位置の素早い一撃。通常コンボとは分けて段数をリセットします。
+        _isCrouchAttack = true;
+        _isAirAttack = false;
+        _isGroundAttack = false;
+        _groundAttackTarget = null;
+        _isDashAttack = false;
+        _isCounterAttack = false;
+        _counterWindowRemaining = 0;
+        _attackRemaining = 0.25f;
+        _attackCooldown = 0.3f;
+        _attackBufferRemaining = 0;
+        _comboStep = 0;
+        _lastAttackTime = -10;
+        _hasDealtHit = false;
+    }
+
+    private void StartBackstep()
+    {
+        // 1回目は通常ジャンプ、0.25秒以内の2回目で後方回避へ切り替えます。
+        // 向きを変えず、共通の回避無敵・ステージ端制限を使います。
+        _canBackstepFromJump = false;
+        _jumpHeight = 0;
+        _jumpVelocity = 0;
+        _jumpDrift = Vector3.zero;
+        _isBackstep = true;
+        _dashDirection = new Vector3(-Facing, 0, 0);
+        _dashRemaining = 0.14f;
+        _dashCooldown = 0.6f;
+        _knockbackVelocity = Vector3.zero;
+        ReleaseDefenseForSpecialAction();
+    }
+
     private void StartGroundAttack(Fighter target)
     {
+        _isCrouchAttack = false;
         _isGroundAttack = true;
         _groundAttackTarget = target;
         _isDashAttack = false;
@@ -621,6 +703,9 @@ public class Fighter : Combatant
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : 0.25f;
         // 被ダメージによって進行中の攻撃を中断します。
         _attackRemaining = 0;
+        _isCrouching = false;
+        _isCrouchAttack = false;
+        _canBackstepFromJump = false;
         _isAirAttack = false;
         _isDownThrust = false;
         _isGroundAttack = false;
