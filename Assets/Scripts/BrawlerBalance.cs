@@ -354,6 +354,14 @@ public static class BrawlerBalance
     public static readonly UnityEngine.Color BossOpeningColor = UnityEngine.Color.green;
     public const float OpeningMarkerHalfSize = 0.65f;
     public const float BossOpeningBarHeight = 8f;
+    // 撃破演出は実時間で計測し、低速再生でも必ず終了するようにします。
+    public const float BossDefeatSlowTimeScale = 0.25f;
+    public const float BossDefeatSlowSeconds = 0.6f;
+    public const float BossDefeatNoticeSeconds = 1.2f;
+    public const float BossDefeatNoticeWidth = 640f;
+    public const float BossDefeatNoticeHeight = 80f;
+    public const float BossDefeatNoticeTopFraction = 0.35f;
+    public const int BossDefeatNoticeFontSize = 42;
     public const int ProtectionUses = 2;
     public const int AttackBoostUses = 2;
     public const int InventorySlotCount = 6;

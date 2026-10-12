@@ -51,6 +51,11 @@ public sealed class BeltBrawler : MonoBehaviour
     private float _spawnWarningRemaining;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
+    private bool _bossDefeatStarted;
+    private float _bossDefeatRemaining;
+    private float _bossSlowRemaining;
+    private float _timeScaleBeforeBossSlow = 1f;
+    public bool IsShowingBossDefeat => _bossDefeatRemaining > 0 && !IsRunFinished;
     private BrawlerAudio _audio;
     private Font _pickupNoticeFont;
 
@@ -154,6 +159,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
+        UpdateBossDefeat(Time.unscaledDeltaTime);
         _hitDirectionIndicator.Advance(Time.unscaledDeltaTime);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, Time.deltaTime);
         _waveBanner.Advance(Time.deltaTime);
@@ -199,7 +205,11 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             if (_wave >= BrawlerBalance.StageWaveCount)
             {
-                // 最終ウェーブの敵が消えてから結果を確定し、六つ目のウェーブは予約しません。
+                // 消滅と撃破表示の両方が終わってからリザルトへ進みます。
+                if (IsShowingBossDefeat)
+                {
+                    return;
+                }
                 FinishRun(true);
                 return;
             }
@@ -288,6 +298,7 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
+        RestoreCombatTime();
         IsStageCleared = cleared;
         IsDefeated = !cleared;
         IsPreparingBoss = false;
@@ -405,6 +416,10 @@ public sealed class BeltBrawler : MonoBehaviour
         _score += BrawlerBalance.HitScore * Mathf.Min(_hitChain, BrawlerBalance.HitScoreMultiplierLimit);
         if (victim.Health == 0)
         {
+            if (victim is BossFighter && _wave == BrawlerBalance.StageWaveCount)
+            {
+                BeginBossDefeat();
+            }
             _score += BrawlerBalance.DefeatScore;
             // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
             // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
@@ -445,7 +460,8 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         if (_hitStopRemaining <= 0)
         {
-            _timeScaleBeforeHitStop = Time.timeScale;
+            // 低速再生中の値を元の速度として保存しないようにします。
+            _timeScaleBeforeHitStop = _bossSlowRemaining > 0 ? _timeScaleBeforeBossSlow : Time.timeScale;
         }
         // 複数の敵に同時命中しても秒数を足しません。最も長い停止だけを採用します。
         _hitStopRemaining = Mathf.Max(_hitStopRemaining, duration);
@@ -461,18 +477,63 @@ public sealed class BeltBrawler : MonoBehaviour
         _hitStopRemaining = Mathf.Max(0, _hitStopRemaining - deltaTime);
         if (_hitStopRemaining <= 0)
         {
+            // 致命傷のヒットストップが終わったら、続けて撃破の低速再生へ入ります。
+            Time.timeScale = _bossSlowRemaining > 0
+                ? _timeScaleBeforeBossSlow * BrawlerBalance.BossDefeatSlowTimeScale : _timeScaleBeforeHitStop;
+        }
+    }
+
+    private void BeginBossDefeat()
+    {
+        if (_bossDefeatStarted || IsRunFinished)
+        {
+            return;
+        }
+        _bossDefeatStarted = true;
+        _bossDefeatRemaining = BrawlerBalance.BossDefeatNoticeSeconds;
+        _bossSlowRemaining = BrawlerBalance.BossDefeatSlowSeconds;
+        _timeScaleBeforeBossSlow = _hitStopRemaining > 0 ? _timeScaleBeforeHitStop : Time.timeScale;
+        if (_hitStopRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow * BrawlerBalance.BossDefeatSlowTimeScale;
+        }
+    }
+
+    private void UpdateBossDefeat(float unscaledDeltaTime)
+    {
+        float elapsed = Mathf.Max(0, unscaledDeltaTime);
+        _bossDefeatRemaining = Mathf.Max(0, _bossDefeatRemaining - elapsed);
+        // 最後の一撃の停止中には低速再生の時間を消費しません。
+        if (_bossSlowRemaining <= 0 || _hitStopRemaining > 0)
+        {
+            return;
+        }
+        _bossSlowRemaining = Mathf.Max(0, _bossSlowRemaining - elapsed);
+        if (_bossSlowRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow;
+        }
+    }
+
+    private void RestoreCombatTime()
+    {
+        // リスタート・敗北・Play終了でも、次のシーンへ停止や低速再生を持ち越しません。
+        if (_bossSlowRemaining > 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow;
+        }
+        else if (_hitStopRemaining > 0)
+        {
             Time.timeScale = _timeScaleBeforeHitStop;
         }
+        _bossSlowRemaining = 0;
+        _hitStopRemaining = 0;
+        _bossDefeatRemaining = 0;
     }
 
     private void OnDisable()
     {
-        // リスタートやPlay終了が停止中でも、次のシーンに timeScale=0 を残しません。
-        if (_hitStopRemaining > 0)
-        {
-            Time.timeScale = _timeScaleBeforeHitStop;
-            _hitStopRemaining = 0;
-        }
+        RestoreCombatTime();
     }
 
     public void CreateGuardImpact(Fighter defender)

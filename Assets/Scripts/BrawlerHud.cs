@@ -6,6 +6,7 @@ public sealed class BrawlerHud
 {
     private GUIStyle _style;
     private GUIStyle _healthStyle;
+    private GUIStyle _bossDefeatStyle;
 
     private static void DrawBossStatus(BossFighter boss, GUIStyle style)
     {
@@ -70,6 +71,23 @@ public sealed class BrawlerHud
             };
         }
         GUIStyle style = _style;
+        if (game.IsShowingBossDefeat)
+        {
+            if (_bossDefeatStyle == null)
+            {
+                _bossDefeatStyle = new GUIStyle(_style)
+                {
+                    alignment = TextAnchor.MiddleCenter,
+                    fontSize = BrawlerBalance.BossDefeatNoticeFontSize
+                };
+            }
+            // 消滅中も見えるよう、敵の子にせず画面中央に表示します。
+            float width = Mathf.Min(Screen.width, BrawlerBalance.BossDefeatNoticeWidth);
+            var area = new Rect((Screen.width - width) / 2,
+                Screen.height * BrawlerBalance.BossDefeatNoticeTopFraction, width, BrawlerBalance.BossDefeatNoticeHeight);
+            GUI.Box(area, string.Empty);
+            GUI.Label(area, "BOSS DEFEATED", _bossDefeatStyle);
+        }
         if (game.IsPreparingBoss)
         {
             float top = BrawlerBalance.BossPreparationHudTop;

@@ -1623,7 +1623,24 @@ public static class CombatValidation
         System.Collections.Generic.List<Fighter> turnEnemies,
         System.Collections.Generic.List<Vector3> bannerPending, MethodInfo waveProgress)
     {
-        // 最終ウェーブの出現待ち・戦闘中はクリアせず、全滅して消えた時点だけ結果を確定します。
+        // 撃破演出とヒットストップが重なった状態でも、無効化で元の速度へ戻します。
+        MethodInfo beginDefeat = typeof(BeltBrawler).GetMethod("BeginBossDefeat", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo updateDefeat = typeof(BeltBrawler).GetMethod("UpdateBossDefeat", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo beginStop = typeof(BeltBrawler).GetMethod("BeginHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo updateStop = typeof(BeltBrawler).GetMethod("UpdateHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+        typeof(BeltBrawler).GetMethod("RestoreCombatTime", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+        Time.timeScale = 0.8f;
+        beginDefeat.Invoke(game, null);
+        Require(Mathf.Abs(Time.timeScale - 0.8f * BrawlerBalance.BossDefeatSlowTimeScale) < 0.01f,
+            "撃破スローは開始前の速度を基準にする");
+        beginStop.Invoke(game, new object[] { BrawlerBalance.StrongHitStopSeconds });
+        game.enabled = false;
+        Require(Time.timeScale == 0.8f && !game.IsShowingBossDefeat,
+            "低速再生と停止が重なっていても、無効化時は元の速度へ復元する");
+        game.enabled = true;
+        Time.timeScale = 1f;
+        SetPrivateField(game, "_bossDefeatStarted", false);
+        // 最終ウェーブの出現待ち・戦闘中はクリアせず、撃破表示と消滅が終わって結果を確定します。
         Fighter resultPlayer = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test result player", Vector3.zero, true, false, false, false });
         SetPrivateField(game, "_player", resultPlayer);
         turnEnemies.Clear();
@@ -1641,6 +1658,25 @@ public static class CombatValidation
         {
             finalEnemy.TakeDamage(1000, 1);
         }
+        Require(game.IsShowingBossDefeat && Time.timeScale == 0, "ボスへの致命傷で撃破表示と最後の一撃の停止を開始する");
+        float initialSlow = (float)GetPrivateField(game, "_bossSlowRemaining");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds });
+        Require((float)GetPrivateField(game, "_bossSlowRemaining") == initialSlow,
+            "ヒットストップ中は低速再生の持続時間を消費しない");
+        updateStop.Invoke(game, new object[] { BrawlerBalance.StrongHitStopSeconds + 0.01f });
+        Require(Time.timeScale == BrawlerBalance.BossDefeatSlowTimeScale,
+            "最後の一撃の停止後は撃破スローへつながる");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatSlowSeconds / 2 });
+        float remainingNotice = (float)GetPrivateField(game, "_bossDefeatRemaining");
+        beginDefeat.Invoke(game, null);
+        Require((float)GetPrivateField(game, "_bossDefeatRemaining") == remainingNotice,
+            "撃破通知を再要求しても演出を延長しない");
+        beginStop.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds });
+        updateStop.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds + 0.01f });
+        Require(Time.timeScale == BrawlerBalance.BossDefeatSlowTimeScale,
+            "撃破スロー中の追加ヒットストップを解除してもスローを維持する");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatSlowSeconds / 2 + 0.01f });
+        Require(Time.timeScale == 1 && game.IsShowingBossDefeat, "低速再生は実時間で終了し、撃破表示は残る");
         waveProgress.Invoke(game, new object[] { 0f });
         Require(!game.IsStageCleared, "撃破フェード中は結果画面へ移らない");
         foreach (Fighter finalEnemy in turnEnemies)
@@ -1650,6 +1686,9 @@ public static class CombatValidation
         turnEnemies.Clear();
         int finalScore = (int)GetPrivateField(game, "_score");
         int finalKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+        waveProgress.Invoke(game, new object[] { 0f });
+        Require(!game.IsStageCleared, "ボスが消えても撃破表示が残っていれば結果画面を待つ");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatNoticeSeconds });
         waveProgress.Invoke(game, new object[] { 0f });
         Require(game.IsStageCleared && game.ResultScore == finalScore && game.ResultDefeatedEnemies == finalKills,
             "最終全滅後にクリアとスコア・撃破数を確定");
