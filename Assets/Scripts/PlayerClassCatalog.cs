@@ -1,0 +1,21 @@
+// 職業別設定の一覧です。別職業を追加するときは設定と派生Fighterの組み合わせを用意します。
+public static class PlayerClassCatalog
+{
+    // 現在の性能を維持する武器倍率。今後の職業では個別の名前付き定数を追加します。
+    private const float StandardWeaponReachMultiplier = 1f;
+
+    // 共通キャラの従来の使用許可を維持します。ナイフの処理は他職業向けに残します。
+    public static PlayerClassSettings Common { get; } = new PlayerClassSettings(
+        BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,
+        StandardWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
+        BrawlerDefines.UsableAction.ThrowingHammer);
+
+    // 刃物を禁止し、回復・補助魔法とポーション・ハンマーを使用できます。
+    public static PlayerClassSettings Cleric { get; } = new PlayerClassSettings(
+        BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,
+        StandardWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingHammer,
+        BrawlerDefines.UsableAction.Healing, BrawlerDefines.UsableAction.Protection,
+        BrawlerDefines.UsableAction.AttackBoost);
+}

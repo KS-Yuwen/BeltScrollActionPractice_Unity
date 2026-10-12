@@ -203,11 +203,14 @@ public class Fighter : Combatant
     private float _itemRecoveryRemaining;
 
     // 他職業はこの許可判定を上書きします。所持品の処理に具体的な職業名は持ち込みません。
+    // 派生クラスは設定の選択だけを変更し、移動や命中判定を複製しません。
+    public virtual PlayerClassSettings ClassSettings => PlayerClassCatalog.Common;
+    public float AttackReach => IsPlayer ? ClassSettings.GetAttackReach(_attackKind) : MeleeAttackReach;
+    public float GroundAttackReach => ClassSettings.GetAttackReach(BrawlerDefines.AttackKind.Ground);
+
     public virtual bool CanUseAction(BrawlerDefines.UsableAction action)
     {
-        return action == BrawlerDefines.UsableAction.HealingPotion
-            || action == BrawlerDefines.UsableAction.ThrowingKnife
-            || action == BrawlerDefines.UsableAction.ThrowingHammer;
+        return ClassSettings.CanUseAction(action);
     }
 
     public bool TryStoreThrowingKnife()
@@ -849,7 +852,7 @@ public class Fighter : Combatant
         {
             Facing = Mathf.Sign(movement.x);
         }
-        transform.position += movement * (IsPlayer ? (_isRunning ? BrawlerBalance.RunSpeed : BrawlerBalance.WalkSpeed) : EnemyMovementSpeed) * deltaTime;
+        transform.position += movement * (IsPlayer ? (_isRunning ? ClassSettings.RunSpeed : ClassSettings.WalkSpeed) : EnemyMovementSpeed) * deltaTime;
         if (IsAirborne)
         {
             transform.position += _jumpDrift * deltaTime;

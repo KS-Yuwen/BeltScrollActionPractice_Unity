@@ -71,15 +71,8 @@ public sealed class ClericFighter : Fighter
 
     public BrawlerDefines.ActionUseStatus SelectedActionUseStatus => GetActionUseStatus(SelectedAction);
 
-    // 刃物は禁止し、クレリックの魔法・ポーション・ハンマーだけを許可します。
-    public override bool CanUseAction(BrawlerDefines.UsableAction action)
-    {
-        return action == BrawlerDefines.UsableAction.Healing
-            || action == BrawlerDefines.UsableAction.Protection
-            || action == BrawlerDefines.UsableAction.HealingPotion
-            || action == BrawlerDefines.UsableAction.ThrowingHammer
-            || action == BrawlerDefines.UsableAction.AttackBoost;
-    }
+    // 移動・リーチ・使用許可は職業設定を選択し、魔法の実処理だけをこのクラスに置きます。
+    public override PlayerClassSettings ClassSettings => PlayerClassCatalog.Cleric;
 
     public BrawlerDefines.ActionUseStatus GetActionUseStatus(BrawlerDefines.UsableAction action)
     {

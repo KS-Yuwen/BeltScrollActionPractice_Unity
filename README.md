@@ -280,3 +280,5 @@ HP が 0 になると、到達ウェーブ・スコア・撃破数をその時�
 ## 共通処理の構成
 
 `Fighter` は行動状態・移動・攻撃の進行を担当します。方向コマンドは `DirectionCommandBuffer`、ボタンの順番入力は `ButtonSequenceBuffer`、被弾硬直中の近接技の履歴は `MeleeHitHistory` に分離しています。履歴クラスは記録・照会・リセットを担当し、職業固有の能力は `ClericFighter` などの派生クラスに実装します。
+
+職業の移動速度・通常リーチ・特殊技の武器リーチ倍率・使用許可は `PlayerClassCatalog` と `PlayerClassSettings` で管理します。`ClericFighter.ClassSettings` がクレリック設定を選択します。特殊技の基礎リーチは既存CSVを参照し、魔法の発動処理は派生クラスに残しています。

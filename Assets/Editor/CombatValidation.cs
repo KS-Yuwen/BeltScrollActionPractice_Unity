@@ -1476,6 +1476,33 @@ public static class CombatValidation
             new object[] { "Test hit restriction victim", Vector3.right, false, false, true, false });
         try
         {
+            // 職業設定へ移した値が、実際の移動・武器・使用可否から参照されることを確認します。
+            Require(attacker.ClassSettings == PlayerClassCatalog.Cleric, "派生クレリックが職業設定を選択");
+            MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            Vector3 beforeWalk = attacker.transform.position;
+            move.Invoke(attacker, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(attacker.transform.position.x - beforeWalk.x, BrawlerBalance.WalkSpeed * 0.1f),
+                "職業設定の歩行速度で移動し、従来性能を維持");
+            SetPrivateField(attacker, "_isRunning", true);
+            Vector3 beforeRun = attacker.transform.position;
+            move.Invoke(attacker, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(attacker.transform.position.x - beforeRun.x, BrawlerBalance.RunSpeed * 0.1f),
+                "職業設定の走行速度で移動し、従来性能を維持");
+            SetPrivateField(attacker, "_isRunning", false);
+            attacker.transform.position = Vector3.zero;
+            Require(attacker.AttackReach == BrawlerBalance.PlayerAttackReach
+                && attacker.GroundAttackReach == BrawlerBalance.GroundAttackReach, "通常と追撃のリーチを維持");
+            SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.HeavyStrike);
+            Require(attacker.AttackReach == BrawlerBalance.HeavyStrikeReach, "職業設定経由でもCSVの特殊技リーチを参照");
+            var allowed = new[] { BrawlerDefines.UsableAction.ThrowingKnife };
+            var customSettings = new PlayerClassSettings(BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed,
+                BrawlerBalance.PlayerAttackReach, 2f, allowed);
+            allowed[0] = BrawlerDefines.UsableAction.Healing;
+            Require(customSettings.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+                && !customSettings.CanUseAction(BrawlerDefines.UsableAction.Healing)
+                && !customSettings.CanUseAction(BrawlerDefines.UsableAction.None), "共有設定の使用許可は外部配列の変更で変わらない");
+            Require(customSettings.GetAttackReach(BrawlerDefines.AttackKind.HeavyStrike) == BrawlerBalance.HeavyStrikeReach * 2f,
+                "別職業の武器倍率を特殊技へ適用できる");
             // 低威力のコマンド技でも転倒することと、強化魔法との補正順を確認します。
             foreach (BrawlerDefines.AttackKind attackKind in new[]
             {

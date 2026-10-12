@@ -856,7 +856,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
         // 追撃は通常攻撃より短いリーチで、向いている側の倒れた敵を狙います。
-        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < BrawlerBalance.GroundAttackReach
+        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < attacker.GroundAttackReach
             && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }
 
@@ -864,11 +864,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private bool IsInAttackRange(Fighter attacker, Fighter target)
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
-        // プレイヤーの左右方向のリーチだけを従来の 1.5 倍にします（1.65 × 1.5 = 2.475）。
-        // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
-        float attackReach = attacker.IsHeavyStriking ? BrawlerBalance.HeavyStrikeReach
-            : attacker.IsPushAttacking ? BrawlerBalance.PushReach : attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
-            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : attacker.MeleeAttackReach;
+        // プレイヤーは職業設定、敵は派生クラスの宣言するリーチを使います。
+        float attackReach = attacker.AttackReach;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
