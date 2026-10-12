@@ -12,6 +12,7 @@ public sealed class DamageNumber : FloatingLabel
         Kind = kind;
         Color color = kind switch
         {
+            BrawlerDefines.DamageKind.Critical => Color.yellow,
             BrawlerDefines.DamageKind.Counter => Color.cyan,
             BrawlerDefines.DamageKind.HeavyStrike => new Color(1, 0.5f, 0.15f),
             BrawlerDefines.DamageKind.Healing => Color.green,

@@ -389,8 +389,9 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
-        PlaySound(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerSound.StrongHit : BrawlerSound.Hit);
-        CreateHitImpact(victim.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, attackDamage >= BrawlerBalance.KnockdownDamageThreshold);
+        bool isStrongHit = kind == BrawlerDefines.DamageKind.Critical || attackDamage >= BrawlerBalance.KnockdownDamageThreshold;
+        PlaySound(isStrongHit ? BrawlerSound.StrongHit : BrawlerSound.Hit);
+        CreateHitImpact(victim.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, isStrongHit);
         if (!victim.IsPlayer)
         {
             if (actualDamage > 0)
@@ -400,7 +401,7 @@ public sealed class BeltBrawler : MonoBehaviour
                 number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
                 number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
             }
-            BeginHitStop(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
         }
         _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
         if (victim.IsPlayer)
@@ -737,7 +738,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
     public void Hit(Fighter attacker, int damage)
     {
-        damage = attacker.CalculateMeleeDamage(damage);
+        damage = attacker.CalculateMeleeHitDamage(damage);
         if (attacker.IsPlayer)
         {
             bool didHit = false;
@@ -756,7 +757,8 @@ public sealed class BeltBrawler : MonoBehaviour
                     }
                     else
                     {
-                        BrawlerDefines.DamageKind kind = attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
+                        BrawlerDefines.DamageKind kind = attacker.IsCriticalAttack ? BrawlerDefines.DamageKind.Critical
+                            : attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
                             : attacker.IsHeavyStriking ? BrawlerDefines.DamageKind.HeavyStrike : BrawlerDefines.DamageKind.Normal;
                         enemy.TakeMeleeDamage(damage, attacker, kind);
                     }

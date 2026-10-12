@@ -184,6 +184,19 @@ public class Fighter : Combatant
     public virtual bool TryRestoreSpellUses(BrawlerDefines.UsableAction action, int amount) => false;
     // 武器による近接攻撃だけに適用します。魔法・投擲・移動接触の威力とは分離します。
     public virtual int CalculateMeleeDamage(int amount) => amount;
+
+    // コマンド技だけを確定クリティカルにします。通常攻撃やアイテムには乱数補正を追加しません。
+    public bool IsCriticalAttack => IsPlayer && (_attackKind == BrawlerDefines.AttackKind.HeavyStrike
+        || _attackKind == BrawlerDefines.AttackKind.DashSpecial || _attackKind == BrawlerDefines.AttackKind.Uppercut);
+
+    public int CalculateMeleeHitDamage(int baseDamage)
+    {
+        // クリティカル→職業の攻撃強化の順で各補正を一度だけ適用します。
+        int damage = IsCriticalAttack ? Mathf.CeilToInt(Mathf.Max(0, baseDamage)
+            * BrawlerBalance.CriticalDamageMultiplier) : Mathf.Max(0, baseDamage);
+        return CalculateMeleeDamage(damage);
+    }
+
     public int ThrowingKnivesHeld
     {
         get => Inventory.GetCount(BrawlerDefines.UsableAction.ThrowingKnife);
@@ -1512,14 +1525,16 @@ public class Fighter : Combatant
         _attackCooldown = Mathf.Max(_attackCooldown, IsPlayer ? BrawlerBalance.StunSeconds : BrawlerBalance.EnemyHitCooldownSeconds);
         _flashRemaining = BrawlerBalance.DamageFlashSeconds;
         // 最終段で敵を転倒させます。硬直時間と合わせて、起き上がるまで行動を止めます。
-        if (!isGroundHit && !IsPlayer && amount >= BrawlerBalance.KnockdownDamageThreshold && Health > 0)
+        bool isStrongHit = kind == BrawlerDefines.DamageKind.Critical || amount >= BrawlerBalance.KnockdownDamageThreshold;
+        // 低威力へ調整したコマンド技でも、クリティカルなら確実に転倒させます。
+        if (!isGroundHit && !IsPlayer && isStrongHit && Health > 0)
         {
             _hasReceivedGroundHit = false;
             _downRemaining = BrawlerBalance.DownSeconds;
             _stunRemaining = _downRemaining;
         }
         // コンボ最終段では大きく吹き飛ばし、敵との間合いを作ります。
-        _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (amount >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
+        _knockbackVelocity = isGroundHit ? Vector3.zero : new Vector3(direction * (isStrongHit ? BrawlerBalance.StrongKnockbackSpeed : BrawlerBalance.KnockbackSpeed), 0, 0);
         // 残りHPを超えた攻撃や軽減があっても、表示は実際に減ったHPに合わせます。
         if (IsPlayer && Health < healthBeforeDamage)
         {

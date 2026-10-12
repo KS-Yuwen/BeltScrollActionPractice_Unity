@@ -52,7 +52,8 @@ public static class BrawlerDefines
         Normal,
         Counter,
         HeavyStrike,
-        Healing
+        Healing,
+        Critical
     }
 
     public enum ImpactKind

@@ -552,9 +552,9 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartDashSpecial", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 1f });
             int specialHitHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
-            Require(heavy.Health == specialHitHealth - 40 && heavy.IsDowned, "必殺技は40ダメージで転倒を誘発");
+            Require(heavy.Health == specialHitHealth - 60 && heavy.IsDowned, "必殺技はクリティカル補正後60ダメージで転倒を誘発");
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.01f });
-            Require(heavy.Health == specialHitHealth - 40, "必殺技の命中は1回だけ");
+            Require(heavy.Health == specialHitHealth - 60, "必殺技の命中は1回だけ");
             player.TakeDamage(5, -player.Facing);
             Require(player.Health == 95 && !player.IsDashSpecialAttacking
                 && (float)GetPrivateField(player, "_dashAttackMovementRemaining") == 0,
@@ -585,7 +585,7 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartUppercut", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
             int uppercutHitHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
-            Require(heavy.Health == uppercutHitHealth - 36 && heavy.IsDowned, "対空技は36ダメージで転倒");
+            Require(heavy.Health == uppercutHitHealth - 54 && heavy.IsDowned, "対空技はクリティカル補正後54ダメージで転倒");
             player.TakeDamage(5, 1);
             Require(player.Health == 95 && !player.IsUppercutAttacking, "対空技も被ダメージで中断");
             Require(SlideBalanceSettings.TryParse("key,value\nUppercutDamage,48\nUppercutReach,2.5", out SlideBalanceSettings uppercutSettings, out _)
@@ -604,7 +604,7 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartHeavyStrike", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
             int strikeHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.19f });
-            Require(heavy.Health == strikeHealth - 34 && heavy.IsDowned, "大斬りは34ダメージで転倒");
+            Require(heavy.Health == strikeHealth - 51 && heavy.IsDowned, "大斬りはクリティカル補正後51ダメージで転倒");
             MethodInfo holdAttack = typeof(Fighter).GetMethod("UpdateAttackHold", BindingFlags.Instance | BindingFlags.NonPublic);
             MethodInfo pushFromHit = typeof(Fighter).GetMethod("TryStartPushFromHit", BindingFlags.Instance | BindingFlags.NonPublic);
             Require(!(bool)pushFromHit.Invoke(player, new object[] { true }), "大斬りの命中保持は突き飛ばしにならない");
@@ -909,7 +909,7 @@ public static class CombatValidation
             player.transform.position = Vector3.zero;
             typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
             foreach (BrawlerDefines.DamageKind numberKind in new BrawlerDefines.DamageKind[]
-                { BrawlerDefines.DamageKind.Normal, BrawlerDefines.DamageKind.Counter, BrawlerDefines.DamageKind.HeavyStrike })
+                { BrawlerDefines.DamageKind.Normal, BrawlerDefines.DamageKind.Counter, BrawlerDefines.DamageKind.Critical })
             {
                 Fighter numberTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test damage number", Vector3.right, false, false, false, false });
                 turnEnemies.Add(numberTarget);
@@ -919,8 +919,10 @@ public static class CombatValidation
                 {
                     string actionName = numberKind == BrawlerDefines.DamageKind.Counter ? "StartCounterAttack" : "StartHeavyStrike";
                     typeof(Fighter).GetMethod(actionName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
-                    numberDamage = numberKind == BrawlerDefines.DamageKind.Counter ? BrawlerBalance.CounterDamage : BrawlerBalance.HeavyStrikeDamage;
-                    game.Hit(player, numberDamage);
+                    numberDamage = numberKind == BrawlerDefines.DamageKind.Counter ? BrawlerBalance.CounterDamage
+                        : Mathf.CeilToInt(BrawlerBalance.HeavyStrikeDamage * BrawlerBalance.CriticalDamageMultiplier);
+                    game.Hit(player, numberKind == BrawlerDefines.DamageKind.Critical
+                        ? BrawlerBalance.HeavyStrikeDamage : numberDamage);
                 }
                 else
                 {
@@ -929,7 +931,7 @@ public static class CombatValidation
                 Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "実際の命中で数値を一つ表示");
                 DamageNumber shownNumber = Array.Find(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Amount == numberDamage
                     && n.Kind == numberKind && Vector3.Distance(n.transform.position, numberTarget.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight) < 0.01f);
-                Require(shownNumber != null, "通常・反撃・大斬りの種類と威力を頭上表示へ渡す");
+                Require(shownNumber != null, "通常・反撃・クリティカルの種類と威力を頭上表示へ渡す");
                 numberTarget.TakeDamage(numberDamage, 1);
                 Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "硬直中の無効な命中では表示を追加しない");
                 Vector3 numberStart = shownNumber.transform.position;
@@ -1474,6 +1476,29 @@ public static class CombatValidation
             new object[] { "Test hit restriction victim", Vector3.right, false, false, true, false });
         try
         {
+            // 低威力のコマンド技でも転倒することと、強化魔法との補正順を確認します。
+            foreach (BrawlerDefines.AttackKind attackKind in new[]
+            {
+                BrawlerDefines.AttackKind.HeavyStrike, BrawlerDefines.AttackKind.DashSpecial,
+                BrawlerDefines.AttackKind.Uppercut
+            })
+            {
+                SetPrivateField(attacker, "_attackKind", attackKind);
+                Require(attacker.IsCriticalAttack && attacker.CalculateMeleeHitDamage(1) == 2,
+                    "各コマンド技は共通の1.5倍補正を切り上げる");
+                SetPrivateField(victim, "_stunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", 0f);
+                victim.TakeMeleeDamage(attacker.CalculateMeleeHitDamage(1), attacker, BrawlerDefines.DamageKind.Critical);
+                Require(victim.IsDowned, "しきい値未満のクリティカルでも敵を転倒させる");
+            }
+            typeof(ClericFighter).GetField("_attackBoostRemaining", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(attacker, BrawlerBalance.AttackBoostSeconds);
+            Require(attacker.CalculateMeleeHitDamage(1) == 3, "クリティカルと攻撃強化をそれぞれ一度だけ適用");
+            typeof(ClericFighter).GetField("_attackBoostRemaining", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(attacker, 0f);
+            SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Normal);
+            Require(!attacker.IsCriticalAttack && attacker.CalculateMeleeHitDamage(1) == 1,
+                "通常攻撃の威力にはクリティカル補正を加えない");
             foreach (float facing in new[] { -1f, 1f })
             {
                 typeof(Fighter).GetProperty("Facing").SetValue(attacker, facing);

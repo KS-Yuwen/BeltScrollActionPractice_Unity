@@ -292,6 +292,8 @@ public static class BrawlerBalance
     public const float StunSeconds = 0.25f;
     public const float EnemyHitCooldownSeconds = 0.6f;
     public const float DownSeconds = 0.7f;
+    // コマンド技の基礎威力に適用する共通倍率。端数は切り上げます。
+    public const float CriticalDamageMultiplier = 1.5f;
     public const int KnockdownDamageThreshold = 30;
     public const float KnockbackSpeed = 5;
     public const float StrongKnockbackSpeed = 9;
