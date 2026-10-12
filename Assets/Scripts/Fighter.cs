@@ -84,6 +84,8 @@ public class Fighter : Combatant
     // 後ろ＋攻撃で構えた盾は、攻撃ボタンを離すまで維持します。
     // 前に入れ直しても向きを変えず、次の防御成功時の自動反撃を予約できます。
     private bool _commandGuardHeld;
+    // ガードを解除した直後の保護時間。ゲーム時間なのでヒットストップ中は減りません。
+    private float _guardReleaseRemaining;
     private Fighter _groundAttackTarget;
     private bool _hasReceivedGroundHit;
     private float _jumpHeight;
@@ -342,7 +344,7 @@ public class Fighter : Combatant
     {
         ClearAttackHold();
         _commandGuardHeld = false;
-        IsGuarding = false;
+        EndGuard();
         _counterWindowRemaining = 0;
         _attackBufferRemaining = 0;
         _comboStep = 0;
@@ -422,6 +424,7 @@ public class Fighter : Combatant
     // 残り時間は経過秒数で減らし、フレームレートが違っても同じ時間になるようにします。
     private void UpdateTimers(float deltaTime)
     {
+        _guardReleaseRemaining = Mathf.Max(0, _guardReleaseRemaining - deltaTime);
         _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
         _attackCooldown -= deltaTime;
         _stunRemaining -= deltaTime;
@@ -519,7 +522,7 @@ public class Fighter : Combatant
                 _commandGuardHeld = false;
                 ClearAttackHold();
                 _commandGuardHeld = false;
-                IsGuarding = false;
+                EndGuard();
                 // 空中では攻撃ボタンを1回押して発動。奥行きの下入力＋攻撃で下突きに変化します。
                 if (attackPressed && _attackRemaining <= 0 && _attackCooldown <= 0 && _stunRemaining <= 0)
                 {
@@ -527,6 +530,14 @@ public class Fighter : Combatant
                     StartAirAttack(input.z < -BrawlerBalance.JumpDirectionThreshold);
                 }
                 return input;
+            }
+            // ガードの向きを基準に判定し、前入力で振り向きや走りが先に発生しないようにします。
+            if (IsGuarding && input.x * Facing > BrawlerBalance.ForwardInputThreshold
+                && _stunRemaining <= 0 && _attackRemaining <= 0 && _attackCooldown <= 0
+                && _dashRemaining <= 0 && !IsUsingSpecialAction)
+            {
+                StartUppercut();
+                return Vector3.zero;
             }
             UpdateRunningInput(input);
             UpdateGuardInput(input);
@@ -584,7 +595,7 @@ public class Fighter : Combatant
                 _attackBufferRemaining = 0;
                 _knockbackVelocity = Vector3.zero;
                 _commandGuardHeld = false;
-                IsGuarding = false;
+                EndGuard();
             }
             // 回避＋攻撃の同時押しも、回避中に攻撃を追加する操作も受け付けます。
             // 無敵の回避を攻撃へ変換するため、発動後は被ダメージを受けるようになります。
@@ -672,7 +683,25 @@ public class Fighter : Combatant
             // 移動で向きが更新される前に判定し、後ろ入力で振り向くことを防ぎます。
             _commandGuardHeld = true;
         }
-        IsGuarding = canGuard && (BrawlerInput.IsGuardHeld() || _commandGuardHeld);
+        bool guardRequested = canGuard && (BrawlerInput.IsGuardHeld() || _commandGuardHeld);
+        if (!guardRequested)
+        {
+            EndGuard();
+        }
+        else
+        {
+            IsGuarding = true;
+        }
+    }
+
+    private void EndGuard()
+    {
+        // 一度構えを解除した時だけ時間を設定し、待機中に延長し続けることを防ぎます。
+        if (IsPlayer && IsGuarding)
+        {
+            _guardReleaseRemaining = BrawlerBalance.GuardReleaseInvulnerabilitySeconds;
+        }
+        IsGuarding = false;
     }
 
     private bool UpdateAttackWindup(float deltaTime)
@@ -1029,7 +1058,7 @@ public class Fighter : Combatant
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         _commandGuardHeld = false;
-        IsGuarding = false;
+        EndGuard();
     }
 
     // 時間や入力バッファは各行動の規則に従って更新し、技の種類と対象だけを共通で解除します。
@@ -1162,7 +1191,7 @@ public class Fighter : Combatant
         _attackCooldown = BrawlerBalance.DashSpecialCooldownSeconds;
     }
 
-    // 反撃には無敵を付けず、防御から攻撃へ移る判断にリスクを残します。
+    // 単発攻撃の初期化。ガードから移る場合だけ、共通の解除後保護を引き継ぎます。
     private void StartCounterAttack()
     {
         ResetAttackKind();
@@ -1177,7 +1206,7 @@ public class Fighter : Combatant
         _hasDealtHit = false;
         _knockbackVelocity = Vector3.zero;
         _commandGuardHeld = false;
-        IsGuarding = false;
+        EndGuard();
     }
 
     private void StartSlide(float direction)
@@ -1367,7 +1396,7 @@ public class Fighter : Combatant
         _lastAttackTime = BrawlerDefines.UnsetTime;
         _hasDealtHit = false;
         _commandGuardHeld = false;
-        IsGuarding = false;
+        EndGuard();
     }
 
     public bool TryTakeGroundHit(int amount, float direction)
@@ -1383,7 +1412,8 @@ public class Fighter : Combatant
 
     // 通常攻撃と投擲で、ダメージを受理できる条件を共用します。
     private bool CanReceiveDamage => Health > 0 && !_game.IsRunFinished && _stunRemaining <= 0
-        && _dashRemaining <= 0 && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
+        && _dashRemaining <= 0 && _guardReleaseRemaining <= 0
+        && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
 
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
     public void TakeDamage(int amount, float direction, BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
@@ -1401,13 +1431,6 @@ public class Fighter : Combatant
             _blockFlashRemaining = BrawlerBalance.BlockFlashSeconds;
             _counterWindowRemaining = BrawlerBalance.CounterWindowSeconds;
             _knockbackVelocity = new Vector3(direction * BrawlerBalance.BlockKnockbackSpeed, 0, 0);
-            // 防御が実際に成功した瞬間だけ反撃します。前＋攻撃だけでは発動しません。
-            // 専用ガードボタンでも同じ予約操作を利用でき、後隙中は手動受付を残します。
-            if (IsPlayer && _attackCooldown <= 0 && BrawlerInput.IsAttackHeld()
-                && BrawlerInput.ReadMovement().x * Facing > BrawlerBalance.ForwardInputThreshold)
-            {
-                StartCounterAttack();
-            }
             return;
         }
         ApplyDamage(amount, direction, false, kind);
@@ -1452,7 +1475,8 @@ public class Fighter : Combatant
         _wasForwardHeld = false;
         _lastForwardTapAt = BrawlerDefines.UnsetTime;
         _commandGuardHeld = false;
-        IsGuarding = false;
+        EndGuard();
+        _guardReleaseRemaining = 0;
         int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
         if (!IsPlayer)

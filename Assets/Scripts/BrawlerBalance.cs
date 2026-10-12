@@ -299,6 +299,8 @@ public static class BrawlerBalance
     public const float BlockKnockbackSpeed = 1.5f;
     public const float BlockFlashSeconds = 0.15f;
     public const float CounterWindowSeconds = 0.45f;
+    // ガード解除後の無敵時間（試作の調整値）。対空反撃への移行にも適用します。
+    public const float GuardReleaseInvulnerabilitySeconds = 0.2f;
     public const float DamageFlashSeconds = 0.12f;
     public const float EnemyRemovalSeconds = 0.5f;
     public const float StageHalfWidth = 22;

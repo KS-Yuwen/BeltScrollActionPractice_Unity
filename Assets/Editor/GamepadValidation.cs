@@ -49,6 +49,7 @@ public static class GamepadValidation
             Require(player.IsCounterAttacking && !player.CanCounter && !player.IsGuarding,
                 "ガードを押したまま反撃し、受付を一度だけ消費");
             // 防御姿勢に戻して、背面からの攻撃も引き続き検証します。
+            SetPlayerTimer(player, "_guardReleaseRemaining", 0);
             SetPlayerTimer(player, "_attackRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
             SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
@@ -376,7 +377,7 @@ public static class GamepadValidation
                 SetPlayerTimer(player, "_attackCooldown", 0);
                 UpdatePlayer(player);
             }
-            // 資料の後ろ＋攻撃ガードを左右で確認し、前入力だけでは反撃しないことも検証します。
+            // ガードからの前入力反撃と解除後の無敵を左右で確認します。
             foreach (float guardFacing in new float[] { -1, 1 })
             {
                 typeof(Fighter).GetProperty("Facing").SetValue(player, guardFacing);
@@ -391,12 +392,14 @@ public static class GamepadValidation
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(forward, Key.J));
                 InputSystem.Update();
                 UpdatePlayer(player);
-                Require(player.IsGuarding && !player.IsCounterAttacking && !player.IsHeavyStriking,
-                    "攻撃を保持して前に入れ直しても、防御成功までは攻撃しない");
+                Require(player.IsUppercutAttacking && !player.IsGuarding && player.Facing == guardFacing,
+                    "左右ともガード中の前入力だけで対空反撃し、向きを固定");
                 int commandGuardHealth = player.Health;
                 player.TakeDamage(10, -guardFacing);
-                Require(player.Health == commandGuardHealth && player.IsCounterAttacking && !player.CanCounter,
-                    "正面ガード成功で自動反撃し、反撃受付を一度消費");
+                Require(player.Health == commandGuardHealth && player.IsUppercutAttacking && !player.CanCounter,
+                    "ガードから対空へ移った直後はダメージを受けない");
+                typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(player, new object[] { BrawlerBalance.GuardReleaseInvulnerabilitySeconds });
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState());
                 InputSystem.Update();
                 SetPlayerTimer(player, "_attackRemaining", 0);
@@ -468,6 +471,7 @@ public static class GamepadValidation
             InputSystem.Update();
             ValidateComboAndCancelInput(player, pad);
             ValidateBackstepInput(player, keyboard);
+            ValidateGuardReleaseInput(player);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -481,6 +485,65 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateGuardReleaseInput(Fighter sourcePlayer)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                Fighter player = factory.CreateFighter("Test guard release", Vector3.zero, true, 1);
+                try
+                {
+                    typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                    SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
+                    read.Invoke(player, null);
+                    Require(player.IsGuarding, "専用パッドボタンでガード開始");
+                    SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder)
+                        .WithButton(facing < 0 ? GamepadButton.DpadLeft : GamepadButton.DpadRight));
+                    read.Invoke(player, null);
+                    Require(player.IsUppercutAttacking && !player.IsGuarding && player.Facing == facing,
+                        "パッドの前入力だけで左右の対空反撃へ移行");
+                    int health = player.Health;
+                    player.TakeDamage(1, facing);
+                    Require(player.Health == health, "ガード解除直後は背面からの攻撃も無敵");
+                    timers.Invoke(player, new object[] { 0f });
+                    Require(ReadPlayerTimer(player, "_guardReleaseRemaining") > 0, "停止時間では解除後の無敵が減らない");
+                    timers.Invoke(player, new object[] { BrawlerBalance.GuardReleaseInvulnerabilitySeconds });
+                    player.TakeDamage(1, facing);
+                    Require(player.Health == health - 1, "解除後の無敵が終了すると攻撃中でも被弾");
+                    SetPlayerTimer(player, "_stunRemaining", 0);
+                    SetPlayerTimer(player, "_attackCooldown", 0);
+                    SendState(pad, new GamepadState().WithButton(GamepadButton.LeftShoulder));
+                    read.Invoke(player, null);
+                    Require(player.IsGuarding, "解除のみの検証に向けて再度ガード");
+                    SendState(pad, new GamepadState());
+                    read.Invoke(player, null);
+                    Require(!player.IsGuarding && ReadPlayerTimer(player, "_guardReleaseRemaining") > 0,
+                        "ガードボタンを離した場合も保護時間が始まる");
+                    timers.Invoke(player, new object[] { BrawlerBalance.GuardReleaseInvulnerabilitySeconds });
+                    read.Invoke(player, null);
+                    Require(ReadPlayerTimer(player, "_guardReleaseRemaining") == 0,
+                        "待機入力で解除後の無敵を繰り返し延長しない");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(player.gameObject);
+                    SendState(pad, new GamepadState());
+                }
+            }
+        }
+        finally
+        {
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
         }
     }
 
