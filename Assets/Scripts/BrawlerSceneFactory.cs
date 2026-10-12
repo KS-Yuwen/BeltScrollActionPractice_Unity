@@ -10,6 +10,7 @@ public sealed class BrawlerSceneFactory
     private Camera _camera;
     private Material _floorMaterial;
     private Material _playerMaterial;
+    private Material _elfMaterial;
     private Material _enemyMaterial;
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
@@ -25,6 +26,7 @@ public sealed class BrawlerSceneFactory
     private Material _guardImpactMaterial;
     private Material _counterImpactMaterial;
     private Material _warningMaterial;
+    private Material _supportSpellMaterial;
 
     public Material FloorMaterial => _floorMaterial;
     public Material SkinMaterial => _skinMaterial;
@@ -36,6 +38,7 @@ public sealed class BrawlerSceneFactory
     public Material ImpactMaterial => _impactMaterial;
     public Material GuardImpactMaterial => _guardImpactMaterial;
     public Material CounterImpactMaterial => _counterImpactMaterial;
+    public Material SupportSpellMaterial => _supportSpellMaterial;
 
     public BrawlerSceneFactory(BeltBrawler game)
     {
@@ -53,6 +56,8 @@ public sealed class BrawlerSceneFactory
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
         _bossMaterial = CreateMaterial(new Color(0.65f, 0.2f, 0.65f));
         _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
+        _elfMaterial = CreateMaterial(new Color(BrawlerBalance.ElfOutfitRed, BrawlerBalance.ElfOutfitGreen,
+            BrawlerBalance.ElfOutfitBlue));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         _healingScrollMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         _protectionScrollMaterial = CreateMaterial(new Color(1, 0.8f, 0.3f));
@@ -68,6 +73,9 @@ public sealed class BrawlerSceneFactory
         _counterImpactMaterial.color = new Color(0.45f, 0.9f, 1);
         _warningMaterial = CreateOwnedMaterial("Unlit/Color");
         _warningMaterial.color = Color.white;
+        // LineRendererの頂点色・透明度に対応する素材を一つだけ作り、魔法間で共有します。
+        _supportSpellMaterial = CreateOwnedMaterial("Sprites/Default");
+        _supportSpellMaterial.color = Color.white;
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();
@@ -133,11 +141,12 @@ public sealed class BrawlerSceneFactory
     }
 
     public Fighter CreateFighter(string label, Vector3 position, bool isPlayer, int wave, bool isRanged = false,
-        bool isHeavy = false, bool isUndead = false, bool isBoss = false)
+        bool isHeavy = false, bool isUndead = false, bool isBoss = false,
+        BrawlerDefines.PlayerClass playerClass = BrawlerDefines.PlayerClass.Cleric)
     {
         var root = new GameObject(label);
         root.transform.position = position;
-        Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+        Fighter fighter = isPlayer ? CreatePlayerComponent(root, playerClass)
             : isBoss ? root.AddComponent<BossFighter>()
             : isHeavy ? root.AddComponent<HeavyFighter>()
             : isRanged ? root.AddComponent<RangedFighter>()
@@ -151,7 +160,7 @@ public sealed class BrawlerSceneFactory
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : isBoss ? _bossMaterial : isHeavy ? _heavyEnemyMaterial
+        var bodyMaterial = isPlayer ? (playerClass == BrawlerDefines.PlayerClass.Elf ? _elfMaterial : _playerMaterial) : isBoss ? _bossMaterial : isHeavy ? _heavyEnemyMaterial
             : isRanged ? _rangedEnemyMaterial : isUndead ? _undeadEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
@@ -159,6 +168,17 @@ public sealed class BrawlerSceneFactory
         CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
         var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
+        if (isPlayer && playerClass == BrawlerDefines.PlayerClass.Elf)
+        {
+            // 耳は見た目だけの子パーツです。親のサイズや命中判定には影響させません。
+            foreach (float side in new[] { -1f, 1f })
+            {
+                CreateBodyPart(side < 0 ? "Left elf ear" : "Right elf ear",
+                    new Vector3(side * BrawlerBalance.ElfEarOffset, BrawlerBalance.ElfEarPositionY, 0),
+                    new Vector3(BrawlerBalance.ElfEarWidth, BrawlerBalance.ElfEarHeight, BrawlerBalance.ElfEarDepth),
+                    _skinMaterial, visual);
+            }
+        }
         if (isUndead)
         {
             // 胸の骨と頭の色で区別し、通常敵と同じ判定サイズを維持します。
@@ -181,17 +201,57 @@ public sealed class BrawlerSceneFactory
         }
         if (isPlayer)
         {
-            // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
-            Transform mace = CreateBodyPart("Mace", new Vector3(0.4f, 1.65f, -0.1f), new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
-            mace.SetParent(attackArm, true);
+            // 武器は腕の子にし、職業ごとの見た目を共通の攻撃動作へ追従させます。
+            if (playerClass == BrawlerDefines.PlayerClass.Dwarf)
+            {
+                Transform axe = CreateBodyPart("Axe", new Vector3(0.4f, 1.65f, -0.1f),
+                    new Vector3(BrawlerBalance.AxeHandleWidth, BrawlerBalance.AxeHandleLength, BrawlerBalance.AxeHandleWidth),
+                    _floorMaterial, visual);
+                axe.SetParent(attackArm, true);
+                Transform blade = CreateBodyPart("Axe blade", new Vector3(0.4f + BrawlerBalance.AxeBladeOffset, 1.65f, -0.1f),
+                    new Vector3(BrawlerBalance.AxeBladeWidth, BrawlerBalance.AxeBladeHeight, BrawlerBalance.AxeHandleWidth),
+                    _skinMaterial, visual);
+                blade.SetParent(attackArm, true);
+            }
+            else
+            {
+                bool swordUser = playerClass == BrawlerDefines.PlayerClass.Fighter || playerClass == BrawlerDefines.PlayerClass.Elf;
+                bool daggerUser = playerClass == BrawlerDefines.PlayerClass.Thief;
+                string weaponName = daggerUser ? "Dagger" : swordUser ? "Sword" : "Mace";
+                Vector3 weaponSize = daggerUser
+                    ? new Vector3(BrawlerBalance.DaggerWidth, BrawlerBalance.DaggerLength, BrawlerBalance.DaggerWidth)
+                    : swordUser ? new Vector3(BrawlerBalance.SwordWidth, BrawlerBalance.SwordLength, BrawlerBalance.SwordWidth)
+                        : new Vector3(0.38f, 0.38f, 0.38f);
+                Transform weapon = CreateBodyPart(weaponName, new Vector3(0.4f, 1.65f, -0.1f), weaponSize, _skinMaterial, visual);
+                weapon.SetParent(attackArm, true);
+            }
             CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
         }
         fighter.Initialize(_game, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);
+        if (isPlayer && fighter is ClericFighter cleric)
+        {
+            // 一度だけ生成して再利用し、魔法の使用ごとにオーラのオブジェクトを増やしません。
+            var aura = new GameObject("Support spell aura").AddComponent<SupportSpellAura>();
+            aura.Initialize(cleric, _game, _supportSpellMaterial);
+        }
         if (!isPlayer)
         {
             CreateAttackWarning(fighter);
         }
         return fighter;
+    }
+
+    private static Fighter CreatePlayerComponent(GameObject root, BrawlerDefines.PlayerClass playerClass)
+    {
+        // 職業が増えても敵の生成条件へ混ぜず、プレイヤーの選択をここに集約します。
+        return playerClass switch
+        {
+            BrawlerDefines.PlayerClass.Fighter => root.AddComponent<SwordFighter>(),
+            BrawlerDefines.PlayerClass.Dwarf => root.AddComponent<DwarfFighter>(),
+            BrawlerDefines.PlayerClass.Thief => root.AddComponent<ThiefFighter>(),
+            BrawlerDefines.PlayerClass.Elf => root.AddComponent<ElfFighter>(),
+            _ => root.AddComponent<ClericFighter>()
+        };
     }
 
     private void CreateAttackWarning(Fighter fighter)

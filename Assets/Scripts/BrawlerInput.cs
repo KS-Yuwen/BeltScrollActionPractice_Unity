@@ -6,6 +6,21 @@ using UnityEngine.InputSystem;
 // Gamepad は機種別のボタン番号ではなく位置を表す API で操作を読み取れます。
 public static class BrawlerInput
 {
+    public static bool WasClericSelected() => (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.left.wasPressedThisFrame);
+    public static bool WasFighterSelected() => (Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.right.wasPressedThisFrame);
+
+    public static bool WasDwarfSelected() => (Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.up.wasPressedThisFrame);
+
+    // 職業選択にはView・Shareとの組み合わせを要求し、通常移動と区別します。
+    public static bool WasThiefSelected() => (Keyboard.current != null && Keyboard.current.f4Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.down.wasPressedThisFrame);
+
+    public static bool WasElfSelected() => (Keyboard.current != null && Keyboard.current.f5Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.buttonNorth.wasPressedThisFrame);
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ConfigureInputUpdates()
     {

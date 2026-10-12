@@ -5,6 +5,9 @@ public class Fighter : Combatant
 {
     // 敵の属性は派生クラスが宣言します。見た目やクラス名で魔法の対象を判定しません。
     public virtual bool IsUndead => false;
+    public virtual bool CanBeBackstabbed => !IsPlayer;
+    public bool IsBackstabbing => _attackKind == BrawlerDefines.AttackKind.Backstab && _attackRemaining > 0;
+    private Fighter _backstabTarget;
 
     // 近接予告の範囲。遠距離型は弾の射線へ上書きし、表示側に敵の型判定を持たせません。
     public virtual float WarningRangeStart => -BrawlerBalance.AttackBehindAllowance;
@@ -24,6 +27,9 @@ public class Fighter : Combatant
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
     public float EnemyHealthTrail => _enemyHealthBarFeedback.TrailHealth;
+    // 身長と通常攻撃の振り角だけを職業で変更できます。判定用の親Transformは拡縮しません。
+    protected virtual float ModelHeightScale => 1f;
+    protected virtual float NormalAttackArmAngle => BrawlerBalance.NormalAttackArmAngle;
     private Transform _visual;
     private Transform _attackArm;
     private Transform _rightLeg;
@@ -86,6 +92,15 @@ public class Fighter : Combatant
     private bool _hasReceivedGroundHit;
     private float _jumpHeight;
     private float _jumpVelocity;
+    private int _airJumpsRemaining;
+    private int _wallJumpsRemaining;
+    protected virtual int WallJumpCount => 0;
+    protected virtual float WallJumpMargin => 0f;
+    protected virtual float WallJumpVelocity => BrawlerBalance.JumpVelocity;
+    protected virtual float WallJumpDriftSpeed => BrawlerBalance.JumpDriftSpeed;
+    protected virtual int ExtraAirJumpCount => 0;
+    protected virtual float AirJumpVelocity => BrawlerBalance.JumpVelocity;
+    public int AirJumpsRemaining => IsAirborne ? _airJumpsRemaining : 0;
     private Vector3 _jumpDrift;
     private bool _isCrouching;
     private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
@@ -203,11 +218,14 @@ public class Fighter : Combatant
     private float _itemRecoveryRemaining;
 
     // 他職業はこの許可判定を上書きします。所持品の処理に具体的な職業名は持ち込みません。
+    // 派生クラスは設定の選択だけを変更し、移動や命中判定を複製しません。
+    public virtual PlayerClassSettings ClassSettings => PlayerClassCatalog.Common;
+    public float AttackReach => IsPlayer ? ClassSettings.GetAttackReach(_attackKind) : MeleeAttackReach;
+    public float GroundAttackReach => ClassSettings.GetAttackReach(BrawlerDefines.AttackKind.Ground);
+
     public virtual bool CanUseAction(BrawlerDefines.UsableAction action)
     {
-        return action == BrawlerDefines.UsableAction.HealingPotion
-            || action == BrawlerDefines.UsableAction.ThrowingKnife
-            || action == BrawlerDefines.UsableAction.ThrowingHammer;
+        return ClassSettings.CanUseAction(action);
     }
 
     public bool TryStoreThrowingKnife()
@@ -231,6 +249,27 @@ public class Fighter : Combatant
         Inventory.TryConsume(BrawlerDefines.UsableAction.ThrowingKnife);
         _itemRecoveryRemaining = BrawlerBalance.KnifeRecoverySeconds;
         ReleaseDefenseForSpecialAction();
+        return true;
+    }
+
+    // アイテムの消費・硬直は共通処理へ集約し、職業ごとの入力側で複製しません。
+    protected bool TryConsumeThrowingHammerWithRecovery()
+    {
+        if (!TryConsumeThrowingHammer())
+        {
+            return false;
+        }
+        _itemRecoveryRemaining = BrawlerBalance.HammerRecoverySeconds;
+        return true;
+    }
+
+    protected bool TryConsumeHealingPotionWithRecovery()
+    {
+        if (!TryConsumeHealingPotion())
+        {
+            return false;
+        }
+        _itemRecoveryRemaining = BrawlerBalance.PotionRecoverySeconds;
         return true;
     }
 
@@ -294,6 +333,8 @@ public class Fighter : Combatant
 
     // 派生クラスには必要な参照と判断だけを公開し、タイマー本体は非公開に保ちます。
     protected BeltBrawler Game => _game;
+    public bool IsSpellEffectActive => _game != null && _game.IsSpellEffectActive;
+    public bool IsPausedBySpellEffect => !IsPlayer && IsSpellEffectActive;
 
     protected bool CanStartEnemyAttack => _attackCooldown <= 0;
 
@@ -310,6 +351,14 @@ public class Fighter : Combatant
     protected virtual bool IsUsingSpecialAction => _itemRecoveryRemaining > 0;
 
     protected virtual Color? SpecialFeedbackColor => null;
+
+    // 固有行動の構えだけを差し替えます。通常攻撃の命中処理は変更しません。
+    protected virtual float? SpecialActionArmAngle => null;
+
+    // 実際にHPが減った場合だけ通知します。防御・無敵による不成立では呼びません。
+    protected virtual void OnDamageReceived(int actualAmount)
+    {
+    }
 
     // 発動とUIが同じ共通判定を使います。状態を変更せず、理由だけ返します。
     protected BrawlerDefines.ActionUseStatus CommonActionUseStatus
@@ -400,8 +449,9 @@ public class Fighter : Combatant
     protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
-        if (Health <= 0 || _game.IsRunFinished)
+        if (Health <= 0 || _game.IsRunFinished || IsPausedBySpellEffect)
         {
+            // AIだけでなく攻撃発生・硬直・ノックバック・アニメーションの時間も保存します。
             return;
         }
         float deltaTime = Time.deltaTime;
@@ -514,6 +564,16 @@ public class Fighter : Combatant
             {
                 StartBackstep();
                 return Vector3.zero;
+            }
+            // 三角跳びは通常の空中ジャンプより優先し、同じ押下で両方の回数を消費しません。
+            if (jumpPressed && IsAirborne && TryStartWallJump())
+            {
+                return Vector3.zero;
+            }
+            // 先に通常ジャンプの2回押し回避と三角跳びを判定し、残る空中入力を追加ジャンプへ渡します。
+            if (jumpPressed && IsAirborne && TryStartAirJump())
+            {
+                return input;
             }
             if (jumpPressed && !_isCrouching && !IsAirborne && _stunRemaining <= 0
                 && _attackRemaining <= 0 && !IsUsingSpecialAction)
@@ -849,7 +909,7 @@ public class Fighter : Combatant
         {
             Facing = Mathf.Sign(movement.x);
         }
-        transform.position += movement * (IsPlayer ? (_isRunning ? BrawlerBalance.RunSpeed : BrawlerBalance.WalkSpeed) : EnemyMovementSpeed) * deltaTime;
+        transform.position += movement * (IsPlayer ? (_isRunning ? ClassSettings.RunSpeed : ClassSettings.WalkSpeed) : EnemyMovementSpeed) * deltaTime;
         if (IsAirborne)
         {
             transform.position += _jumpDrift * deltaTime;
@@ -891,7 +951,7 @@ public class Fighter : Combatant
         _rightLeg.localRotation = Quaternion.Euler(0, 0, Mathf.Sin(_walkPhase) * movement.magnitude * 20);
         _leftLeg.localRotation = Quaternion.Euler(0, 0, -Mathf.Sin(_walkPhase) * movement.magnitude * 20);
         // X を負にすると Model が左右反転します。
-        _visual.localScale = new Vector3(Facing, 1, 1);
+        _visual.localScale = new Vector3(Facing, ModelHeightScale, 1);
     }
 
     // 腕の演出に合わせて命中判定を一度だけ発生させます。
@@ -919,6 +979,10 @@ public class Fighter : Combatant
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
                     _game.HitGroundTarget(this, _groundAttackTarget, BrawlerBalance.GroundAttackDamage);
                 }
+                else if (_attackKind == BrawlerDefines.AttackKind.Backstab)
+                {
+                    _game.HitBackstabTarget(this, _backstabTarget, damage);
+                }
                 else
                 {
                     DealAttackDamage(damage);
@@ -932,7 +996,9 @@ public class Fighter : Combatant
                 ResetAttackKind();
             }
             // 回転なしの状態に戻します。
-            _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
+            _attackArm.localRotation = SpecialActionArmAngle.HasValue
+                ? Quaternion.Euler(0, 0, SpecialActionArmAngle.Value)
+                : IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
         }
     }
@@ -942,6 +1008,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabDamage,
             BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeDamage,
             BrawlerDefines.AttackKind.Push => BrawlerBalance.PushDamage,
             BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutDamage,
@@ -962,6 +1029,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabAttackSeconds - BrawlerBalance.BackstabHitDelaySeconds,
             BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeAttackSeconds - BrawlerBalance.HeavyStrikeHitDelaySeconds,
             BrawlerDefines.AttackKind.Push => BrawlerBalance.PushAttackSeconds - BrawlerBalance.PushHitDelaySeconds,
             BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutAttackSeconds - BrawlerBalance.UppercutHitDelaySeconds,
@@ -977,6 +1045,8 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabArmAngle,
+            BrawlerDefines.AttackKind.Normal => NormalAttackArmAngle,
             BrawlerDefines.AttackKind.Push => 35,
             BrawlerDefines.AttackKind.HeavyStrike => 135,
             BrawlerDefines.AttackKind.Uppercut => -30,
@@ -994,7 +1064,7 @@ public class Fighter : Combatant
         _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
         // モデルだけ縦に縮めます。HPや通常の攻撃判定には影響しません。
         Vector3 visualScale = _visual.localScale;
-        visualScale.y = IsSliding ? 0.4f : _isCrouching || IsCrouchAttacking ? 0.6f : 1;
+        visualScale.y = ModelHeightScale * (IsSliding ? 0.4f : _isCrouching || IsCrouchAttacking ? 0.6f : 1);
         _visual.localScale = visualScale;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         _visual.localPosition = new Vector3(0, _jumpHeight + (_stunRemaining > 0 ? 0.08f : 0), 0);
@@ -1075,6 +1145,7 @@ public class Fighter : Combatant
         _canContinueCombo = false;
         _attackKind = BrawlerDefines.AttackKind.None;
         _groundAttackTarget = null;
+        _backstabTarget = null;
     }
 
     // 着地など、一部の行動だけを解除する場面で使います。他の技は変更しません。
@@ -1165,6 +1236,17 @@ public class Fighter : Combatant
     public void ApplyPushKnockback(float direction)
     {
         _knockbackVelocity = new Vector3(direction * BrawlerBalance.PushKnockbackSpeed, 0, 0);
+    }
+
+    protected void StartBackstab(Fighter target, float direction)
+    {
+        StartCounterAttack();
+        _attackKind = BrawlerDefines.AttackKind.Backstab;
+        _backstabTarget = target;
+        Facing = direction;
+        _isRunning = false;
+        _attackRemaining = BrawlerBalance.BackstabAttackSeconds;
+        _attackCooldown = BrawlerBalance.BackstabCooldownSeconds;
     }
 
     private void StartUppercut()
@@ -1295,6 +1377,8 @@ public class Fighter : Combatant
         _isCrouching = false;
         _canBackstepFromJump = input.z <= BrawlerBalance.JumpDirectionThreshold && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
+        _airJumpsRemaining = ExtraAirJumpCount;
+        _wallJumpsRemaining = WallJumpCount;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
         _jumpVelocity = input.z > BrawlerBalance.JumpDirectionThreshold ? BrawlerBalance.HighJumpVelocity : BrawlerBalance.JumpVelocity;
         _jumpDrift = _isRunning ? new Vector3(_runDirection * BrawlerBalance.JumpDriftSpeed, 0, 0)
@@ -1304,6 +1388,45 @@ public class Fighter : Combatant
         _dashRemaining = 0;
         _knockbackVelocity = Vector3.zero;
         ReleaseDefenseForSpecialAction();
+    }
+
+    private bool TryStartWallJump()
+    {
+        if (!IsPlayer || !IsAirborne || _wallJumpsRemaining <= 0 || _stunRemaining > 0
+            || _attackRemaining > 0 || _dashRemaining > 0 || IsUsingSpecialAction)
+        {
+            return false;
+        }
+        // X軸のステージ端だけを壁として扱います。奥行きの境界や中央では発動しません。
+        float x = transform.position.x;
+        if (Mathf.Abs(x) < BrawlerBalance.StageHalfWidth - WallJumpMargin)
+        {
+            return false;
+        }
+        float inwardDirection = x > 0 ? -1f : 1f;
+        _wallJumpsRemaining--;
+        _jumpVelocity = WallJumpVelocity;
+        _jumpDrift = new Vector3(inwardDirection * WallJumpDriftSpeed, 0, 0);
+        Facing = inwardDirection;
+        _canBackstepFromJump = false;
+        ClearAttackHold();
+        // 高度・2段ジャンプの残り回数・攻撃の待ち時間は変更しません。無敵も追加しません。
+        return true;
+    }
+
+    private bool TryStartAirJump()
+    {
+        if (!IsPlayer || !IsAirborne || _airJumpsRemaining <= 0 || _stunRemaining > 0
+            || _attackRemaining > 0 || _dashRemaining > 0 || IsUsingSpecialAction)
+        {
+            return false;
+        }
+        // 現在の高さを維持して上向き速度だけを再設定します。無敵の追加や攻撃硬直の解除は行いません。
+        _airJumpsRemaining--;
+        _jumpVelocity = AirJumpVelocity;
+        _canBackstepFromJump = false;
+        ClearAttackHold();
+        return true;
     }
 
     private void UpdateJump(float deltaTime)
@@ -1319,6 +1442,8 @@ public class Fighter : Combatant
         {
             _jumpHeight = 0;
             _jumpVelocity = 0;
+            _airJumpsRemaining = 0;
+            _wallJumpsRemaining = 0;
             _jumpDrift = Vector3.zero;
             if ((_attackKind == BrawlerDefines.AttackKind.Air || _attackKind == BrawlerDefines.AttackKind.DownThrust))
             {
@@ -1375,6 +1500,8 @@ public class Fighter : Combatant
         _canBackstepFromJump = false;
         _jumpHeight = 0;
         _jumpVelocity = 0;
+        _airJumpsRemaining = 0;
+        _wallJumpsRemaining = 0;
         _jumpDrift = Vector3.zero;
         _isBackstep = true;
         _dashDirection = new Vector3(-Facing, 0, 0);
@@ -1484,6 +1611,10 @@ public class Fighter : Combatant
         _guardReleaseRemaining = 0;
         int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
+        if (Health < healthBeforeDamage)
+        {
+            OnDamageReceived(healthBeforeDamage - Health);
+        }
         if (!IsPlayer)
         {
             // 被弾確定時に残像の待機を開始し、同フレームの描画にも直前HPを残します。
@@ -1494,6 +1625,8 @@ public class Fighter : Combatant
         _attackRemaining = 0;
         _isCrouching = false;
         _canBackstepFromJump = false;
+        _airJumpsRemaining = 0;
+        _wallJumpsRemaining = 0;
         _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;
         _attackBufferRemaining = 0;

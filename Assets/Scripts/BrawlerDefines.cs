@@ -2,6 +2,15 @@
 // 0/1/2/3 といった番号を直接使わず、名前から入力の意味を読めるようにします。
 public static class BrawlerDefines
 {
+    public enum PlayerClass
+    {
+        Cleric,
+        Fighter,
+        Dwarf,
+        Thief,
+        Elf
+    }
+
     public const float UnsetTime = -10;
     public const int UnsetInputSample = -1;
     public const int NoComboStep = 0;
@@ -21,7 +30,8 @@ public static class BrawlerDefines
         Ground,
         Air,
         DownThrust,
-        Crouch
+        Crouch,
+        Backstab
     }
 
     public enum ActionUseStatus
@@ -44,7 +54,8 @@ public static class BrawlerDefines
         ThrowingKnife,
         HealingScroll,
         ProtectionScroll,
-        AttackBoostScroll
+        AttackBoostScroll,
+        MagicMissileScroll
     }
 
     public enum DamageKind
@@ -53,7 +64,8 @@ public static class BrawlerDefines
         Counter,
         HeavyStrike,
         Healing,
-        Critical
+        Critical,
+        Spell
     }
 
     public enum ImpactKind
@@ -72,7 +84,8 @@ public static class BrawlerDefines
         HealingPotion,
         ThrowingHammer,
         ThrowingKnife,
-        AttackBoost
+        AttackBoost,
+        MagicMissile
     }
 
     public enum CommandDirection

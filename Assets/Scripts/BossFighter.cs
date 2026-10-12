@@ -3,6 +3,7 @@ using UnityEngine;
 // 重装型の被弾・気絶・転倒を共用し、ボスの攻撃選択と反撃できる隙だけを追加します。
 public sealed class BossFighter : HeavyFighter
 {
+    public override bool CanBeBackstabbed => false;
     private bool _nextAttackIsWide;
     private bool _isWideAttack;
     private float _recoveryRemaining;
@@ -37,6 +38,11 @@ public sealed class BossFighter : HeavyFighter
 
     protected override void Update()
     {
+        // 基底クラスより先に更新するボス固有の段階移行・後隙も、魔法演出中は進めません。
+        if (IsPausedBySpellEffect)
+        {
+            return;
+        }
         if (Health > 0 && !Game.IsRunFinished)
         {
             UpdatePhase(Time.deltaTime);

@@ -10,6 +10,16 @@ public sealed class BeltBrawler : MonoBehaviour
     // 生存中と撃破直後の敵を保持します。破棄された敵は Update で取り除きます。
     private readonly List<Fighter> _enemies = new List<Fighter>();
     private Fighter _player;
+    // シーン再読み込みでも選択を維持します。検証・既存シーンはクレリックを既定にします。
+    private static BrawlerDefines.PlayerClass s_playerClass = BrawlerDefines.PlayerClass.Cleric;
+    public BrawlerDefines.PlayerClass SelectedPlayerClass => s_playerClass;
+
+    public void StartAs(BrawlerDefines.PlayerClass playerClass)
+    {
+        s_playerClass = playerClass;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+
     private BrawlerSceneFactory _factory;
     private readonly BrawlerHud _hud = new BrawlerHud();
     private readonly HitDirectionIndicator _hitDirectionIndicator = new HitDirectionIndicator();
@@ -32,8 +42,14 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         BrawlerDefines.UsableAction.Healing,
         BrawlerDefines.UsableAction.Protection,
-        BrawlerDefines.UsableAction.AttackBoost
+        BrawlerDefines.UsableAction.AttackBoost,
+        BrawlerDefines.UsableAction.MagicMissile
     };
+    private SpellFighter _spellEffectOwner;
+    // 時間を進める役は術者です。死亡・破棄・終了時は所有者の状態から即座に停止を解除します。
+    public bool IsSpellEffectActive => !IsRunFinished && _spellEffectOwner != null
+        && _spellEffectOwner.Health > 0 && _spellEffectOwner.IsReleasingSpell;
+
     public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
@@ -76,7 +92,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _pickupNoticeFont = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic", "Meiryo" }, BrawlerBalance.PickupNoticeFontSize);
         _factory = new BrawlerSceneFactory(this);
         _camera = _factory.BuildStage();
-        _player = CreateFighter("Player", new Vector3(-5, 0, 0), true);
+        _player = _factory.CreateFighter("Player", new Vector3(-5, 0, 0), true, _wave, playerClass: s_playerClass);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, 0);
         SpawnWave();
     }
@@ -173,6 +189,31 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
+        if (BrawlerInput.WasClericSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Cleric);
+            return;
+        }
+        if (BrawlerInput.WasFighterSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Fighter);
+            return;
+        }
+        if (BrawlerInput.WasDwarfSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Dwarf);
+            return;
+        }
+        if (BrawlerInput.WasThiefSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Thief);
+            return;
+        }
+        if (BrawlerInput.WasElfSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Elf);
+            return;
+        }
         bool wasPreparingBoss = IsPreparingBoss;
         UpdateWaveProgress(Time.deltaTime);
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
@@ -401,7 +442,11 @@ public sealed class BeltBrawler : MonoBehaviour
                 number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
                 number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
             }
-            BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            // 魔法は専用の敵停止中も演出を進めます。全体のtimeScaleを0にする命中停止は付けません。
+            if (kind != BrawlerDefines.DamageKind.Spell)
+            {
+                BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            }
         }
         _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
         if (victim.IsPlayer)
@@ -449,6 +494,10 @@ public sealed class BeltBrawler : MonoBehaviour
                     1 => BrawlerDefines.UsableAction.Protection,
                     _ => BrawlerDefines.UsableAction.AttackBoost
                 };
+                if (_player.CanUseAction(BrawlerDefines.UsableAction.MagicMissile))
+                {
+                    action = BrawlerDefines.UsableAction.MagicMissile;
+                }
                 if (_player.CanUseAction(action))
                 {
                     DropMagicScroll(victim.transform.position, action);
@@ -577,6 +626,71 @@ public sealed class BeltBrawler : MonoBehaviour
             ray.localRotation = Quaternion.Euler(0, 0, angle);
         }
         impactObject.AddComponent<HitImpact>().Initialize(isStrong ? BrawlerBalance.StrongHitImpactSize : BrawlerBalance.NormalHitImpactSize);
+    }
+
+    // 攻撃魔法・回復魔法から共通に呼びます。停止期間は術者の発動状態と常に同期します。
+    public void BeginSpellEffect(SpellFighter caster)
+    {
+        if (!IsRunFinished && caster != null && caster.IsPlayer && caster.Health > 0 && caster.IsReleasingSpell)
+        {
+            _spellEffectOwner = caster;
+        }
+    }
+
+    public void ShowSupportSpellEffect(SpellFighter caster, BrawlerDefines.UsableAction action, Color color)
+    {
+        if (caster == null || !caster.IsPlayer || caster.Health <= 0 || IsRunFinished || !caster.IsReleasingSpell)
+        {
+            return;
+        }
+        var effect = new GameObject("Support Spell Effect").AddComponent<SupportSpellEffect>();
+        effect.Initialize(caster, action, _factory.SupportSpellMaterial, color);
+    }
+
+    // 魔法の対象は床上の左右・奥行きで選びます。近接のリーチや威力倍率から独立させます。
+    public void CastMagicMissile(Fighter caster)
+    {
+        if (caster == null || !caster.IsPlayer || caster.Health <= 0 || IsRunFinished
+            || !caster.CanUseAction(BrawlerDefines.UsableAction.MagicMissile))
+        {
+            return;
+        }
+        Fighter target = null;
+        float nearest = BrawlerBalance.MagicMissileRange;
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0)
+            {
+                continue;
+            }
+            Vector3 offset = enemy.transform.position - caster.transform.position;
+            float forward = offset.x * caster.Facing;
+            if (forward > 0 && forward <= nearest && Mathf.Abs(offset.z) <= BrawlerBalance.MagicMissileDepth)
+            {
+                target = enemy;
+                nearest = forward;
+            }
+        }
+        Vector3 start = caster.transform.position + Vector3.up * BrawlerBalance.MagicMissileHeight;
+        Vector3 end = target != null
+            ? target.transform.position + Vector3.up * (BrawlerBalance.MagicMissileHeight + target.JumpHeight)
+            : start + Vector3.right * (caster.Facing * BrawlerBalance.MagicMissileRange);
+        // 即時命中の仮演出。Colliderを作らず、描画した光が再度ダメージを与えないようにします。
+        var trail = new GameObject("Magic Missile Trail");
+        var line = trail.AddComponent<LineRenderer>();
+        line.sharedMaterial = _factory.ImpactMaterial;
+        line.startColor = Color.cyan;
+        line.endColor = Color.white;
+        line.startWidth = BrawlerBalance.MagicMissileTrailWidth;
+        line.endWidth = BrawlerBalance.MagicMissileTrailWidth;
+        line.positionCount = 2;
+        line.SetPosition(0, start);
+        line.SetPosition(1, end);
+        trail.AddComponent<MagicMissileEffect>().Initialize(caster as SpellFighter, line);
+        if (target != null)
+        {
+            target.TakeDamage(BrawlerBalance.MagicMissileDamage, caster.Facing, BrawlerDefines.DamageKind.Spell);
+        }
     }
 
     public void ThrowHammer(Fighter owner)
@@ -711,6 +825,7 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             BrawlerDefines.UsableAction.Healing => _factory.HealingScrollMaterial,
             BrawlerDefines.UsableAction.AttackBoost => _factory.AttackBoostScrollMaterial,
+            BrawlerDefines.UsableAction.MagicMissile => _factory.ImpactMaterial,
             _ => _factory.ProtectionScrollMaterial
         };
         _factory.CreateBodyPart("Scroll band", modelPosition,
@@ -736,6 +851,47 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
+    public Fighter FindBackstabTarget(Fighter attacker, float direction)
+    {
+        Fighter nearest = null;
+        float nearestDistance = float.PositiveInfinity;
+        foreach (Fighter target in _enemies)
+        {
+            if (CanBackstabTarget(attacker, target, direction))
+            {
+                float distance = (target.transform.position - attacker.transform.position).sqrMagnitude;
+                if (distance < nearestDistance)
+                {
+                    nearest = target;
+                    nearestDistance = distance;
+                }
+            }
+        }
+        return nearest;
+    }
+
+    private bool CanBackstabTarget(Fighter attacker, Fighter target, float direction)
+    {
+        if (IsRunFinished || target == null || !target.CanBeBackstabbed || target.Health <= 0 || target.IsDowned)
+        {
+            return false;
+        }
+        Vector3 delta = target.transform.position - attacker.transform.position;
+        // 相手の向きを基準に背後を判定し、自分の前にいる近距離の敵だけを対象にします。
+        return delta.x * target.Facing > BrawlerBalance.BackstabBehindMinimum
+            && delta.x * direction > 0 && Mathf.Abs(delta.x) < BrawlerBalance.BackstabReach
+            && Mathf.Abs(delta.z) < BrawlerBalance.BackstabLaneHalfWidth;
+    }
+
+    public void HitBackstabTarget(Fighter attacker, Fighter target, int damage)
+    {
+        // 対象の移動・振り向き・撃破を命中時にも確認し、選んだ一体以外へは当てません。
+        if (CanBackstabTarget(attacker, target, attacker.Facing))
+        {
+            target.TakeMeleeDamage(attacker.CalculateMeleeDamage(damage), attacker, BrawlerDefines.DamageKind.Normal);
+        }
+    }
+
     public void Hit(Fighter attacker, int damage)
     {
         damage = attacker.CalculateMeleeHitDamage(damage);
@@ -856,7 +1012,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
         // 追撃は通常攻撃より短いリーチで、向いている側の倒れた敵を狙います。
-        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < BrawlerBalance.GroundAttackReach
+        return attacker.IsPlayer && attacker.Health > 0 && Mathf.Abs(delta.x) < attacker.GroundAttackReach
             && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }
 
@@ -864,11 +1020,8 @@ public sealed class BeltBrawler : MonoBehaviour
     private bool IsInAttackRange(Fighter attacker, Fighter target)
     {
         Vector3 delta = target.transform.position - attacker.transform.position;
-        // プレイヤーの左右方向のリーチだけを従来の 1.5 倍にします（1.65 × 1.5 = 2.475）。
-        // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
-        float attackReach = attacker.IsHeavyStriking ? BrawlerBalance.HeavyStrikeReach
-            : attacker.IsPushAttacking ? BrawlerBalance.PushReach : attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
-            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : attacker.MeleeAttackReach;
+        // プレイヤーは職業設定、敵は派生クラスの宣言するリーチを使います。
+        float attackReach = attacker.AttackReach;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
@@ -882,6 +1035,31 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
+        float margin = BrawlerBalance.ClassPanelMargin;
+        // 職業ボタンは狭い画面でも収まる幅にそろえます。
+        float width = Mathf.Min(BrawlerBalance.ClassButtonWidth,
+            Mathf.Max(0, Screen.width - margin * 2) / BrawlerBalance.ClassSelectionCount);
+        float height = BrawlerBalance.ClassButtonHeight;
+        if (GUI.Button(new Rect(Screen.width - width * 5 - margin, margin, width, height), "CLERIC / F1"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Cleric);
+        }
+        if (GUI.Button(new Rect(Screen.width - width * 4 - margin, margin, width, height), "FIGHTER / F2"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Fighter);
+        }
+        if (GUI.Button(new Rect(Screen.width - width * 3 - margin, margin, width, height), "DWARF / F3"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Dwarf);
+        }
+        if (GUI.Button(new Rect(Screen.width - width * 2 - margin, margin, width, height), "THIEF / F4"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Thief);
+        }
+        if (GUI.Button(new Rect(Screen.width - width - margin, margin, width, height), "ELF / F5"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Elf);
+        }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
             _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
     }

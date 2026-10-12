@@ -89,6 +89,13 @@ public static class BrawlerBalance
     public const float SelectionBorderWidth = 3f;
     public const float SelectionHintHeight = 30f;
     public const float SelectionBottomOffset = 52f;
+    public const int SelectionSpellPhaseCount = 3;
+    public const float SelectionSpellProgressHeight = 32f;
+    public const float SelectionSpellProgressGap = 8f;
+    public const float SelectionSpellBarHeight = 6f;
+    public static readonly UnityEngine.Color SelectionSpellCastColor = UnityEngine.Color.yellow;
+    public static readonly UnityEngine.Color SelectionSpellEffectColor = UnityEngine.Color.cyan;
+    public static readonly UnityEngine.Color SelectionSpellRecoveryColor = UnityEngine.Color.green;
     public const int SelectionTitleFontSize = 18;
     public const int SelectionCountFontSize = 22;
     public const float PickupNoticeSeconds = 0.9f;
@@ -232,6 +239,64 @@ public static class BrawlerBalance
     public const float PlayerFacingInputThreshold = 0.2f;
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
+    // シーフの基本性能（試作用）。専用アクションの性能とは分けて管理します。
+    // ステージ端を壁として扱う三角跳びの試作調整値。
+    public const float BackstabDirectionWindowSeconds = 0.9f;
+    public const float BackstabButtonWindowSeconds = 0.6f;
+    public const int BackstabDamage = 50;
+    public const float BackstabAttackSeconds = 0.45f;
+    public const float BackstabHitDelaySeconds = 0.15f;
+    public const float BackstabCooldownSeconds = 0.8f;
+    public const float BackstabReach = 1.1f;
+    public const float BackstabLaneHalfWidth = 0.5f;
+    public const float BackstabBehindMinimum = 0.1f;
+    public const float BackstabArmAngle = 60f;
+    public const int ThiefWallJumps = 1;
+    public const float ThiefWallJumpMargin = 0.45f;
+    public const float ThiefWallJumpVelocity = 7f;
+    public const float ThiefWallJumpDriftSpeed = 8f;
+    public const int ThiefExtraAirJumps = 1;
+    public const float ThiefAirJumpVelocity = 7f;
+    // エルフの近接性能・外見の試作設定。既存職の共通値とは独立して調整します。
+    public const float ElfWalkSpeed = 5.5f;
+    public const float ElfRunSpeed = 8.5f;
+    public const float ElfNormalAttackReach = 2.3f;
+    public const float ElfWeaponReachMultiplier = 0.95f;
+    public const float ElfEarWidth = 0.24f;
+    public const float ElfEarHeight = 0.12f;
+    public const float ElfEarDepth = 0.12f;
+    public const float ElfEarOffset = 0.27f;
+    public const float ElfEarPositionY = 1.8f;
+    public const float ElfOutfitRed = 0.2f;
+    public const float ElfOutfitGreen = 0.65f;
+    public const float ElfOutfitBlue = 0.35f;
+    public const float ThiefWalkSpeed = 6f;
+    public const float ThiefRunSpeed = 9.5f;
+    public const float ThiefNormalAttackReach = 1.8f;
+    public const float ThiefWeaponReachMultiplier = 0.75f;
+    public const float DaggerWidth = 0.1f;
+    public const float DaggerLength = 0.45f;
+
+    // ドワーフの初期調整値。職業差はここから調整し、既存職の性能を変えません。
+    public const float DwarfWalkSpeed = 4.5f;
+    public const float DwarfRunSpeed = 7f;
+    public const float DwarfNormalAttackReach = 2.2f;
+    public const float DwarfWeaponReachMultiplier = 0.9f;
+    public const float DwarfModelHeightScale = 0.8f;
+    public const float DwarfNormalAttackArmAngle = 120f;
+    public const float NormalAttackArmAngle = 90f;
+    public const float AxeHandleWidth = 0.12f;
+    public const float AxeHandleLength = 0.75f;
+    public const float AxeBladeWidth = 0.5f;
+    public const float AxeBladeHeight = 0.35f;
+    public const float AxeBladeOffset = 0.2f;
+    public const float SwordWidth = 0.12f;
+    public const float SwordLength = 0.9f;
+    public const int ClassSelectionCount = 5;
+    public const float ClassButtonWidth = 170f;
+    public const float ClassButtonHeight = 28f;
+    public const float ClassPanelMargin = 12f;
+
     public const float WalkSpeed = 5;
     public const float RunSpeed = 8;
     public const float DefaultSlideSpeed = 8;
@@ -389,6 +454,65 @@ public static class BrawlerBalance
     public const float ScrollBandWidth = 0.12f;
     public const float ScrollBandHeight = 0.27f;
     public const float ScrollBandDepth = 0.32f;
+    // 攻撃魔法の試作設定。所持数・戦闘性能・演出を名前付き定数で調整します。
+    public const int MagicMissileUses = 3;
+    public const int MagicMissileDamage = 24;
+    public const float MagicMissileRange = 6f;
+    public const float MagicMissileDepth = 0.65f;
+    public const float MagicMissileHeight = 1.2f;
+    public const float MagicMissileCastSeconds = 0.4f;
+    public const float SpellCastingArmAngle = 150f;
+    // 腕を持ち上げる→構える→前へ振り出す→戻す、の演出専用設定です。
+    public const float SpellReadyArmAngle = 0f;
+    public const float SpellReleaseArmAngle = 90f;
+    public const float SpellRaiseArmSeconds = 0.12f;
+    public const float SpellReleaseArmSeconds = 0.08f;
+    public const float SpellReleasePoseHoldSeconds = 0.12f;
+    public const float MagicMissileEffectSeconds = 0.25f;
+    public const float MagicMissileRecoverySeconds = 0.6f;
+    public const float MagicMissileTrailWidth = 0.12f;
+    public const float MagicMissileTrailSeconds = 0.2f;
+
+    // 回復魔法の試作用の時間です。攻撃魔法とは独立に調整できます。
+    // 補助魔法の仮エフェクト。見た目の数値は効果時間・HP・威力から独立させます。
+    // 持続オーラは発動エフェクトより薄く、小さく表示します。
+    public const float ProtectionAuraRadius = 0.8f;
+    public const float ProtectionAuraHeight = 0.1f;
+    public const int AttackBoostAuraSegments = 4;
+    public const float AttackBoostAuraRadius = 0.6f;
+    public const float AttackBoostAuraHeight = 0.15f;
+    public const float SupportAuraLineWidth = 0.045f;
+    public const float SupportAuraAlpha = 0.25f;
+    public const float SupportAuraWarningMinAlpha = 0.06f;
+    public const float SupportAuraWarningMaxAlpha = 0.65f;
+    public const float SupportAuraWarningPulsesPerSecond = 2f;
+    public static readonly UnityEngine.Color ProtectionAuraColor = new UnityEngine.Color(1, 0.8f, 0.3f);
+    public static readonly UnityEngine.Color AttackBoostAuraColor = new UnityEngine.Color(1, 0.45f, 0.2f);
+
+    public const int SupportSpellRingSegments = 32;
+    public const float SupportSpellRingRadius = 0.55f;
+    public const float SupportSpellRingExpansion = 2f;
+    public const float SupportSpellGroundHeight = 0.08f;
+    public const float SupportSpellSymbolSize = 0.3f;
+    public const float SupportSpellSymbolHeight = 1.4f;
+    public const float SupportSpellFrontOffset = 0.6f;
+    public const float SupportSpellSymbolRise = 0.6f;
+    public const float SupportSpellShieldSize = 0.55f;
+    public const float SupportSpellShieldExpansion = 1.25f;
+    public const int SupportSpellBoostSymbolCount = 3;
+    public const float SupportSpellBoostBaseHeight = 0.65f;
+    public const float SupportSpellBoostSymbolGap = 0.4f;
+    public const float SupportSpellLineWidth = 0.08f;
+    public const float SupportSpellLightRange = 3f;
+    public const float SupportSpellLightIntensity = 2f;
+
+    public const float HealingCastSeconds = 0.4f;
+    public const float HealingEffectSeconds = 0.25f;
+    // 補助魔法も個別に時間を調整できます。持続時間とは区別します。
+    public const float ProtectionCastSeconds = 0.4f;
+    public const float ProtectionEffectSeconds = 0.25f;
+    public const float AttackBoostCastSeconds = 0.4f;
+    public const float AttackBoostEffectSeconds = 0.25f;
     public const float SpellRecoverySeconds = 0.6f;
     public const float ProtectionSeconds = 8;
     public const float ProtectionDamageMultiplier = 0.5f;

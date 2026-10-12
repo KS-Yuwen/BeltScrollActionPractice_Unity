@@ -135,26 +135,42 @@ public static class CombatValidation
             Require(!cleric.TryHeal(), "被ダメージ硬直中は回復できない");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            Require(cleric.TryUseSelectedAction() && player.Health == 85 && cleric.HealingUsesRemaining == 2, "選択した回復でHP を30回復し1回消費");
+            Require(cleric.TryUseSelectedAction() && player.Health == 55 && cleric.HealingUsesRemaining == 2
+                && cleric.IsCastingSpell, "選択した回復は詠唱を開始し、回数だけを先に消費する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds);
+            Require(player.Health == 85 && cleric.IsReleasingSpell && game.IsSpellEffectActive,
+                "詠唱完了時にHPを30回復し、発動演出中は敵を停止する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingEffectSeconds);
+            Require(cleric.IsRecoveringFromSpell && !game.IsSpellEffectActive,
+                "回復演出が終わると敵を再開し、術者は後隙へ移る");
             Require(!cleric.TryHeal(), "回復後の隙では再使用不可");
             player.TakeDamage(5, player.Facing);
             Require(player.Health == 80, "回復中も無敵にはならない");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
-            Require(cleric.TryHeal() && player.Health == 100, "回復は最大HPで止まる");
+            SetPrivateField(cleric, "_spellRecoveryRemaining", 0f);
+            Require(cleric.TryHeal(), "2回目の回復の詠唱を開始する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds);
+            Require(player.Health == 100, "詠唱完了時の回復は最大HPで止まる");
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            SetPrivateField(cleric, "_spellRecoveryRemaining", 0f);
             player.TakeDamage(40, player.Facing);
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             Require(cleric.TryHeal() && cleric.HealingUsesRemaining == 0, "3回目で残り0回");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryUseSelectedAction(), "選択使用でも回数を使い切ると発動できない");
 
             // 回復の使用回数を使い切っても、補助魔法は独立した回数で使えます。
             cleric.SelectNextAction();
             Require(cleric.SelectedActionUsesRemaining == BrawlerBalance.ProtectionUses, "選択表示は補助魔法の独立した残り回数");
-            Require(cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == 1, "選択した補助魔法は回復と独立した回数");
+            Require(cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == 1
+                && cleric.IsCastingSpell && !cleric.IsProtected, "補助魔法は独立した回数を消費し、詠唱完了まで効果を付けない");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             Require(!cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中の再使用は消費しない");
             int beforeProtectionHit = player.Health;
             player.TakeDamage(9, player.Facing);
@@ -186,6 +202,8 @@ public static class CombatValidation
             SetPrivateField(player, "_attackCooldown", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == 0, "2回目で補助魔法を使い切る");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryProtection(), "回数0では補助魔法を使用できない");
@@ -965,7 +983,10 @@ public static class CombatValidation
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
-            Require(cleric.TryHeal() && player.Health == player.MaxHealth, "回復表示用の魔法を発動");
+            Require(cleric.TryHeal(), "回復表示用の魔法の詠唱を開始");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
+            Require(player.Health == player.MaxHealth, "詠唱完了時にHPを回復する");
             DamageNumber[] healingNumbers = Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing);
             Require(healingNumbers.Length == healingNumberCount + 1
                 && Array.Exists(healingNumbers, n => n.Amount == 25 && n.DisplayText == "+25" && n.DisplayColor == Color.green),
@@ -1047,7 +1068,9 @@ public static class CombatValidation
             typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.Healing);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
-                && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
+                && cleric.TryProtection(), "使用可能表示と補助魔法の詠唱開始が一致");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             Fighter fadeTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test defeat fade", Vector3.right * 10, false, false, false, false });
             Fighter unfadedTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test shared material", Vector3.right * 12, false, false, false, false });
             Transform fadeVisual = (Transform)GetPrivateField(fadeTarget, "_visual");
@@ -1238,7 +1261,8 @@ public static class CombatValidation
         {
             if (action != BrawlerDefines.UsableAction.None)
             {
-                Require(inventory.TryAdd(action), "6種類を個別のスロットへ格納できる");
+                bool hasSpace = inventory.FindSlot(BrawlerDefines.UsableAction.None) >= 0;
+                Require(inventory.TryAdd(action) == hasSpace, "空き枠に格納し、7種類目は満枠で拒否する");
             }
         }
         Require(inventory.FindSlot(BrawlerDefines.UsableAction.None) < 0, "6種類で空き枠がなくなる");
@@ -1283,13 +1307,24 @@ public static class CombatValidation
         Require(!cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses,
             "空中の攻撃強化は回数を消費しない");
         SetPrivateField(cleric, "_jumpHeight", 0f);
-        Require(cleric.TryUseSelectedAction() && cleric.IsAttackBoosted
+        Require(cleric.TryUseSelectedAction() && cleric.IsCastingSpell && !cleric.IsAttackBoosted
+            && cleric.AttackBoostSecondsRemaining == 0, "攻撃強化も詠唱完了まで効果と持続時間を開始しない");
+        AdvanceSpell(cleric, BrawlerBalance.AttackBoostCastSeconds);
+        var aura = cleric.GetComponentInChildren<SupportSpellAura>();
+        Require(aura != null, "補助魔法の持続オーラを一度だけ初期化する");
+        MethodInfo refreshAura = typeof(SupportSpellAura).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
+        LineRenderer protectionAura = aura.transform.Find("Protection aura").GetComponent<LineRenderer>();
+        LineRenderer boostAura = aura.transform.Find("Attack boost aura").GetComponent<LineRenderer>();
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.enabled && !protectionAura.enabled
+            && Mathf.Abs(boostAura.startColor.a - BrawlerBalance.SupportAuraAlpha) <= 1f / byte.MaxValue, "攻撃強化の効果開始時は対応する薄いオーラだけを表示する");
+        Require(cleric.IsAttackBoosted
             && cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds
             && cleric.AttackBoostUsesRemaining == BrawlerBalance.AttackBoostUses - 1
             && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses
             && cleric.HealingUsesRemaining == healingBefore,
             "選択使用で攻撃強化だけを消費し、他の魔法回数は保持する");
-        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        AdvanceSpell(cleric, BrawlerBalance.AttackBoostEffectSeconds + BrawlerBalance.SpellRecoverySeconds);
         Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.AttackBoostActive
             && !cleric.TryAttackBoost(), "効果中の再発動は消費も時間延長もしない");
         Require(cleric.CalculateMeleeDamage(1) == 2, "攻撃強化は端数を切り上げる");
@@ -1313,7 +1348,12 @@ public static class CombatValidation
         game.HitGroundTarget(cleric, target, BrawlerBalance.GroundAttackDamage);
         Require(target.Health == Mathf.Max(0, healthBefore - Mathf.CeilToInt(BrawlerBalance.GroundAttackDamage
             * BrawlerBalance.AttackBoostDamageMultiplier)), "追撃にも同じ倍率を適用する");
-        Require(cleric.TryProtection() && cleric.IsProtected && cleric.IsAttackBoosted
+        Require(cleric.TryProtection(), "攻撃強化中にプロテクションの詠唱を開始できる");
+        AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+            + BrawlerBalance.SpellRecoverySeconds);
+        refreshAura.Invoke(aura, null);
+        Require(protectionAura.enabled && boostAura.enabled, "補助魔法の併用時は両方のオーラを表示する");
+        Require(cleric.IsProtected && cleric.IsAttackBoosted
             && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 1, "防御・攻撃強化は共存し各回数を独立して消費する");
         Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Protection, 1)
             && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 2, "防御スクロールで攻撃強化の回数を変更しない");
@@ -1322,7 +1362,18 @@ public static class CombatValidation
         Require(cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds, "時間停止中は強化時間も停止する");
         updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostSeconds - BrawlerBalance.AttackBoostWarningSeconds });
         Require(cleric.IsAttackBoostExpiring, "残り時間が少なくなると終了予告を表示する");
+        refreshAura.Invoke(aura, null);
+        float warningAlpha = boostAura.startColor.a;
+        updateBoost.Invoke(cleric, new object[] { 0f });
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.startColor.a == warningAlpha, "効果時間が止まっている間はオーラの点滅も止まる");
+        updateBoost.Invoke(cleric, new object[] { 1f / (BrawlerBalance.SupportAuraWarningPulsesPerSecond * 2) });
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.startColor.a < warningAlpha && Mathf.Abs(protectionAura.startColor.a - BrawlerBalance.SupportAuraAlpha) <= 1f / byte.MaxValue,
+            "終了間際の攻撃オーラだけを点滅させ、防御のオーラには影響しない");
         updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostWarningSeconds });
+        refreshAura.Invoke(aura, null);
+        Require(!boostAura.enabled && protectionAura.enabled, "攻撃強化の終了では対応するオーラだけを消す");
         Require(!cleric.IsAttackBoosted && !cleric.IsAttackBoostExpiring
             && cleric.CalculateMeleeDamage(BrawlerBalance.NormalDamage) == BrawlerBalance.NormalDamage,
             "時間切れで威力・終了予告が元に戻る");
@@ -1366,7 +1417,9 @@ public static class CombatValidation
         scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Protection);
         SetPrivateField(cleric, "_recoveryRemaining", 0f);
         Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == protectionBefore - 1,
-            "魔法使用はレベル共通枠を消費する");
+            "魔法使用は対応する種類の回数だけを消費する");
+        AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+            + BrawlerBalance.SpellRecoverySeconds);
         Require(scroll.TryCollect() && cleric.ProtectionUsesRemaining == protectionBefore
             && cleric.HealingUsesRemaining == 2 && cleric.IsProtected,
             "補助スクロールは効果を延長せず補助の回数だけ補充する");
@@ -1476,6 +1529,33 @@ public static class CombatValidation
             new object[] { "Test hit restriction victim", Vector3.right, false, false, true, false });
         try
         {
+            // 職業設定へ移した値が、実際の移動・武器・使用可否から参照されることを確認します。
+            Require(attacker.ClassSettings == PlayerClassCatalog.Cleric, "派生クレリックが職業設定を選択");
+            MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            Vector3 beforeWalk = attacker.transform.position;
+            move.Invoke(attacker, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(attacker.transform.position.x - beforeWalk.x, BrawlerBalance.WalkSpeed * 0.1f),
+                "職業設定の歩行速度で移動し、従来性能を維持");
+            SetPrivateField(attacker, "_isRunning", true);
+            Vector3 beforeRun = attacker.transform.position;
+            move.Invoke(attacker, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(attacker.transform.position.x - beforeRun.x, BrawlerBalance.RunSpeed * 0.1f),
+                "職業設定の走行速度で移動し、従来性能を維持");
+            SetPrivateField(attacker, "_isRunning", false);
+            attacker.transform.position = Vector3.zero;
+            Require(attacker.AttackReach == BrawlerBalance.PlayerAttackReach
+                && attacker.GroundAttackReach == BrawlerBalance.GroundAttackReach, "通常と追撃のリーチを維持");
+            SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.HeavyStrike);
+            Require(attacker.AttackReach == BrawlerBalance.HeavyStrikeReach, "職業設定経由でもCSVの特殊技リーチを参照");
+            var allowed = new[] { BrawlerDefines.UsableAction.ThrowingKnife };
+            var customSettings = new PlayerClassSettings(BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed,
+                BrawlerBalance.PlayerAttackReach, 2f, allowed);
+            allowed[0] = BrawlerDefines.UsableAction.Healing;
+            Require(customSettings.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+                && !customSettings.CanUseAction(BrawlerDefines.UsableAction.Healing)
+                && !customSettings.CanUseAction(BrawlerDefines.UsableAction.None), "共有設定の使用許可は外部配列の変更で変わらない");
+            Require(customSettings.GetAttackReach(BrawlerDefines.AttackKind.HeavyStrike) == BrawlerBalance.HeavyStrikeReach * 2f,
+                "別職業の武器倍率を特殊技へ適用できる");
             // 低威力のコマンド技でも転倒することと、強化魔法との補正順を確認します。
             foreach (BrawlerDefines.AttackKind attackKind in new[]
             {
@@ -2096,6 +2176,13 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    // エディター更新のdeltaTimeに依存せず、魔法の各段階の境界を検証します。
+    private static void AdvanceSpell(SpellFighter caster, float seconds)
+    {
+        typeof(SpellFighter).GetMethod("UpdateSpell", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(caster, new object[] { seconds });
     }
 
     // テスト用に内部状態を設定します。ゲーム側の公開 API を増やさず確認するための仕組みです。

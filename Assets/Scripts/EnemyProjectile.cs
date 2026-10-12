@@ -23,6 +23,11 @@ public sealed class EnemyProjectile : MonoBehaviour
         {
             return;
         }
+        // すでに発射された弾も位置・寿命・接触判定を保存し、停止中に術者へ届かないようにします。
+        if ((_game != null && _game.IsSpellEffectActive) || (_target != null && _target.IsSpellEffectActive))
+        {
+            return;
+        }
         _remainingLifetime -= Time.deltaTime;
         if (_target == null || _target.Health <= 0 || _remainingLifetime <= 0)
         {
