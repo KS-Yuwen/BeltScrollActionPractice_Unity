@@ -327,6 +327,12 @@ public static class BrawlerBalance
     public const float BossApproachLaneTolerance = 0.5f;
     public const float BossRecoverySeconds = 1.4f;
     public const float BossAttackIntervalSeconds = 0.3f;
+    // 後半も予兆時間・反撃の隙・攻撃力は共通です。追跡と攻撃間の待機だけを調整します。
+    public const float BossSecondPhaseHealthFraction = 0.5f;
+    public const float BossSecondPhaseSpeed = 2.4f;
+    public const float BossSecondPhaseAttackIntervalSeconds = 0.1f;
+    public const float BossPhaseNoticeSeconds = 2f;
+    public static readonly UnityEngine.Color BossSecondPhaseColor = new UnityEngine.Color(1f, 0.35f, 0.2f);
     public const int BossWaveEnemyCount = 1;
     public const int BossPreparationHealingAmount = 40;
     public const int BossPreparationSupplyCount = 5;
@@ -340,6 +346,14 @@ public static class BrawlerBalance
     public const float BossHudTitleHeight = 36f;
     public const float BossHudBarHeight = 22f;
     public const float BossMaceSize = 0.65f;
+    // 予兆の種類は色と範囲の形で区別します。開始から発動まで同じ色系統で濃くします。
+    public static readonly UnityEngine.Color BossStrikeWarningStartColor = new UnityEngine.Color(1f, 0.7f, 0.15f);
+    public static readonly UnityEngine.Color BossStrikeWarningEndColor = new UnityEngine.Color(1f, 0.25f, 0f);
+    public static readonly UnityEngine.Color BossWideWarningStartColor = new UnityEngine.Color(0.85f, 0.5f, 1f);
+    public static readonly UnityEngine.Color BossWideWarningEndColor = new UnityEngine.Color(0.65f, 0.1f, 1f);
+    public static readonly UnityEngine.Color BossOpeningColor = UnityEngine.Color.green;
+    public const float OpeningMarkerHalfSize = 0.65f;
+    public const float BossOpeningBarHeight = 8f;
     public const int ProtectionUses = 2;
     public const int AttackBoostUses = 2;
     public const int InventorySlotCount = 6;

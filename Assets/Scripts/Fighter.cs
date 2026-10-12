@@ -12,6 +12,10 @@ public class Fighter : Combatant
     public virtual float MeleeLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
     public virtual float WarningRangeEnd => MeleeAttackReach;
     public virtual float WarningLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
+    // 予兆の配色と反撃の隙は派生クラスが宣言し、表示側は具体的な職業・敵種別を判定しません。
+    public virtual Color WarningStartColor => Color.yellow;
+    public virtual Color WarningEndColor => Color.red;
+    public virtual float OpeningSecondsRemaining => 0f;
     private BeltBrawler _game;
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();

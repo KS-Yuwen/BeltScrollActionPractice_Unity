@@ -1167,6 +1167,7 @@ public static class CombatValidation
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
             ValidateBoss(game, createTurnEnemy, turnEnemies);
+            ValidateBossPhase(game, createTurnEnemy);
             ValidateBossPreparation(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
@@ -1417,24 +1418,45 @@ public static class CombatValidation
         move.Invoke(boss, null);
         Require(boss.IsWindingUp && !boss.IsWideAttack && boss.WarningRangeEnd == boss.MeleeAttackReach,
             "最初は長い一撃を予告し、実際のリーチと表示を共用する");
+        EnemyAttackWarning marker = boss.GetComponentInChildren<EnemyAttackWarning>();
+        marker.Refresh();
+        Require(marker.IsVisible && !marker.IsShowingOpening
+            && marker.CurrentColor == BrawlerBalance.BossStrikeWarningStartColor,
+            "長い一撃は橙色の予兆で開始する");
         int healthBefore = player.Health;
         windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds / 2 });
+        marker.Refresh();
+        Require(marker.CurrentColor == Color.Lerp(BrawlerBalance.BossStrikeWarningStartColor,
+            BrawlerBalance.BossStrikeWarningEndColor, boss.AttackWindupProgress), "長い一撃の色は予告の進行に連動する");
         Require(player.Health == healthBefore && boss.IsWindingUp, "予告の途中ではダメージが発生しない");
         windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds });
         animate.Invoke(boss, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
         Require(player.Health == healthBefore - BrawlerBalance.BossStrikeDamage && boss.IsRecovering,
             "予告と攻撃動作の後に一度だけ命中し、反撃できる隙へ移る");
+        marker.Refresh();
+        Require(marker.IsVisible && marker.IsShowingOpening && marker.CurrentColor == BrawlerBalance.BossOpeningColor
+            && !marker.transform.Find("Attack direction").GetComponent<Renderer>().enabled,
+            "反撃の隙は緑色の足元枠になり、攻撃方向は表示しない");
+        Require(Mathf.Abs(marker.transform.Find("Front edge").localScale.x
+            - BrawlerBalance.OpeningMarkerHalfSize * 2) < 0.01f, "反撃の枠は攻撃範囲とは異なる小さい枠にする");
         player.transform.position = Vector3.right * 10;
         SetPrivateField(boss, "_attackCooldown", 0f);
         Require((Vector3)move.Invoke(boss, null) == Vector3.zero, "攻撃後の隙は追跡を停止する");
         recovery.Invoke(boss, new object[] { 0f });
         Require(boss.RecoverySecondsRemaining == BrawlerBalance.BossRecoverySeconds, "時間停止中はボスの隙も停止する");
         recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        marker.Refresh();
+        Require(!marker.IsVisible && !marker.IsShowingOpening, "隙が終わると緑の枠を消す");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossAttackIntervalSeconds + 0.001f });
         SetPrivateField(boss, "_attackRemaining", 0f);
         player.transform.position = Vector3.right;
         move.Invoke(boss, null);
         Require(boss.IsWideAttack && boss.IsWindingUp && boss.WarningLaneHalfWidth == BrawlerBalance.BossWideLaneHalfWidth,
             "次は幅広い攻撃を選び、予告幅も切り替える");
+        marker.Refresh();
+        Require(marker.CurrentColor == BrawlerBalance.BossWideWarningStartColor && !marker.IsShowingOpening
+            && marker.transform.Find("Attack direction").GetComponent<Renderer>().enabled,
+            "幅広い攻撃は紫色の予兆になり、方向表示も復帰する");
         SetPrivateField(player, "_stunRemaining", 0f);
         player.transform.position += Vector3.forward;
         healthBefore = player.Health;
@@ -1452,7 +1474,7 @@ public static class CombatValidation
         player.transform.position = new Vector3(1, 0, BrawlerBalance.BossWideLaneHalfWidth + 0.1f);
         hit.Invoke(boss, new object[] { BrawlerBalance.BossWideDamage });
         Require(player.Health == healthBefore, "ボスの予告範囲外へ奥行き回避するとダメージを受けない");
-        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds + BrawlerBalance.BossAttackIntervalSeconds });
         SetPrivateField(boss, "_attackRemaining", 0f);
         SetPrivateField(boss, "_attackCooldown", 0f);
         player.transform.position = Vector3.left;
@@ -1460,8 +1482,82 @@ public static class CombatValidation
         Require(!boss.IsWideAttack && boss.Facing == -1 && boss.IsWindingUp, "隙の後は振り向き、長い一撃へ循環する");
         boss.TakeDamage(BrawlerBalance.NormalDamage, 1);
         Require(!boss.IsWindingUp, "予告中の被弾でボスの攻撃を中断できる");
+        marker.Refresh();
+        Require(!marker.IsVisible, "予告が中断された場合は緑の反撃枠を新しく出さない");
+        boss.TakeDamage(BrawlerBalance.BossHealth, 1);
+        marker.Refresh();
+        Require(!marker.IsVisible, "死亡後はボスの予兆・反撃枠を表示しない");
         SetPrivateField(game, "_player", previousPlayer);
         enemies.Remove(boss);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    // 閾値・一度だけの通知・既存攻撃の維持・実際の攻撃待機をまとめて検証します。
+    private static void ValidateBossPhase(BeltBrawler game, MethodInfo createFighter)
+    {
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        var boss = (BossFighter)factory.CreateFighter("Test boss phase", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test phase player", Vector3.right, true, false, false, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        SetPrivateField(game, "_player", player);
+        MethodInfo phase = typeof(BossFighter).GetMethod("UpdatePhase", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo recovery = typeof(BossFighter).GetMethod("UpdateRecovery", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo move = typeof(BossFighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo hit = typeof(BossFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo beginWindup = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo reduceHealth = typeof(Combatant).GetMethod("ReduceHealth", BindingFlags.Instance | BindingFlags.NonPublic);
+        // 境界を正確に作るためHP計算だけを呼び、被弾の硬直と行動変化を切り分けます。
+        int threshold = Mathf.FloorToInt(boss.MaxHealth * BrawlerBalance.BossSecondPhaseHealthFraction);
+        reduceHealth.Invoke(boss, new object[] { boss.MaxHealth - threshold - 1 });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(!boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "HPが半分より1多い間は前半のまま");
+        beginWindup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds });
+        SetPrivateField(boss, "_windupRemaining", BrawlerBalance.BossStrikeWindupSeconds / 2);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossStrikeDamage });
+        float previousRest = (float)GetPrivateField(boss, "_attackRestRemaining");
+        reduceHealth.Invoke(boss, new object[] { 1 });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && boss.IsShowingPhaseNotice, "HPがちょうど半分で後半へ移行する");
+        Require(boss.IsWindingUp && Mathf.Abs(boss.AttackWindupProgress - 0.5f) < 0.01f
+            && boss.RecoverySecondsRemaining == BrawlerBalance.BossRecoverySeconds
+            && (float)GetPrivateField(boss, "_attackRestRemaining") == previousRest,
+            "移行そのものは予兆・反撃の隙・進行中の待機を変更しない");
+        PropertyInfo speed = typeof(BossFighter).GetProperty("EnemyMovementSpeed", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require((float)speed.GetValue(boss) == BrawlerBalance.BossSecondPhaseSpeed,
+            "後半は共通の移動処理が参照する速度を切り替える");
+        phase.Invoke(boss, new object[] { 0f });
+        Require((float)GetPrivateField(boss, "_phaseNoticeRemaining") == BrawlerBalance.BossPhaseNoticeSeconds,
+            "時間停止中は移行通知も停止する");
+        phase.Invoke(boss, new object[] { BrawlerBalance.BossPhaseNoticeSeconds });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "後半の通知は一度だけ表示し、再点灯しない");
+        boss.RestoreHealth(boss.MaxHealth);
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "回復しても後半状態は維持する");
+        SetPrivateField(boss, "_windupRemaining", 0f);
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossStrikeDamage });
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        move.Invoke(boss, null);
+        Require(!boss.IsRecovering && !boss.IsWindingUp, "後半も1.4秒の隙を維持し、その直後は追加待機する");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossSecondPhaseAttackIntervalSeconds + 0.001f });
+        move.Invoke(boss, null);
+        Require(boss.IsWindingUp && boss.WarningRangeEnd == BrawlerBalance.BossStrikeReach
+            && (float)GetPrivateField(boss, "_windupDuration") == BrawlerBalance.BossStrikeWindupSeconds,
+            "後半は0.1秒の追加待機後に、従来と同じ予兆時間・範囲で攻撃する");
+        reduceHealth.Invoke(boss, new object[] { boss.MaxHealth });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(!boss.IsShowingPhaseNotice, "死亡時は移行通知を表示しない");
+        var defeatedBoss = (BossFighter)factory.CreateFighter("Test defeated boss phase", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        reduceHealth.Invoke(defeatedBoss, new object[] { defeatedBoss.MaxHealth });
+        phase.Invoke(defeatedBoss, new object[] { 0f });
+        Require(!defeatedBoss.IsSecondPhase, "一撃で倒されたボスは後半への移行を開始しない");
+        SetPrivateField(game, "_player", previousPlayer);
+        UnityEngine.Object.DestroyImmediate(defeatedBoss.gameObject);
         UnityEngine.Object.DestroyImmediate(boss.gameObject);
         UnityEngine.Object.DestroyImmediate(player.gameObject);
     }
