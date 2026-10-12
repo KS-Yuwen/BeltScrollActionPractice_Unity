@@ -468,6 +468,20 @@ public static class BrawlerBalance
 
     // 回復魔法の試作用の時間です。攻撃魔法とは独立に調整できます。
     // 補助魔法の仮エフェクト。見た目の数値は効果時間・HP・威力から独立させます。
+    // 持続オーラは発動エフェクトより薄く、小さく表示します。
+    public const float ProtectionAuraRadius = 0.8f;
+    public const float ProtectionAuraHeight = 0.1f;
+    public const int AttackBoostAuraSegments = 4;
+    public const float AttackBoostAuraRadius = 0.6f;
+    public const float AttackBoostAuraHeight = 0.15f;
+    public const float SupportAuraLineWidth = 0.045f;
+    public const float SupportAuraAlpha = 0.25f;
+    public const float SupportAuraWarningMinAlpha = 0.06f;
+    public const float SupportAuraWarningMaxAlpha = 0.65f;
+    public const float SupportAuraWarningPulsesPerSecond = 2f;
+    public static readonly UnityEngine.Color ProtectionAuraColor = new UnityEngine.Color(1, 0.8f, 0.3f);
+    public static readonly UnityEngine.Color AttackBoostAuraColor = new UnityEngine.Color(1, 0.45f, 0.2f);
+
     public const int SupportSpellRingSegments = 32;
     public const float SupportSpellRingRadius = 0.55f;
     public const float SupportSpellRingExpansion = 2f;

@@ -1310,6 +1310,14 @@ public static class CombatValidation
         Require(cleric.TryUseSelectedAction() && cleric.IsCastingSpell && !cleric.IsAttackBoosted
             && cleric.AttackBoostSecondsRemaining == 0, "攻撃強化も詠唱完了まで効果と持続時間を開始しない");
         AdvanceSpell(cleric, BrawlerBalance.AttackBoostCastSeconds);
+        var aura = cleric.GetComponentInChildren<SupportSpellAura>();
+        Require(aura != null, "補助魔法の持続オーラを一度だけ初期化する");
+        MethodInfo refreshAura = typeof(SupportSpellAura).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
+        LineRenderer protectionAura = aura.transform.Find("Protection aura").GetComponent<LineRenderer>();
+        LineRenderer boostAura = aura.transform.Find("Attack boost aura").GetComponent<LineRenderer>();
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.enabled && !protectionAura.enabled
+            && Mathf.Abs(boostAura.startColor.a - BrawlerBalance.SupportAuraAlpha) <= 1f / byte.MaxValue, "攻撃強化の効果開始時は対応する薄いオーラだけを表示する");
         Require(cleric.IsAttackBoosted
             && cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds
             && cleric.AttackBoostUsesRemaining == BrawlerBalance.AttackBoostUses - 1
@@ -1343,6 +1351,8 @@ public static class CombatValidation
         Require(cleric.TryProtection(), "攻撃強化中にプロテクションの詠唱を開始できる");
         AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
             + BrawlerBalance.SpellRecoverySeconds);
+        refreshAura.Invoke(aura, null);
+        Require(protectionAura.enabled && boostAura.enabled, "補助魔法の併用時は両方のオーラを表示する");
         Require(cleric.IsProtected && cleric.IsAttackBoosted
             && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 1, "防御・攻撃強化は共存し各回数を独立して消費する");
         Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Protection, 1)
@@ -1352,7 +1362,18 @@ public static class CombatValidation
         Require(cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds, "時間停止中は強化時間も停止する");
         updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostSeconds - BrawlerBalance.AttackBoostWarningSeconds });
         Require(cleric.IsAttackBoostExpiring, "残り時間が少なくなると終了予告を表示する");
+        refreshAura.Invoke(aura, null);
+        float warningAlpha = boostAura.startColor.a;
+        updateBoost.Invoke(cleric, new object[] { 0f });
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.startColor.a == warningAlpha, "効果時間が止まっている間はオーラの点滅も止まる");
+        updateBoost.Invoke(cleric, new object[] { 1f / (BrawlerBalance.SupportAuraWarningPulsesPerSecond * 2) });
+        refreshAura.Invoke(aura, null);
+        Require(boostAura.startColor.a < warningAlpha && Mathf.Abs(protectionAura.startColor.a - BrawlerBalance.SupportAuraAlpha) <= 1f / byte.MaxValue,
+            "終了間際の攻撃オーラだけを点滅させ、防御のオーラには影響しない");
         updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostWarningSeconds });
+        refreshAura.Invoke(aura, null);
+        Require(!boostAura.enabled && protectionAura.enabled, "攻撃強化の終了では対応するオーラだけを消す");
         Require(!cleric.IsAttackBoosted && !cleric.IsAttackBoostExpiring
             && cleric.CalculateMeleeDamage(BrawlerBalance.NormalDamage) == BrawlerBalance.NormalDamage,
             "時間切れで威力・終了予告が元に戻る");

@@ -228,6 +228,12 @@ public sealed class BrawlerSceneFactory
             CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
         }
         fighter.Initialize(_game, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);
+        if (isPlayer && fighter is ClericFighter cleric)
+        {
+            // 一度だけ生成して再利用し、魔法の使用ごとにオーラのオブジェクトを増やしません。
+            var aura = new GameObject("Support spell aura").AddComponent<SupportSpellAura>();
+            aura.Initialize(cleric, _game, _supportSpellMaterial);
+        }
         if (!isPlayer)
         {
             CreateAttackWarning(fighter);
