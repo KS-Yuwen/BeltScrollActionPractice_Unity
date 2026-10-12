@@ -26,6 +26,7 @@ public sealed class BrawlerSceneFactory
     private Material _guardImpactMaterial;
     private Material _counterImpactMaterial;
     private Material _warningMaterial;
+    private Material _supportSpellMaterial;
 
     public Material FloorMaterial => _floorMaterial;
     public Material SkinMaterial => _skinMaterial;
@@ -37,6 +38,7 @@ public sealed class BrawlerSceneFactory
     public Material ImpactMaterial => _impactMaterial;
     public Material GuardImpactMaterial => _guardImpactMaterial;
     public Material CounterImpactMaterial => _counterImpactMaterial;
+    public Material SupportSpellMaterial => _supportSpellMaterial;
 
     public BrawlerSceneFactory(BeltBrawler game)
     {
@@ -71,6 +73,9 @@ public sealed class BrawlerSceneFactory
         _counterImpactMaterial.color = new Color(0.45f, 0.9f, 1);
         _warningMaterial = CreateOwnedMaterial("Unlit/Color");
         _warningMaterial.color = Color.white;
+        // LineRendererの頂点色・透明度に対応する素材を一つだけ作り、魔法間で共有します。
+        _supportSpellMaterial = CreateOwnedMaterial("Sprites/Default");
+        _supportSpellMaterial.color = Color.white;
         // 環境光で全体を明るくし、平行光源で立体の陰影を付けます。
         RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.7f);
         var sun = new GameObject("Sun").AddComponent<Light>();

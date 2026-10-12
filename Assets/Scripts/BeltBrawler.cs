@@ -637,6 +637,16 @@ public sealed class BeltBrawler : MonoBehaviour
         }
     }
 
+    public void ShowSupportSpellEffect(SpellFighter caster, BrawlerDefines.UsableAction action, Color color)
+    {
+        if (caster == null || !caster.IsPlayer || caster.Health <= 0 || IsRunFinished || !caster.IsReleasingSpell)
+        {
+            return;
+        }
+        var effect = new GameObject("Support Spell Effect").AddComponent<SupportSpellEffect>();
+        effect.Initialize(caster, action, _factory.SupportSpellMaterial, color);
+    }
+
     // 魔法の対象は床上の左右・奥行きで選びます。近接のリーチや威力倍率から独立させます。
     public void CastMagicMissile(Fighter caster)
     {

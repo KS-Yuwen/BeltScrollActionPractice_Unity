@@ -253,6 +253,8 @@ public sealed class ClericFighter : SpellFighter
 
     protected override void ApplySpell(BrawlerDefines.UsableAction action)
     {
+        // 見た目と効果を同じ発動タイミングで開始します。演出がダメージや回復を重複させることはありません。
+        Game.ShowSupportSpellEffect(this, action, SpellEffectColor);
         // 予約した魔法の効果を一度だけ開始します。持続時間は詠唱完了から数えます。
         // 消費・詠唱・敵停止・後隙・被弾中断はSpellFighterで共用します。
         switch (action)

@@ -1447,7 +1447,20 @@ public static class GamepadValidation
                             "補助効果の持続時間は詠唱完了から開始する");
                         Color expected = protection ? new Color(1, 0.8f, 0.3f) : new Color(1, 0.45f, 0.2f);
                         Require((Color)feedback.GetValue(caster) == expected, "枠を切り替えても予約した魔法の演出色を維持する");
-                        AdvanceSpell(caster, effectSeconds);
+                        var visual = caster.GetComponentInChildren<SupportSpellEffect>();
+                        Require(visual != null && visual.GetComponentsInChildren<LineRenderer>().Length
+                            == (protection ? 1 : BrawlerBalance.SupportSpellBoostSymbolCount)
+                            && visual.GetComponentsInChildren<Collider>().Length == 0,
+                            "補助魔法ごとの形を生成し、エフェクトに接触判定を持たせない");
+                        AdvanceSpell(caster, effectSeconds / 2);
+                        typeof(SupportSpellEffect).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)
+                            .Invoke(visual, null);
+                        Require(visual.GetComponentInChildren<LineRenderer>().startColor.a < 1
+                            && visual.GetComponent<Light>().intensity > 0, "発動の進行率に同期して光と透明度を更新する");
+                        AdvanceSpell(caster, effectSeconds / 2);
+                        typeof(SupportSpellEffect).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)
+                            .Invoke(visual, null);
+                        Require(!visual.gameObject.activeSelf, "発動演出終了時は後隙にエフェクトを残さない");
                         Require(!game.IsSpellEffectActive && caster.IsRecoveringFromSpell,
                             "補助魔法も演出終了時に敵を再開し、後隙へ移る");
                         AdvanceSpell(caster, BrawlerBalance.SpellRecoverySeconds);
@@ -1526,7 +1539,13 @@ public static class GamepadValidation
                 AdvanceSpell(caster, BrawlerBalance.HealingCastSeconds);
                 Require(caster.Health == caster.MaxHealth && caster.IsReleasingSpell && game.IsSpellEffectActive,
                     "枠を切り替えても予約した回復が一度だけ発動し、共通の敵停止に入る");
+                var visual = caster.GetComponentInChildren<SupportSpellEffect>();
+                Require(visual != null && visual.GetComponentsInChildren<LineRenderer>().Length == 3,
+                    "回復は輪と十字の専用エフェクトを一度だけ生成する");
                 AdvanceSpell(caster, BrawlerBalance.HealingEffectSeconds);
+                typeof(SupportSpellEffect).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(visual, null);
+                Require(!visual.gameObject.activeSelf, "回復演出も発動状態の終了と同時に消える");
                 Require(!game.IsSpellEffectActive && caster.IsRecoveringFromSpell,
                     "回復演出終了時に停止を解除し、後隙中の敵は再開する");
                 AdvanceSpell(caster, BrawlerBalance.SpellRecoverySeconds);

@@ -467,6 +467,24 @@ public static class BrawlerBalance
     public const float MagicMissileTrailSeconds = 0.2f;
 
     // 回復魔法の試作用の時間です。攻撃魔法とは独立に調整できます。
+    // 補助魔法の仮エフェクト。見た目の数値は効果時間・HP・威力から独立させます。
+    public const int SupportSpellRingSegments = 32;
+    public const float SupportSpellRingRadius = 0.55f;
+    public const float SupportSpellRingExpansion = 2f;
+    public const float SupportSpellGroundHeight = 0.08f;
+    public const float SupportSpellSymbolSize = 0.3f;
+    public const float SupportSpellSymbolHeight = 1.4f;
+    public const float SupportSpellFrontOffset = 0.6f;
+    public const float SupportSpellSymbolRise = 0.6f;
+    public const float SupportSpellShieldSize = 0.55f;
+    public const float SupportSpellShieldExpansion = 1.25f;
+    public const int SupportSpellBoostSymbolCount = 3;
+    public const float SupportSpellBoostBaseHeight = 0.65f;
+    public const float SupportSpellBoostSymbolGap = 0.4f;
+    public const float SupportSpellLineWidth = 0.08f;
+    public const float SupportSpellLightRange = 3f;
+    public const float SupportSpellLightIntensity = 2f;
+
     public const float HealingCastSeconds = 0.4f;
     public const float HealingEffectSeconds = 0.25f;
     // 補助魔法も個別に時間を調整できます。持続時間とは区別します。
