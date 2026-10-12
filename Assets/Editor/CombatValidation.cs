@@ -411,11 +411,15 @@ public static class CombatValidation
             SetPrivateField(player, "_dashRemaining", 0f);
             SetPrivateField(player, "_isCrouching", false);
             MethodInfo runInput = typeof(Fighter).GetMethod("UpdateRunningInput", BindingFlags.Instance | BindingFlags.NonPublic);
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
             SetPrivateField(player, "_lastForwardTapAt", -10f);
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             Require(!player.IsRunning, "前方向1回では走らない");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             Require(player.IsRunning, "前方向2回で継続ダッシュ");
             heavy.RestoreHealth(200);
@@ -427,10 +431,14 @@ public static class CombatValidation
             SetPrivateField(heavy, "_stunRemaining", 0f);
             game.HitRunningTargets(player);
             Require(heavy.Health == beforeBodyCheck - 8, "同じダッシュでは同じ敵に二重命中しない");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
             Require(!player.IsRunning, "方向を離すと継続ダッシュ解除");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             SetPrivateField(heavy, "_stunRemaining", 0f);
             game.HitRunningTargets(player);
@@ -557,6 +565,7 @@ public static class CombatValidation
             updateStop.Invoke(game, new object[] { 1f });
 
             var uppercutCommands = new DirectionCommandBuffer();
+            uppercutCommands.Record(Vector3.zero, 1, -0.1f);
             uppercutCommands.Record(Vector3.back, 1, 0);
             uppercutCommands.Record(Vector3.zero, 1, 0.2f);
             uppercutCommands.Record(Vector3.forward, 1, 0.8f);
@@ -1165,6 +1174,8 @@ public static class CombatValidation
             ValidateAttackBoost(game, createTurnEnemy, turnEnemies);
             ValidateMagicScrolls(game, createTurnEnemy);
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
+            ValidateDirectionalInputOrder();
+            ValidatePlayerCombosAndCancels(game, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
             ValidateEnemyAttackSounds(game, createTurnEnemy);
             ValidateBoss(game, createTurnEnemy, turnEnemies);
@@ -1399,6 +1410,129 @@ public static class CombatValidation
     }
 
     // 聴感はUnityで確認し、自動検証では音を要求する攻撃段階と空振りの分類を確認します。
+    private static void ValidateDirectionalInputOrder()
+    {
+        foreach (float facing in new float[] { -1f, 1f })
+        {
+            var commands = new DirectionCommandBuffer();
+            Vector3 diagonal = new Vector3(facing, 0, -1);
+            commands.Record(Vector3.zero, facing, 0f, 1);
+            commands.Record(Vector3.back, facing, 0.1f, 2);
+            commands.Record(diagonal, facing, 0.2f, 3);
+            Require(!commands.TryConsumeDownForward(diagonal, 0.2f, out _, true, 3),
+                "方向と攻撃が同じ入力更新なら必殺技を出さない");
+            Require(commands.TryConsumeDownForward(diagonal, 0.2f, out float actualFacing, true, 4)
+                && actualFacing == facing, "次の入力更新なら時間停止中でも左右の必殺技を受理する");
+            Require(!commands.TryConsumeDownForward(diagonal, 0.2f, out _, true, 5), "保持で必殺技を繰り返さない");
+            var noNeutral = new DirectionCommandBuffer();
+            noNeutral.Record(Vector3.back, facing, 0f, 1);
+            noNeutral.Record(diagonal, facing, 0.1f, 2);
+            Require(!noNeutral.TryConsumeDownForward(diagonal, 0.2f, out _, true, 3),
+                "開始時のニュートラルがないダッシュ必殺技は拒否する");
+            Require(noNeutral.TryConsumeDownForward(diagonal, 0.2f, out _, false, 3),
+                "同じ履歴でもスライディングには開始時のニュートラルを要求しない");
+            var uppercut = new DirectionCommandBuffer();
+            uppercut.Record(Vector3.zero, facing, 0f, 1);
+            uppercut.Record(Vector3.back, facing, 0.1f, 2);
+            uppercut.Record(Vector3.forward, facing, 0.2f, 3);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 0.3f, 4), "下→上の間のニュートラルを省略できない");
+            uppercut.Record(Vector3.zero, facing, 0.4f, 5);
+            uppercut.Record(diagonal, facing, 0.5f, 6);
+            uppercut.Record(Vector3.zero, facing, 0.6f, 7);
+            uppercut.Record(Vector3.forward, facing, 0.7f, 8);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 0.8f, 9), "斜め下を対空の下入力として代用しない");
+            uppercut.Record(Vector3.zero, facing, 1f, 10);
+            uppercut.Record(Vector3.back, facing, 1.1f, 11);
+            uppercut.Record(Vector3.zero, facing, 1.2f, 12);
+            uppercut.Record(Vector3.forward, facing, 1.3f, 13);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 1.3f, 13), "上入力と同時押しの対空を拒否する");
+            Require(uppercut.TryConsumeDownUp(Vector3.forward, 1.8f, 14), "受付の余裕を維持し、上の後の攻撃を受理する");
+            var forward = new DirectionCommandBuffer();
+            forward.Record(Vector3.zero, facing, 0f, 1);
+            forward.Record(Vector3.right * facing, facing, 0.1f, 2);
+            Require(forward.EnteredForwardFromNeutral && !forward.TryConsumeForward(facing, 0.1f, 2),
+                "大斬りはニュートラルから純粋な前方向へ入れ、ボタンは後にする");
+            Require(forward.TryConsumeForward(facing, 0.5f, 3), "前を先に入れた大斬りを左右とも受理する");
+            forward.Record(Vector3.zero, facing, 1f, 4);
+            forward.Record(new Vector3(facing, 0, 1), facing, 1.1f, 5);
+            Require(!forward.EnteredForwardFromNeutral && !forward.TryConsumeForward(facing, 1.2f, 6),
+                "斜め入力を大斬りや横ダッシュの開始として扱わない");
+            var crouch = new DirectionCommandBuffer();
+            crouch.Record(Vector3.back, facing, 0f, 1);
+            Require(!crouch.IsDownHeldBeforeButton(0f, 1) && crouch.IsDownHeldBeforeButton(0f, 2),
+                "しゃがみはニュートラル不要だが、下を先に入れる必要がある");
+        }
+    }
+
+    private static void ValidatePlayerCombosAndCancels(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test combo player", Vector3.zero, true, false, false, false });
+        var victim = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test combo victim", Vector3.right, false, false, true, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        Fighter[] previousEnemies = enemies.ToArray();
+        enemies.Clear();
+        enemies.Add(victim);
+        SetPrivateField(game, "_player", player);
+        typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+        MethodInfo attack = typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo canInput = typeof(Fighter).GetMethod("CanAcceptNormalAttackInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo canCancel = typeof(Fighter).GetMethod("CanCancelAttackTo", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo uppercut = typeof(Fighter).GetMethod("StartUppercut", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo special = typeof(Fighter).GetMethod("StartDashSpecial", BindingFlags.Instance | BindingFlags.NonPublic);
+        attack.Invoke(player, null);
+        Require(!(bool)canInput.Invoke(player, null), "初段の命中前は次段入力を受理しない");
+        victim.transform.position = Vector3.right * 10;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(!(bool)canInput.Invoke(player, null), "空振りしても次段入力を受理しない");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 1, "空振り後に再攻撃しても初段になる");
+        victim.transform.position = Vector3.right;
+        int initialHealth = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(victim.Health < initialHealth && (bool)canInput.Invoke(player, null), "実際の命中後に次段入力を受理する");
+        Require((bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.HeavyStrike })
+            && (bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial }),
+            "初段の命中判定後は大斬り・必殺技へのキャンセルを許可する");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 2, "命中後の次の通常攻撃は2段目になる");
+        int secondHealth = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(victim.Health < secondHealth, "別段の通常攻撃は同じ攻撃者の被弾硬直中にもつながる");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == BrawlerBalance.ComboSteps, "2段目の命中後は最終段へ進む");
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(!(bool)canInput.Invoke(player, null), "最終段から次段を予約しない");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 1, "最終段の後は初段へ戻る");
+        SetPrivateField(victim, "_stunRemaining", 0f);
+        SetPrivateField(victim, "_downRemaining", 0f);
+        victim.transform.position = Vector3.right;
+        game.Hit(player, BrawlerBalance.NormalDamage);
+        special.Invoke(player, new object[] { 1f });
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut }), "必殺技の攻撃判定前はキャンセルしない");
+        int beforeSpecial = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.DashSpecialHitDelaySeconds + 0.01f });
+        Require(victim.Health < beforeSpecial, "通常攻撃からつないだ別技は通常の被弾硬直で無効にならない");
+        Require((bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut })
+            && !(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial })
+            && !(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.HeavyStrike }),
+            "ダッシュ必殺技から対空のみを許可し、同じ技・下位技へ戻さない");
+        uppercut.Invoke(player, null);
+        SetPrivateField(player, "_hasDealtHit", true);
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial }), "対空からダッシュ必殺技への逆方向は禁止する");
+        SetPrivateField(player, "_stunRemaining", BrawlerBalance.StunSeconds);
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut }), "被弾硬直中はキャンセルを許可しない");
+        SetPrivateField(game, "_player", previousPlayer);
+        enemies.Clear();
+        enemies.AddRange(previousEnemies);
+        UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
     private static void ValidateEnemyAttackSounds(BeltBrawler game, MethodInfo createFighter)
     {
         var audio = (BrawlerAudio)GetPrivateField(game, "_audio");

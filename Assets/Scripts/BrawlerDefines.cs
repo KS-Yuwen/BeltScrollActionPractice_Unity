@@ -3,6 +3,7 @@
 public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
+    public const int UnsetInputSample = -1;
     public const int StandardShaderFadeMode = 2;
 
     // 攻撃の排他的な種類。移動・空中・防御の状態とは分けて扱います。
@@ -77,6 +78,11 @@ public static class BrawlerDefines
         Neutral,
         Down,
         DownForward,
-        DownBackward
+        DownBackward,
+        Up,
+        Forward,
+        Backward,
+        UpForward,
+        UpBackward
     }
 }

@@ -261,6 +261,8 @@ public static class BrawlerBalance
     public const int GroundAttackDamage = 24;
     public const int ComboSteps = 3;
     public const float AttackBufferSeconds = 0.2f;
+    // 大斬りも方向を先に入れてから押す技です。方向コマンドと同じ余裕を確保します。
+    public static float HeavyStrikeButtonWindowSeconds => SlideButtonWindowSeconds;
     public const float ComboWindowSeconds = 0.85f;
     public const float AttackSeconds = 0.3f;
     public const float NormalCooldownSeconds = 0.32f;

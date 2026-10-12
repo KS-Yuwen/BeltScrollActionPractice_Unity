@@ -753,7 +753,11 @@ public sealed class BeltBrawler : MonoBehaviour
                     {
                         BrawlerDefines.DamageKind kind = attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
                             : attacker.IsHeavyStriking ? BrawlerDefines.DamageKind.HeavyStrike : BrawlerDefines.DamageKind.Normal;
-                        enemy.TakeDamage(damage, attacker.Facing, kind);
+                        enemy.TakeMeleeDamage(damage, attacker, kind);
+                    }
+                    if (enemy.Health < healthBeforeHit)
+                    {
+                        attacker.NotifyMeleeHit();
                     }
                     // 無敵・硬直・撃破済みで拒否された命中や空振りでは、反撃専用の演出を出しません。
                     if (attacker.IsCounterAttacking && enemy.Health < healthBeforeHit)

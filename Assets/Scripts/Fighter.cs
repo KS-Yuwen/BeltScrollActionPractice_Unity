@@ -45,6 +45,12 @@ public class Fighter : Combatant
     private int _comboStep;
     // 1 回の攻撃でダメージ判定を繰り返さないためのフラグ。
     private bool _hasDealtHit;
+    private bool _canContinueCombo;
+    private float _comboHitAt = BrawlerDefines.UnsetTime;
+    private float _comboHitFacing;
+    private Fighter _lastMeleeAttacker;
+    private BrawlerDefines.AttackKind _lastReceivedMeleeKind;
+    private int _lastReceivedComboStep;
     // 同時に複数の技が有効にならないよう、種類は一つの値で保持します。
     private BrawlerDefines.AttackKind _attackKind;
     // 被ダメージ時に押し戻される速度。
@@ -96,6 +102,8 @@ public class Fighter : Combatant
 
     public bool IsRunning => _isRunning;
     private readonly DirectionCommandBuffer _directionCommands = new DirectionCommandBuffer();
+    // 入力を読み取った順番。Time.timeが停止していても、方向とボタンの前後関係を区別します。
+    private int _inputSample;
     private readonly System.Collections.Generic.HashSet<Fighter> _slideHitEnemies = new System.Collections.Generic.HashSet<Fighter>();
     private float _slideRemaining;
     private float _slideDirection;
@@ -444,10 +452,11 @@ public class Fighter : Combatant
                 ClearAttackHold();
                 return Vector3.zero;
             }
-            _directionCommands.Record(input, Facing, Time.time);
+            _inputSample++;
+            _directionCommands.Record(input, Facing, Time.time, _inputSample);
             if (attackPressed && !jumpPressed && !IsAirborne && _stunRemaining <= 0
-                && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0
-                && _directionCommands.TryConsumeDownUp(input, Time.time))
+                && CanStartCommandAttack(BrawlerDefines.AttackKind.Uppercut)
+                && _directionCommands.TryConsumeDownUp(input, Time.time, _inputSample))
             {
                 Facing = GetInputFacing(input);
                 StartUppercut();
@@ -455,21 +464,23 @@ public class Fighter : Combatant
             }
             if (jumpPressed && !IsAirborne && _stunRemaining <= 0 && _attackRemaining <= 0
                 && _dashRemaining <= 0 && _attackCooldown <= 0
-                && _directionCommands.TryConsumeDownForward(input, Time.time, out float slideDirection))
+                && _directionCommands.TryConsumeDownForward(input, Time.time, out float slideDirection, sample: _inputSample))
             {
                 StartSlide(slideDirection);
                 return Vector3.zero;
             }
             if (attackPressed && !jumpPressed && !IsAirborne && _stunRemaining <= 0
-                && _attackRemaining <= 0 && _dashRemaining <= 0 && _attackCooldown <= 0
-                && _directionCommands.TryConsumeDownForward(input, Time.time, out float specialDirection))
+                && CanStartCommandAttack(BrawlerDefines.AttackKind.DashSpecial)
+                && _directionCommands.TryConsumeDownForward(input, Time.time, out float specialDirection, requiresNeutral: true, sample: _inputSample))
             {
                 StartDashSpecial(specialDirection);
                 return Vector3.zero;
             }
             // 下入力は奥行き移動にも使うため、ジャンプボタンを保持した時だけしゃがみます。
             _isCrouching = !IsAirborne && _dashRemaining <= 0 && _stunRemaining <= 0
-                && input.z < -BrawlerBalance.JumpDirectionThreshold && BrawlerInput.IsJumpHeld();
+                && BrawlerInput.IsJumpHeld()
+                && (_isCrouching ? input.z < -BrawlerBalance.JumpDirectionThreshold
+                    : _directionCommands.IsDownHeldBeforeButton(Time.time, _inputSample));
             if (jumpPressed && _canBackstepFromJump && Time.time - _lastJumpPressedAt <= BrawlerBalance.DoubleTapWindowSeconds
                 && input.z >= -BrawlerBalance.JumpDirectionThreshold && _stunRemaining <= 0 && _attackRemaining <= 0 && DashReady)
             {
@@ -479,7 +490,13 @@ public class Fighter : Combatant
             if (jumpPressed && !_isCrouching && !IsAirborne && _stunRemaining <= 0
                 && _attackRemaining <= 0 && !IsUsingSpecialAction)
             {
-                StartJump(input);
+                // 上＋ジャンプの同時入力や斜め上は通常ジャンプにします。
+                Vector3 jumpInput = input;
+                if (!_directionCommands.IsUpHeldBeforeButton(Time.time, _inputSample))
+                {
+                    jumpInput.z = 0;
+                }
+                StartJump(jumpInput);
             }
             if (IsAirborne)
             {
@@ -513,13 +530,23 @@ public class Fighter : Combatant
                 StartDashAttack();
                 return Vector3.zero;
             }
-            // 次の攻撃が可能になる直前の入力も 0.2 秒間覚え、コンボをつなぎやすくします。
-            if (attackPressed && !IsGuarding)
+            bool heavyStrikeRequested = attackPressed && !jumpPressed
+                && _directionCommands.TryConsumeForward(Facing, Time.time, _inputSample);
+            // 前方向を先に入力してから攻撃を押した場合だけ、大斬りへキャンセルします。
+            if (attackPressed && !jumpPressed && !IsGuarding
+                && heavyStrikeRequested
+                && CanCancelAttackTo(BrawlerDefines.AttackKind.HeavyStrike))
+            {
+                StartHeavyStrike();
+                return Vector3.zero;
+            }
+            // 命中前の連打は予約しません。命中後の次段入力だけ0.2秒間覚えます。
+            if (attackPressed && !IsGuarding && CanAcceptNormalAttackInput())
             {
                 _attackBufferRemaining = BrawlerBalance.AttackBufferSeconds;
                 // 先行入力はボタンを押した時点の向きも記憶します。方向を離しても失いません。
                 _attackBufferFacing = GetInputFacing(input);
-                _attackBufferForward = input.x * Facing > BrawlerBalance.ForwardInputThreshold;
+                _attackBufferForward = heavyStrikeRequested;
                 _attackHoldFacing = _attackBufferFacing;
                 _attackHoldSeconds = 0;
             }
@@ -556,6 +583,63 @@ public class Fighter : Combatant
             }
         }
         return input;
+    }
+
+    // 命中判定前はモーションを維持します。判定後から上位の技へ切り替えられます。
+    // 必殺技同士はダッシュ必殺技→対空必殺技の一方通行とし、同じ技の連続キャンセルを防ぎます。
+    private bool CanCancelAttackTo(BrawlerDefines.AttackKind nextKind)
+    {
+        if (!IsPlayer || Health <= 0 || Game.IsRunFinished || _stunRemaining > 0
+            || IsAirborne || IsSliding || _dashRemaining > 0 || IsUsingSpecialAction || !_hasDealtHit)
+        {
+            return false;
+        }
+        bool isInRecovery = _attackRemaining > 0 || _attackCooldown > 0;
+        if (!isInRecovery)
+        {
+            return false;
+        }
+        if (nextKind == BrawlerDefines.AttackKind.HeavyStrike)
+        {
+            return _attackKind == BrawlerDefines.AttackKind.Normal;
+        }
+        if (nextKind == BrawlerDefines.AttackKind.Uppercut && _attackKind == BrawlerDefines.AttackKind.DashSpecial)
+        {
+            return true;
+        }
+        return (nextKind == BrawlerDefines.AttackKind.DashSpecial || nextKind == BrawlerDefines.AttackKind.Uppercut)
+            && (_attackKind == BrawlerDefines.AttackKind.Normal || _attackKind == BrawlerDefines.AttackKind.Dash
+                || _attackKind == BrawlerDefines.AttackKind.HeavyStrike || _attackKind == BrawlerDefines.AttackKind.Push
+                || _attackKind == BrawlerDefines.AttackKind.Counter || _attackKind == BrawlerDefines.AttackKind.Ground
+                || _attackKind == BrawlerDefines.AttackKind.Crouch);
+    }
+
+    private bool CanStartCommandAttack(BrawlerDefines.AttackKind nextKind)
+    {
+        // 通常の発動条件と、後隙を省略するキャンセル条件を分けて読みやすくします。
+        return _dashRemaining <= 0 && !IsUsingSpecialAction
+            && ((_attackRemaining <= 0 && _attackCooldown <= 0) || CanCancelAttackTo(nextKind));
+    }
+
+    private bool CanAcceptNormalAttackInput()
+    {
+        if (_attackKind == BrawlerDefines.AttackKind.Normal && (_attackRemaining > 0 || _attackCooldown > 0))
+        {
+            return _canContinueCombo && _comboStep < BrawlerBalance.ComboSteps;
+        }
+        // 特殊技・必殺技の途中から通常攻撃を予約し、下位技へ戻すことはしません。
+        return _attackRemaining <= 0 && _attackCooldown <= 0;
+    }
+
+    public void NotifyMeleeHit()
+    {
+        if (IsPlayer && _attackKind == BrawlerDefines.AttackKind.Normal)
+        {
+            // 当たった時刻を基準に次段の受付を開始します。範囲内でも無敵で拒否された場合は呼びません。
+            _canContinueCombo = _comboStep < BrawlerBalance.ComboSteps;
+            _comboHitAt = Time.time;
+            _comboHitFacing = Facing;
+        }
     }
 
     private void UpdateGuardInput(Vector3 input)
@@ -790,7 +874,10 @@ public class Fighter : Combatant
         }
         else
         {
-            ResetAttackKind();
+            if (_attackCooldown <= 0 && _attackKind != BrawlerDefines.AttackKind.Normal)
+            {
+                ResetAttackKind();
+            }
             // 回転なしの状態に戻します。
             _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
@@ -887,6 +974,9 @@ public class Fighter : Combatant
         {
             Game.PlaySound(EnemySwingSound);
         }
+        bool continueCombo = IsPlayer && _canContinueCombo && Facing == _comboHitFacing
+            && Time.time - _comboHitAt <= BrawlerBalance.ComboWindowSeconds;
+        int nextComboStep = continueCombo ? _comboStep + 1 : 1;
         ResetAttackKind();
         _attackKind = BrawlerDefines.AttackKind.Normal;
         if (IsPlayer)
@@ -894,9 +984,8 @@ public class Fighter : Combatant
             _canPushFromHold = true;
         }
         _counterWindowRemaining = 0;
-        // 前回の開始から 0.85 秒未満なら次の段へ進み、それ以上なら 1 段目に戻します。
-        // 剰余演算 % によって、3 段目の次は 1 段目になります。入力は Update で先行受付します。
-        _comboStep = Time.time - _lastAttackTime < BrawlerBalance.ComboWindowSeconds ? _comboStep % BrawlerBalance.ComboSteps + 1 : 1;
+        // 空振りは初段に戻り、実際の命中後に入力した場合だけ次段へ進みます。
+        _comboStep = nextComboStep;
         _lastAttackTime = Time.time;
         _attackRemaining = BrawlerBalance.AttackSeconds;
         // プレイヤーは 3 段目の後に長めの隙を作り、敵は攻撃間隔を長くして避けやすくします。
@@ -930,6 +1019,7 @@ public class Fighter : Combatant
     // 時間や入力バッファは各行動の規則に従って更新し、技の種類と対象だけを共通で解除します。
     private void ResetAttackKind()
     {
+        _canContinueCombo = false;
         _attackKind = BrawlerDefines.AttackKind.None;
         _groundAttackTarget = null;
     }
@@ -1112,7 +1202,7 @@ public class Fighter : Combatant
         {
             _isRunning = false;
         }
-        if (forwardHeld && !_wasForwardHeld && canRun)
+        if (_directionCommands.EnteredForwardFromNeutral && canRun)
         {
             float direction = Mathf.Sign(input.x);
             if (_lastForwardTapDirection == direction && Time.time - _lastForwardTapAt <= BrawlerBalance.DoubleTapWindowSeconds)
@@ -1127,6 +1217,12 @@ public class Fighter : Combatant
                 _lastForwardTapAt = Time.time;
                 _lastForwardTapDirection = direction;
             }
+        }
+        if (!_isRunning && !_directionCommands.IsNeutral
+            && (Mathf.Abs(input.z) > BrawlerBalance.CommandDirectionThreshold || !forwardHeld))
+        {
+            // 斜め・逆方向を挟んだ2回入力を純粋な横ダッシュとして扱いません。
+            _lastForwardTapAt = BrawlerDefines.UnsetTime;
         }
         _wasForwardHeld = forwardHeld;
     }
@@ -1294,9 +1390,38 @@ public class Fighter : Combatant
         ApplyDamage(amount, direction, false, kind);
     }
 
+    public void TakeMeleeDamage(int amount, Fighter attacker, BrawlerDefines.DamageKind kind)
+    {
+        int healthBefore = Health;
+        bool isDifferentAttack = _lastReceivedMeleeKind != attacker._attackKind
+            || attacker._attackKind == BrawlerDefines.AttackKind.Normal && _lastReceivedComboStep != attacker.ComboStep;
+        // 同じ相手から異なる技をつないだ場合だけ、通常の被弾硬直中にも追加入力の成果を反映します。
+        // 転倒・ハンマー気絶・回避・空中の無敵や、別の攻撃者の攻撃にはこの例外を適用しません。
+        bool canReceiveChain = !IsPlayer && !IsGuarding && Health > 0 && !Game.IsRunFinished
+            && _lastMeleeAttacker == attacker && isDifferentAttack && _stunRemaining > 0
+            && _downRemaining <= 0 && _hammerStunRemaining <= 0 && _dashRemaining <= 0
+            && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
+        if (canReceiveChain && amount > 0)
+        {
+            ApplyDamage(amount, attacker.Facing, false, kind);
+        }
+        else
+        {
+            TakeDamage(amount, attacker.Facing, kind);
+        }
+        if (Health < healthBefore)
+        {
+            _lastMeleeAttacker = attacker;
+            _lastReceivedMeleeKind = attacker._attackKind;
+            _lastReceivedComboStep = attacker.ComboStep;
+        }
+    }
+
     private void ApplyDamage(int amount, float direction, bool isGroundHit,
         BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
+        // 投擲などが間に入った場合、前の近接連携の例外を持ち越しません。
+        _lastMeleeAttacker = null;
         ResetAttackKind();
         ClearAttackHold();
         _slideRemaining = 0;

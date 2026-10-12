@@ -74,7 +74,7 @@ public static class GamepadValidation
             Require(ReadPlayerTimer(player, "_attackRemaining") > 0, "パッドの攻撃入力が戦闘処理へ到達");
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             Require(!BrawlerInput.WasAttackPressed(), "押しっぱなしでは攻撃を再入力しない");
-            // コンボの後隙では入力を覚えるだけにし、硬直が終わると次の段が出ることを確認します。
+            // 命中前の追加入力は記憶せず、空振りから次段へ進まないことを確認します。
             SendState(pad, new GamepadState());
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             UpdatePlayer(player);
@@ -83,7 +83,8 @@ public static class GamepadValidation
             SetPlayerTimer(player, "_attackCooldown", 0);
             SendState(pad, new GamepadState());
             UpdatePlayer(player);
-            Require(player.ComboStep == 2, "先行入力した攻撃が次の段へつながる");
+            Require(player.ComboStep == 1 && ReadPlayerTimer(player, "_attackRemaining") <= 0,
+                "命中前の入力を持ち越して次段を発動しない");
             SendState(pad, new GamepadState().WithButton(GamepadButton.RightShoulder));
             Require(BrawlerInput.WasDashPressed(), "右ショルダーボタンで回避");
             UpdatePlayer(player);
@@ -202,6 +203,9 @@ public static class GamepadValidation
             SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+            InputSystem.Update();
+            UpdatePlayer(player);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U));
             InputSystem.Update();
             // 先の被ダメージ検証による押し戻しを取り除き、しゃがみ入力による移動だけを調べます。
@@ -240,6 +244,9 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
             InputSystem.Update();
             UpdatePlayer(player);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.D));
+            InputSystem.Update();
+            UpdatePlayer(player);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.D, Key.U));
             InputSystem.Update();
             UpdatePlayer(player);
@@ -254,13 +261,16 @@ public static class GamepadValidation
             InputSystem.Update();
             foreach (float expectedFacing in new float[] { -1, 1 })
             {
-                SetPlayerTimer(player, "_attackRemaining", 0.1f);
-                SetPlayerTimer(player, "_attackCooldown", 0.1f);
+                // 向きの確認は待機状態から行います。未命中の攻撃中は入力を予約しません。
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                // 待機中の「後ろ＋攻撃」はガードなので、前方向の攻撃として左右を別々に確認します。
+                typeof(Fighter).GetProperty("Facing").SetValue(player, expectedFacing);
                 Key directionKey = expectedFacing < 0 ? Key.A : Key.D;
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(directionKey, Key.J));
                 InputSystem.Update();
                 UpdatePlayer(player);
-                // 先行入力後に方向を離し、攻撃開始時のフレームには方向入力がない状況を再現します。
+                // 攻撃開始後に方向を離しても、向きと見た目が一致することを確認します。
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState());
                 InputSystem.Update();
                 SetPlayerTimer(player, "_attackRemaining", 0);
@@ -268,10 +278,16 @@ public static class GamepadValidation
                 UpdatePlayer(player);
                 Transform model = (Transform)typeof(Fighter).GetField("_visual", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
                 Require(player.Facing == expectedFacing && Mathf.Sign(model.localScale.x) == expectedFacing,
-                    "左右どちらも先行入力した攻撃方向と見た目が一致");
+                    "左右どちらも入力した攻撃方向と見た目が一致");
                 SetPlayerTimer(player, "_attackRemaining", 0);
                 SetPlayerTimer(player, "_attackCooldown", 0);
                 // しゃがみ攻撃でも、方向＋攻撃の同時入力を開始方向に反映します。
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U));
+                InputSystem.Update();
+                UpdatePlayer(player);
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, Key.U, directionKey, Key.J));
                 InputSystem.Update();
                 UpdatePlayer(player);
@@ -290,7 +306,13 @@ public static class GamepadValidation
                 SetPlayerTimer(player, "_attackRemaining", 0);
                 SetPlayerTimer(player, "_attackCooldown", 0);
                 SetPlayerTimer(player, "_dashAttackMovementRemaining", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                UpdatePlayer(player);
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, specialFacing < 0 ? Key.A : Key.D));
                 InputSystem.Update();
                 UpdatePlayer(player);
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S, specialFacing < 0 ? Key.A : Key.D, Key.J));
@@ -313,6 +335,12 @@ public static class GamepadValidation
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.S));
                 InputSystem.Update();
                 UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W));
+                InputSystem.Update();
+                UpdatePlayer(player);
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.W, Key.J));
                 InputSystem.Update();
                 UpdatePlayer(player);
@@ -329,6 +357,12 @@ public static class GamepadValidation
                 typeof(Fighter).GetProperty("Facing").SetValue(player, strikeFacing);
                 SetPlayerTimer(player, "_attackRemaining", 0);
                 SetPlayerTimer(player, "_attackCooldown", 0);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+                UpdatePlayer(player);
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState(strikeFacing < 0 ? Key.A : Key.D));
+                InputSystem.Update();
+                UpdatePlayer(player);
                 InputSystem.QueueStateEvent(keyboard, new KeyboardState(strikeFacing < 0 ? Key.A : Key.D, Key.J));
                 InputSystem.Update();
                 UpdatePlayer(player);
@@ -430,6 +464,7 @@ public static class GamepadValidation
             typeof(ClericFighter).GetField("_turnUndeadCooldownRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
+            ValidateComboAndCancelInput(player, pad);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -443,6 +478,68 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateComboAndCancelInput(Fighter sourcePlayer, Gamepad pad)
+    {
+        // 接続解除の検証後なので、この項目専用の仮想パッドを接続します。
+        bool ownsPad = !pad.added;
+        if (ownsPad)
+        {
+            pad = InputSystem.AddDevice<Gamepad>();
+        }
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        Fighter player = factory.CreateFighter("Test combo input", Vector3.zero, true, 1);
+        MethodInfo attack = typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+            SendState(pad, new GamepadState());
+            attack.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            read.Invoke(player, null);
+            Require(ReadPlayerTimer(player, "_attackBufferRemaining") == 0, "パッドの命中前の連打は予約しない");
+            // 実ダメージによる通知はCombatValidationで確認し、ここでは入力後の分岐を確認します。
+            player.NotifyMeleeHit();
+            SendState(pad, new GamepadState());
+            read.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            read.Invoke(player, null);
+            Require(ReadPlayerTimer(player, "_attackBufferRemaining") > 0, "命中後のパッド入力は次段を予約する");
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            movement.Invoke(player, new object[] { Vector3.zero, false });
+            Require(player.ComboStep == 2, "パッドの命中後入力から2段目へ進む");
+            typeof(Fighter).GetField("_hasDealtHit", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, true);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            read.Invoke(player, null);
+            SendState(pad, new GamepadState());
+            read.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadUp));
+            read.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadUp).WithButton(GamepadButton.West));
+            read.Invoke(player, null);
+            Require(player.IsUppercutAttacking, "パッドの下→上＋攻撃で通常攻撃の途中から対空へキャンセルする");
+            typeof(Fighter).GetField("_hasDealtHit", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, true);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            read.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown).WithButton(GamepadButton.DpadRight).WithButton(GamepadButton.West));
+            read.Invoke(player, null);
+            Require(player.IsUppercutAttacking && !player.IsDashSpecialAttacking,
+                "パッドでも対空からダッシュ必殺技への逆方向キャンセルは成立しない");
+        }
+        finally
+        {
+            SendState(pad, new GamepadState());
+            if (ownsPad)
+            {
+                InputSystem.RemoveDevice(pad);
+            }
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
     }
 
