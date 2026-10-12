@@ -334,6 +334,17 @@ public sealed class BeltBrawler : MonoBehaviour
             {
                 DropPotion(victim.transform.position);
             }
+            if (_defeatedEnemyCount % BrawlerBalance.ScrollDropInterval == 0)
+            {
+                // 撃破数を通算し、回復・補助のスクロールを交互に落とします。
+                int dropIndex = _defeatedEnemyCount / BrawlerBalance.ScrollDropInterval;
+                BrawlerDefines.SpellLevel level = dropIndex % BrawlerBalance.ScrollLevelCycleLength == 1
+                    ? BrawlerBalance.HealingSpellLevel : BrawlerBalance.ProtectionSpellLevel;
+                if (_player.SupportsSpellLevel(level))
+                {
+                    DropMagicScroll(victim.transform.position, level);
+                }
+            }
         }
     }
 
@@ -526,6 +537,25 @@ public sealed class BeltBrawler : MonoBehaviour
         hammer.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + BrawlerBalance.HammerPickupLaneOffset, -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
         CreateHammerModel(hammer.transform, Vector3.up * BrawlerBalance.HammerPickupHeight);
         hammer.AddComponent<ThrowingHammerPickup>().Initialize(_player, _audio);
+    }
+
+    private void DropMagicScroll(Vector3 position, BrawlerDefines.SpellLevel level)
+    {
+        var scroll = new GameObject("Magic Scroll Pickup");
+        // 同時に落ちるポーション・ハンマーと重なりにくい位置に置きます。
+        scroll.transform.position = new Vector3(position.x, 0,
+            Mathf.Clamp(position.z + BrawlerBalance.ScrollLaneOffset,
+                -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        Vector3 modelPosition = Vector3.up * BrawlerBalance.ScrollModelHeight;
+        _factory.CreateBodyPart("Scroll parchment", modelPosition,
+            new Vector3(BrawlerBalance.ScrollModelWidth, BrawlerBalance.ScrollModelHeight,
+                BrawlerBalance.ScrollModelDepth), _factory.SkinMaterial, scroll.transform);
+        Material bandMaterial = level == BrawlerBalance.HealingSpellLevel
+            ? _factory.HealingScrollMaterial : _factory.ProtectionScrollMaterial;
+        _factory.CreateBodyPart("Scroll band", modelPosition,
+            new Vector3(BrawlerBalance.ScrollBandWidth, BrawlerBalance.ScrollBandHeight,
+                BrawlerBalance.ScrollBandDepth), bandMaterial, scroll.transform);
+        scroll.AddComponent<MagicScrollPickup>().Initialize(_player, _audio, level);
     }
 
     private void DropPotion(Vector3 position)

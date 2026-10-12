@@ -16,6 +16,8 @@ public sealed class BrawlerSceneFactory
     private Material _heavyEnemyMaterial;
     private Material _undeadEnemyMaterial;
     private Material _potionMaterial;
+    private Material _healingScrollMaterial;
+    private Material _protectionScrollMaterial;
     private Material _hammerMaterial;
     private Material _impactMaterial;
     private Material _guardImpactMaterial;
@@ -25,6 +27,8 @@ public sealed class BrawlerSceneFactory
     public Material FloorMaterial => _floorMaterial;
     public Material SkinMaterial => _skinMaterial;
     public Material PotionMaterial => _potionMaterial;
+    public Material HealingScrollMaterial => _healingScrollMaterial;
+    public Material ProtectionScrollMaterial => _protectionScrollMaterial;
     public Material HammerMaterial => _hammerMaterial;
     public Material ImpactMaterial => _impactMaterial;
     public Material GuardImpactMaterial => _guardImpactMaterial;
@@ -46,6 +50,8 @@ public sealed class BrawlerSceneFactory
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
         _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        _healingScrollMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        _protectionScrollMaterial = CreateMaterial(new Color(1, 0.8f, 0.3f));
         _hammerMaterial = CreateMaterial(new Color(0.8f, 0.85f, 0.95f));
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = CreateOwnedMaterial("Unlit/Color");

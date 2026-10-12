@@ -1148,6 +1148,7 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
+            ValidateMagicScrolls(game, createTurnEnemy);
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
@@ -1185,6 +1186,95 @@ public static class CombatValidation
         Require(healthFeedback.TrailHealth == 90, "死亡時も直前HPを残像として保持");
         healthFeedback.Refresh(0, 100, 10);
         Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
+    }
+
+    private static void ValidateMagicScrolls(BeltBrawler game, MethodInfo createFighter)
+    {
+        var sharedPool = new SpellUsePool(2);
+        SpellUsePool anotherSpellPool = sharedPool;
+        Require(sharedPool.TryConsume() && anotherSpellPool.Remaining == 1
+            && anotherSpellPool.TryConsume() && sharedPool.Remaining == 0,
+            "同レベルの魔法は同じ回数枠を共有する");
+        Require(!sharedPool.TryConsume() && !sharedPool.TryRestore(0) && !sharedPool.TryRestore(-1),
+            "回数ゼロ・不正な補充量は変更しない");
+        Require(sharedPool.TryRestore(int.MaxValue) && sharedPool.Remaining == sharedPool.Capacity
+            && !sharedPool.TryRestore(1), "大きな補充量でも上限を超えない");
+
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test scroll cleric", Vector3.zero, true, false, false, false });
+        var audio = (BrawlerAudio)GetPrivateField(game, "_audio");
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        int previousKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+        var scrollObject = new GameObject("Test scroll");
+        var scroll = scrollObject.AddComponent<MagicScrollPickup>();
+        scroll.Initialize(cleric, audio, BrawlerBalance.HealingSpellLevel);
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == BrawlerBalance.HealingUses,
+            "満回数ではスクロールが床に残る");
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        scrollObject.transform.position = Vector3.right * 3;
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == 1, "離れたスクロールは取得しない");
+        scrollObject.transform.position = Vector3.zero;
+        SetPrivateField(cleric, "_recoveryRemaining", BrawlerBalance.SpellRecoverySeconds);
+        int protectionBefore = cleric.ProtectionUsesRemaining;
+        Require(scroll.TryCollect() && cleric.HealingUsesRemaining == 2
+            && cleric.GetSpellUsesRemaining(BrawlerBalance.HealingSpellLevel) == 2
+            && cleric.Health == cleric.MaxHealth && cleric.ProtectionUsesRemaining == protectionBefore,
+            "HP満タン・発動後の隙でも対応レベルだけ1回補充する");
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == 2, "同じスクロールは二重取得しない");
+        UnityEngine.Object.DestroyImmediate(scrollObject);
+
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.SpellLevel.None, 1)
+            && !cleric.TryRestoreSpellUses((BrawlerDefines.SpellLevel)99, 1), "未対応レベルは補充しない");
+        var enemy = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test nonmagic scroll target", Vector3.zero, false, false, false, false });
+        scrollObject = new GameObject("Test protection scroll");
+        scroll = scrollObject.AddComponent<MagicScrollPickup>();
+        scroll.Initialize(enemy, audio, BrawlerBalance.ProtectionSpellLevel);
+        Require(!scroll.TryCollect(), "魔法に未対応のキャラクターはスクロールを取得しない");
+        scroll.Initialize(cleric, audio, BrawlerBalance.ProtectionSpellLevel);
+        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == protectionBefore - 1,
+            "魔法使用はレベル共通枠を消費する");
+        Require(scroll.TryCollect() && cleric.ProtectionUsesRemaining == protectionBefore
+            && cleric.HealingUsesRemaining == 2 && cleric.IsProtected,
+            "補助スクロールは効果を延長せず補助の回数だけ補充する");
+        UnityEngine.Object.DestroyImmediate(scrollObject);
+
+        // 撃破時の生成経路も確認し、試験用キャラ・通算撃破数を後続の検証へ持ち越しません。
+        SetPrivateField(game, "_player", cleric);
+        for (int dropNumber = 1; dropNumber <= BrawlerBalance.ScrollLevelCycleLength; dropNumber++)
+        {
+            SetPrivateField(game, "_defeatedEnemyCount", dropNumber * BrawlerBalance.ScrollDropInterval - 1);
+            var victim = (Fighter)createFighter.Invoke(game,
+                new object[] { "Test scroll drop enemy", Vector3.zero, false, false, false, false });
+            int scrollsBefore = UnityEngine.Object.FindObjectsByType<MagicScrollPickup>().Length;
+            victim.TakeDamage(victim.MaxHealth, 1);
+            MagicScrollPickup[] drops = UnityEngine.Object.FindObjectsByType<MagicScrollPickup>();
+            Require(drops.Length == scrollsBefore + 1, "指定撃破数でスクロールを生成する");
+            BrawlerDefines.SpellLevel expectedLevel = dropNumber == 1
+                ? BrawlerBalance.HealingSpellLevel : BrawlerBalance.ProtectionSpellLevel;
+            bool foundLevel = false;
+            foreach (MagicScrollPickup drop in drops)
+            {
+                foundLevel |= drop.Level == expectedLevel;
+            }
+            Require(foundLevel, "回復・補助スクロールを交互に生成する");
+            victim.TakeDamage(victim.MaxHealth, 1);
+            Require(UnityEngine.Object.FindObjectsByType<MagicScrollPickup>().Length == drops.Length,
+                "撃破済みの敵からスクロールを重複生成しない");
+            UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        }
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, true);
+        Require(!cleric.TryRestoreSpellUses(BrawlerBalance.HealingSpellLevel, 1), "ゲーム終了後は補充しない");
+        typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, false);
+        cleric.TakeDamage(cleric.MaxHealth * 2, 1);
+        Require(!cleric.TryRestoreSpellUses(BrawlerBalance.HealingSpellLevel, 1), "死亡中は補充しない");
+        typeof(BeltBrawler).GetProperty("IsDefeated").SetValue(game, false);
+        SetPrivateField(game, "_player", previousPlayer);
+        SetPrivateField(game, "_defeatedEnemyCount", previousKills);
+        UnityEngine.Object.DestroyImmediate(enemy.gameObject);
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
     }
 
     private static void ValidateStageClear(BeltBrawler game, MethodInfo createTurnEnemy,

@@ -1,8 +1,31 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 // クレリック固有の魔法を担当します。移動・攻撃・被ダメージは Fighter の共通処理を使います。
 public sealed class ClericFighter : Fighter
 {
+    // 回復と補助は別レベルに割り当て、既存の独立した回数を維持します。
+    // 今後同レベルの魔法を追加するときは、新しい回数フィールドを作らず同じ枠を参照します。
+    private readonly Dictionary<BrawlerDefines.SpellLevel, SpellUsePool> _spellUses
+        = new Dictionary<BrawlerDefines.SpellLevel, SpellUsePool>
+        {
+            { BrawlerBalance.HealingSpellLevel, new SpellUsePool(BrawlerBalance.HealingUses) },
+            { BrawlerBalance.ProtectionSpellLevel, new SpellUsePool(BrawlerBalance.ProtectionUses) }
+        };
+
+    public override bool SupportsSpellLevel(BrawlerDefines.SpellLevel level) => _spellUses.ContainsKey(level);
+
+    public override bool TryRestoreSpellUses(BrawlerDefines.SpellLevel level, int amount)
+    {
+        // 回数だけの補充なので、HP満タン・発動後の隙でも取得可能です。死亡・終了後は拒否します。
+        return IsPlayer && Health > 0 && !Game.IsRunFinished
+            && _spellUses.TryGetValue(level, out SpellUsePool pool) && pool.TryRestore(amount);
+    }
+
+    public int GetSpellUsesRemaining(BrawlerDefines.SpellLevel level)
+    {
+        return _spellUses.TryGetValue(level, out SpellUsePool pool) ? pool.Remaining : 0;
+    }
     private const int HealingAmount = BrawlerBalance.HealingAmount;
     private const float RecoveryDuration = BrawlerBalance.SpellRecoverySeconds;
     private float _recoveryRemaining;
@@ -116,8 +139,12 @@ public sealed class ClericFighter : Fighter
         return true;
     }
 
-    // 回復とは別に 2 回使用できます。効果中の再使用では回数を消費しません。
-    public int ProtectionUsesRemaining { get; private set; } = BrawlerBalance.ProtectionUses;
+    // HUDや入力判定も、魔法固有の複製ではなくレベルの共通枠を参照します。
+    public int ProtectionUsesRemaining
+    {
+        get => GetSpellUsesRemaining(BrawlerBalance.ProtectionSpellLevel);
+        private set => _spellUses[BrawlerBalance.ProtectionSpellLevel].SetRemaining(value);
+    }
 
     public float ProtectionSecondsRemaining => _protectionRemaining;
 
@@ -127,8 +154,12 @@ public sealed class ClericFighter : Fighter
     public bool IsProtectionExpiring => Health > 0 && IsProtected
         && _protectionRemaining <= BrawlerBalance.ProtectionWarningSeconds;
 
-    // 1 プレイで 3 回。ウェーブを進めても補充せず、リスタートで初期化します。
-    public int HealingUsesRemaining { get; private set; } = BrawlerBalance.HealingUses;
+    // ウェーブ進行だけでは補充せず、スクロール取得またはリスタートで回数を戻します。
+    public int HealingUsesRemaining
+    {
+        get => GetSpellUsesRemaining(BrawlerBalance.HealingSpellLevel);
+        private set => _spellUses[BrawlerBalance.HealingSpellLevel].SetRemaining(value);
+    }
 
     public bool IsRecoveringFromHeal => _recoveryRemaining > 0;
 
@@ -194,7 +225,7 @@ public sealed class ClericFighter : Fighter
         {
             return false;
         }
-        ProtectionUsesRemaining--;
+        _spellUses[BrawlerBalance.ProtectionSpellLevel].TryConsume();
         Game.PlaySound(BrawlerSound.Protection);
         _protectionRemaining = ProtectionDuration;
         // 発動直後は回復と同じ 0.6 秒の隙。効果自体はその場で発生します。
@@ -226,7 +257,7 @@ public sealed class ClericFighter : Fighter
             return false;
         }
         RestoreHealth(HealingAmount);
-        HealingUsesRemaining--;
+        _spellUses[BrawlerBalance.HealingSpellLevel].TryConsume();
         Game.PlaySound(BrawlerSound.Heal);
         _recoveryRemaining = RecoveryDuration;
         ReleaseDefenseForSpecialAction();

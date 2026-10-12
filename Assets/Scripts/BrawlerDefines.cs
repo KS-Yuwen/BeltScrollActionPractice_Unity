@@ -38,7 +38,17 @@ public static class BrawlerDefines
     {
         HealingPotion,
         ThrowingHammer,
-        ThrowingKnife
+        ThrowingKnife,
+        HealingScroll,
+        ProtectionScroll
+    }
+
+    // 使用回数を共有する単位。魔法そのものとは分け、新しい同レベル魔法も同じ枠を使います。
+    public enum SpellLevel
+    {
+        None,
+        Second = 2,
+        Fourth = 4
     }
 
     public enum DamageKind

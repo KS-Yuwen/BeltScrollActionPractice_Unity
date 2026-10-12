@@ -150,6 +150,10 @@ public class Fighter : Combatant
     public int HealingPotionsHeld { get; private set; }
 
     public int ThrowingHammersHeld { get; private set; }
+
+    // 魔法を使わない職業はスクロールを取得しません。魔法職はレベルごとの対応を上書きします。
+    public virtual bool SupportsSpellLevel(BrawlerDefines.SpellLevel level) => false;
+    public virtual bool TryRestoreSpellUses(BrawlerDefines.SpellLevel level, int amount) => false;
     public int ThrowingKnivesHeld { get; private set; }
     private float _itemRecoveryRemaining;
 
