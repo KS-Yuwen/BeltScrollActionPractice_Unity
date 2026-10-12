@@ -3,6 +3,8 @@
 public static class BrawlerDefines
 {
     public const float UnsetTime = -10;
+    public const int UnsetInputSample = -1;
+    public const int NoComboStep = 0;
     public const int StandardShaderFadeMode = 2;
 
     // 攻撃の排他的な種類。移動・空中・防御の状態とは分けて扱います。
@@ -28,6 +30,7 @@ public static class BrawlerDefines
         Empty,
         HealthFull,
         ProtectionActive,
+        AttackBoostActive,
         Busy,
         Airborne,
         Defeated,
@@ -37,7 +40,11 @@ public static class BrawlerDefines
     public enum PickupKind
     {
         HealingPotion,
-        ThrowingKnife
+        ThrowingHammer,
+        ThrowingKnife,
+        HealingScroll,
+        ProtectionScroll,
+        AttackBoostScroll
     }
 
     public enum DamageKind
@@ -45,7 +52,8 @@ public static class BrawlerDefines
         Normal,
         Counter,
         HeavyStrike,
-        Healing
+        Healing,
+        Critical
     }
 
     public enum ImpactKind
@@ -58,10 +66,13 @@ public static class BrawlerDefines
     // 魔法と所持品を名前で扱い、選択・使用・表示で共用します。
     public enum UsableAction
     {
+        None,
         Healing,
         Protection,
         HealingPotion,
-        ThrowingKnife
+        ThrowingHammer,
+        ThrowingKnife,
+        AttackBoost
     }
 
     public enum CommandDirection
@@ -69,6 +80,11 @@ public static class BrawlerDefines
         Neutral,
         Down,
         DownForward,
-        DownBackward
+        DownBackward,
+        Up,
+        Forward,
+        Backward,
+        UpForward,
+        UpBackward
     }
 }

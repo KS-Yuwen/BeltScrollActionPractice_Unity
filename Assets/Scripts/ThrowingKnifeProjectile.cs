@@ -1,60 +1,21 @@
 using UnityEngine;
 
-// プレイヤーの直進ナイフ。発射時の向きを固定し、一体に当たるか射程まで飛ぶと消えます。
-public sealed class ThrowingKnifeProjectile : MonoBehaviour
+// ナイフ固有の直進軌道と命中効果です。ハンマーとは別の所持品として残します。
+public sealed class ThrowingKnifeProjectile : PlayerThrownProjectile
 {
-    private BeltBrawler _game;
-    private Fighter _owner;
-    private float _direction;
-    private float _remainingRange;
-    private bool _hasFinished;
+    protected override float Speed => BrawlerBalance.KnifeSpeed;
+    protected override float FlightSeconds => BrawlerBalance.KnifeRange / Speed;
+    protected override float HitRadius => BrawlerBalance.KnifeHitRadius;
+    protected override float TargetHeight => BrawlerBalance.KnifeHeight;
 
-    public void Initialize(BeltBrawler game, Fighter owner)
+    protected override Vector3 CalculatePosition(float seconds)
     {
-        _game = game;
-        _owner = owner;
-        _direction = owner.Facing;
-        _remainingRange = BrawlerBalance.KnifeRange;
+        return LaunchPosition + Vector3.right * (Direction * Speed * seconds);
     }
 
-    private void Update()
+    protected override void ApplyHit(Fighter target)
     {
-        Advance(Time.deltaTime);
-    }
-
-    // 経過秒数を渡して移動量を求めるため、低FPSでも速度・射程が変わりません。
-    public void Advance(float deltaTime)
-    {
-        if (_hasFinished)
-        {
-            return;
-        }
-        if (_owner == null || _owner.Health <= 0)
-        {
-            Finish();
-            return;
-        }
-        float distance = Mathf.Min(_remainingRange, BrawlerBalance.KnifeSpeed * Mathf.Max(0, deltaTime));
-        Vector3 start = transform.position;
-        Vector3 end = start + Vector3.right * (_direction * distance);
-        // 移動区間全体で調べ、一度の更新で敵を飛び越えても最初の相手に当てます。
-        Fighter target = _game.FindKnifeTarget(start, end);
-        transform.position = end;
-        _remainingRange -= distance;
-        if (target != null)
-        {
-            target.TakeDamage(BrawlerBalance.KnifeDamage, _direction);
-            Finish();
-        }
-        else if (_remainingRange <= 0)
-        {
-            Finish();
-        }
-    }
-
-    private void Finish()
-    {
-        _hasFinished = true;
-        Destroy(gameObject);
+        // ダガーもガード不能ですが、ハンマーの気絶効果は付けません。
+        target.TakeThrownKnifeDamage(BrawlerBalance.KnifeDamage, Direction);
     }
 }

@@ -192,7 +192,7 @@ public static class CombatValidation
             cleric.SelectNextAction();
 
             player.RestoreHealth(100);
-            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.HealingPotion, "補助魔法の次はポーションを選択");
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "初期の3枠目は攻撃強化");
             potion.transform.position = player.transform.position + Vector3.forward;
             Require(!potion.TryCollect(), "奥行きが離れたポーションを拾わない");
             for (int held = 0; held < BrawlerBalance.PotionCapacity; held++)
@@ -210,6 +210,7 @@ public static class CombatValidation
             Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == potionNoticesBefore + 1
                 && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.HealingPotion
                     && n.DisplayText == "ポーション＋1"), "ポーション取得成功時だけ通知を一つ生成");
+            typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.HealingPotion);
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "満タンでは使用しても消費しない");
             player.TakeDamage(35, player.Facing);
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "被ダメージ硬直中は消費しない");
@@ -222,7 +223,9 @@ public static class CombatValidation
             Require(!cleric.TryUseSelectedAction() && player.Health == 85, "所持数ゼロでは回復しない");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
             cleric.SelectNextAction();
-            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "ポーションの次は投げナイフ");
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.None, "空の2枠目はNOTHING");
+            cleric.SelectNextAction();
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "3枠目に初期の攻撃強化が残る");
             cleric.SelectNextAction();
 
             // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
@@ -269,7 +272,7 @@ public static class CombatValidation
             var audio = UnityEngine.Object.FindAnyObjectByType<BrawlerAudio>();
             Require(audio != null && UnityEngine.Object.FindAnyObjectByType<AudioListener>() != null, "音声再生役とリスナーを生成");
             var clips = (System.Collections.Generic.Dictionary<BrawlerSound, AudioClip>)GetPrivateField(audio, "_clips");
-            Require(clips.Count == 6, "6種類の効果音を生成");
+            Require(clips.Count == Enum.GetValues(typeof(BrawlerSound)).Length, "定義した全種類の効果音を生成");
             foreach (AudioClip clip in clips.Values)
             {
                 var samples = new float[clip.samples];
@@ -408,11 +411,15 @@ public static class CombatValidation
             SetPrivateField(player, "_dashRemaining", 0f);
             SetPrivateField(player, "_isCrouching", false);
             MethodInfo runInput = typeof(Fighter).GetMethod("UpdateRunningInput", BindingFlags.Instance | BindingFlags.NonPublic);
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
             SetPrivateField(player, "_lastForwardTapAt", -10f);
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             Require(!player.IsRunning, "前方向1回では走らない");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             Require(player.IsRunning, "前方向2回で継続ダッシュ");
             heavy.RestoreHealth(200);
@@ -424,10 +431,14 @@ public static class CombatValidation
             SetPrivateField(heavy, "_stunRemaining", 0f);
             game.HitRunningTargets(player);
             Require(heavy.Health == beforeBodyCheck - 8, "同じダッシュでは同じ敵に二重命中しない");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
             Require(!player.IsRunning, "方向を離すと継続ダッシュ解除");
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.zero, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.zero });
+            ((DirectionCommandBuffer)GetPrivateField(player, "_directionCommands")).Record(Vector3.right, player.Facing, Time.time);
             runInput.Invoke(player, new object[] { Vector3.right });
             SetPrivateField(heavy, "_stunRemaining", 0f);
             game.HitRunningTargets(player);
@@ -541,9 +552,9 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartDashSpecial", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 1f });
             int specialHitHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
-            Require(heavy.Health == specialHitHealth - 40 && heavy.IsDowned, "必殺技は40ダメージで転倒を誘発");
+            Require(heavy.Health == specialHitHealth - 60 && heavy.IsDowned, "必殺技はクリティカル補正後60ダメージで転倒を誘発");
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.01f });
-            Require(heavy.Health == specialHitHealth - 40, "必殺技の命中は1回だけ");
+            Require(heavy.Health == specialHitHealth - 60, "必殺技の命中は1回だけ");
             player.TakeDamage(5, -player.Facing);
             Require(player.Health == 95 && !player.IsDashSpecialAttacking
                 && (float)GetPrivateField(player, "_dashAttackMovementRemaining") == 0,
@@ -554,6 +565,7 @@ public static class CombatValidation
             updateStop.Invoke(game, new object[] { 1f });
 
             var uppercutCommands = new DirectionCommandBuffer();
+            uppercutCommands.Record(Vector3.zero, 1, -0.1f);
             uppercutCommands.Record(Vector3.back, 1, 0);
             uppercutCommands.Record(Vector3.zero, 1, 0.2f);
             uppercutCommands.Record(Vector3.forward, 1, 0.8f);
@@ -573,7 +585,7 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartUppercut", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
             int uppercutHitHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.11f });
-            Require(heavy.Health == uppercutHitHealth - 36 && heavy.IsDowned, "対空技は36ダメージで転倒");
+            Require(heavy.Health == uppercutHitHealth - 54 && heavy.IsDowned, "対空技はクリティカル補正後54ダメージで転倒");
             player.TakeDamage(5, 1);
             Require(player.Health == 95 && !player.IsUppercutAttacking, "対空技も被ダメージで中断");
             Require(SlideBalanceSettings.TryParse("key,value\nUppercutDamage,48\nUppercutReach,2.5", out SlideBalanceSettings uppercutSettings, out _)
@@ -592,14 +604,16 @@ public static class CombatValidation
             typeof(Fighter).GetMethod("StartHeavyStrike", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
             int strikeHealth = heavy.Health;
             typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, new object[] { 0.19f });
-            Require(heavy.Health == strikeHealth - 34 && heavy.IsDowned, "大斬りは34ダメージで転倒");
+            Require(heavy.Health == strikeHealth - 51 && heavy.IsDowned, "大斬りはクリティカル補正後51ダメージで転倒");
             MethodInfo holdAttack = typeof(Fighter).GetMethod("UpdateAttackHold", BindingFlags.Instance | BindingFlags.NonPublic);
-            Require(!(bool)holdAttack.Invoke(player, new object[] { 0.5f, true }), "長押しでも攻撃中は突き飛ばしを待つ");
-            SetPrivateField(player, "_attackRemaining", 0f);
-            SetPrivateField(player, "_attackCooldown", 0f);
-            SetPrivateField(player, "_attackHoldFacing", 1f);
-            Require((bool)holdAttack.Invoke(player, new object[] { 0.01f, true }) && player.IsPushAttacking,
-                "長押しが後隙終了時に突き飛ばしへ変化");
+            MethodInfo pushFromHit = typeof(Fighter).GetMethod("TryStartPushFromHit", BindingFlags.Instance | BindingFlags.NonPublic);
+            Require(!(bool)pushFromHit.Invoke(player, new object[] { true }), "大斬りの命中保持は突き飛ばしにならない");
+            typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            Require(!(bool)holdAttack.Invoke(player, new object[] { true }) && !player.IsPushAttacking,
+                "空振りを長く保持しても突き飛ばしは発動しない");
+            Require(!(bool)pushFromHit.Invoke(player, new object[] { false }), "命中前に離した入力では突き飛ばしにならない");
+            Require((bool)pushFromHit.Invoke(player, new object[] { true }) && player.IsPushAttacking,
+                "通常攻撃の命中時の保持で後隙を待たず突き飛ばしへ移行");
             heavy.RestoreHealth(200);
             SetPrivateField(heavy, "_stunRemaining", 0f);
             SetPrivateField(heavy, "_downRemaining", 0f);
@@ -609,7 +623,7 @@ public static class CombatValidation
                 "突き飛ばしは10ダメージと強い押し戻し");
             SetPrivateField(player, "_attackRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            Require(!(bool)holdAttack.Invoke(player, new object[] { 1f, true }), "長押し継続だけで二度目を出さない");
+            Require(!(bool)holdAttack.Invoke(player, new object[] { true }), "長押し継続だけで二度目を出さない");
             Require(SlideBalanceSettings.TryParse("key,value\nHeavyStrikeDamage,45\nPushHoldSeconds,0.6\nPushKnockbackSpeed,15",
                 out SlideBalanceSettings strikeSettings, out _) && strikeSettings.HeavyStrikeDamage == 45
                 && strikeSettings.PushHoldSeconds == 0.6f && strikeSettings.PushKnockbackSpeed == 15, "大斬りと突き飛ばしのCSV調整");
@@ -665,75 +679,125 @@ public static class CombatValidation
             player.TakeDamage(5, player.Facing);
             Require(player.Health < turnHealth, "発動中にも被ダメージを受け、無敵は付かない");
             // 拾得の距離・上限・二重取得と、左右の直進・低FPS・射程を検証します。
-            // 前のポーション検証は撃破数を2から3へ進めるため、ここではナイフの2体目撃破を独立に作ります。
-            Fighter knifeDropEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test knife drop enemy", Vector3.right * 10, false, false, false, false });
-            turnEnemies.Add(knifeDropEnemy);
-            SetPrivateField(game, "_defeatedEnemyCount", BrawlerBalance.KnifeDropInterval - 1);
-            knifeDropEnemy.TakeDamage(1000, 1);
-            var knifePickup = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifePickup>();
-            Require(knifePickup != null, "敵撃破でナイフをドロップ");
-            knifePickup.transform.position = player.transform.position + Vector3.forward;
-            Require(!knifePickup.TryCollect(), "奥行きが離れたナイフは拾わない");
-            knifePickup.transform.position = player.transform.position;
-            int knifeNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
-            for (int held = 0; held < BrawlerBalance.KnifeCapacity; held++)
+            // 前のポーション検証は撃破数を2から3へ進めるため、ここではハンマーの2体目撃破を独立に作ります。
+            Fighter hammerDropEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test hammer drop enemy", Vector3.right * 10, false, false, false, false });
+            turnEnemies.Add(hammerDropEnemy);
+            SetPrivateField(game, "_defeatedEnemyCount", BrawlerBalance.HammerDropInterval - 1);
+            hammerDropEnemy.TakeDamage(1000, 1);
+            var hammerPickup = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerPickup>();
+            Require(hammerPickup != null, "敵撃破でハンマーをドロップ");
+            hammerPickup.transform.position = player.transform.position + Vector3.forward;
+            Require(!hammerPickup.TryCollect(), "奥行きが離れたハンマーは拾わない");
+            hammerPickup.transform.position = player.transform.position;
+            int hammerNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
+            for (int held = 0; held < BrawlerBalance.HammerCapacity; held++)
             {
-                Require(player.TryStoreThrowingKnife(), "ナイフを上限まで保存可能");
+                Require(player.TryStoreThrowingHammer(), "ハンマーを上限まで保存可能");
             }
-            Require(!knifePickup.TryCollect() && !player.TryStoreThrowingKnife(), "ナイフの所持上限を超えない");
-            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore, "ナイフの所持上限で通知しない");
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
-            Require(knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "床ナイフを所持品に保存");
-            Require(!knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "ナイフの二重取得を防止");
-            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore + 1
-                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.ThrowingKnife
-                    && n.DisplayText == "ナイフ＋1"), "ナイフ取得時だけ一度通知");
+            Require(!hammerPickup.TryCollect() && !player.TryStoreThrowingHammer(), "ハンマーの所持上限を超えない");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == hammerNoticesBefore, "ハンマーの所持上限で通知しない");
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 0);
+            Require(hammerPickup.TryCollect() && player.ThrowingHammersHeld == 1, "床ハンマーを所持品に保存");
+            Require(!hammerPickup.TryCollect() && player.ThrowingHammersHeld == 1, "ハンマーの二重取得を防止");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == hammerNoticesBefore + 1
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.ThrowingHammer
+                    && n.DisplayText == "ハンマー＋1"), "ハンマー取得時だけ一度通知");
             SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            foreach (float knifeFacing in new float[] { -1, 1 })
+            foreach (float hammerFacing in new float[] { -1, 1 })
             {
-                foreach (Fighter knifeEnemy in turnEnemies)
+                foreach (Fighter hammerEnemy in turnEnemies)
                 {
-                    if (knifeEnemy != null) knifeEnemy.transform.position = new Vector3(20, 0, 3);
+                    if (hammerEnemy != null) hammerEnemy.transform.position = new Vector3(20, 0, 3);
                 }
-                Fighter firstKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test first knife target", Vector3.right * knifeFacing * 3, false, false, false, false });
-                Fighter secondKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test second knife target", Vector3.right * knifeFacing * 5, false, false, false, false });
-                turnEnemies.AddRange(new Fighter[] { secondKnifeEnemy, firstKnifeEnemy });
+                // 大きな弧は近距離の頭上を通過します。下降区間の敵への命中を確認します。
+                Fighter overflownEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test overflown hammer target", Vector3.right * hammerFacing * 3, false, false, false, false });
+                Fighter firstHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test first hammer target", Vector3.right * hammerFacing * 9.5f, false, false, false, false });
+                Fighter secondHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test second hammer target", new Vector3(20, 0, 3), false, false, false, false });
+                turnEnemies.AddRange(new Fighter[] { secondHammerEnemy, firstHammerEnemy, overflownEnemy });
                 player.transform.position = Vector3.zero;
-                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
-                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, hammerFacing);
+                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingHammer);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
                 SetPrivateField(player, "_jumpHeight", 1f);
-                Require(!cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 1, "空中ではナイフを消費しない");
+                Require(!cleric.TryUseSelectedAction() && player.ThrowingHammersHeld == 1, "空中ではハンマーを消費しない");
                 SetPrivateField(player, "_jumpHeight", 0f);
-                Require(cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0, "選択使用でナイフを一つ消費");
-                var thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
-                Require(thrownKnife != null && !cleric.TryThrowKnife(), "発射して使用後の隙では再使用不可");
-                // 振り向いてから大きな時間で進めても、発射時の方向で最初の敵だけに当たります。
-                typeof(Fighter).GetProperty("Facing").SetValue(player, -knifeFacing);
-                int firstKnifeHealth = firstKnifeEnemy.Health;
-                thrownKnife.Advance(1f);
-                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage
-                    && secondKnifeEnemy.Health == firstKnifeHealth, "左右・低FPSでも最初の一体だけに命中");
-                thrownKnife.Advance(1f);
-                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage, "破棄前の再更新でも二重命中しない");
-                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                Require(cleric.TryUseSelectedAction() && player.ThrowingHammersHeld == 0, "選択使用でハンマーを一つ消費");
+                var thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                Require(thrownHammer != null && !cleric.TryThrowHammer(), "発射して使用後の隙では再使用不可");
+                // 振り向いてから大きな時間で進めても、発射時の方向を維持します。
+                typeof(Fighter).GetProperty("Facing").SetValue(player, -hammerFacing);
+                // 正面ガード中の相手にもハンマーが当たることを左右両方で確認します。
+                typeof(Fighter).GetProperty("Facing").SetValue(firstHammerEnemy, -hammerFacing);
+                typeof(Fighter).GetProperty("IsGuarding").SetValue(firstHammerEnemy, true);
+                int firstHammerHealth = firstHammerEnemy.Health;
+                thrownHammer.Advance(1f);
+                Require(!(bool)GetPrivateField(thrownHammer, "_hasFinished") && thrownHammer.transform.position.y > 0,
+                    "敵に当たっても空中のハンマーは生存する");
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage
+                    && secondHammerEnemy.Health == firstHammerHealth
+                    && overflownEnemy.Health == firstHammerHealth, "左右・低FPSでも頭上を通過し、下降中に正面ガードを貫通して一体だけに命中");
+                Require(firstHammerEnemy.IsHammerStunned && !firstHammerEnemy.IsDowned,
+                    "ハンマー命中は転倒ではなく気絶を付与");
+                firstHammerEnemy.TakeHammerDamage(BrawlerBalance.HammerDamage, hammerFacing);
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage,
+                    "気絶中の追加ハンマーは硬直無敵に従う");
+                typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(firstHammerEnemy, new object[] { BrawlerBalance.HammerStunSeconds });
+                Require(!firstHammerEnemy.IsHammerStunned && (float)GetPrivateField(firstHammerEnemy, "_stunRemaining") <= 0,
+                    "気絶時間が経過すると行動停止を解除");
+                thrownHammer.Advance(1f);
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage, "破棄前の再更新でも二重命中しない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
-                Require(!cleric.TryThrowKnife(), "所持数ゼロでは投げない");
-                Require(player.TryStoreThrowingKnife(), "次の射程検証用ナイフを補充");
-                firstKnifeEnemy.transform.position = new Vector3(20, 0, 3);
-                secondKnifeEnemy.transform.position = Vector3.right * knifeFacing * (BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange + 1);
-                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
-                Require(cleric.TryThrowKnife(), "射程検証用ナイフを発射");
-                thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
-                thrownKnife.Advance(10f);
-                Require(secondKnifeEnemy.Health == firstKnifeHealth
-                    && Mathf.Abs(thrownKnife.transform.position.x) <= BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange,
-                    "大きな経過時間でも射程の先には当たらない");
-                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                Require(!cleric.TryThrowHammer(), "所持数ゼロでは投げない");
+                Require(player.TryStoreThrowingHammer(), "次の射程検証用ハンマーを補充");
+                firstHammerEnemy.transform.position = new Vector3(20, 0, 3);
+                overflownEnemy.transform.position = new Vector3(20, 0, 3);
+                float landingSeconds = (BrawlerBalance.HammerVerticalSpeed
+                    + Mathf.Sqrt(BrawlerBalance.HammerVerticalSpeed * BrawlerBalance.HammerVerticalSpeed
+                        + 2 * BrawlerBalance.HammerGravity * BrawlerBalance.HammerHeight)) / BrawlerBalance.HammerGravity;
+                float landingDistance = BrawlerBalance.HammerLaunchOffset + BrawlerBalance.HammerSpeed * landingSeconds;
+                secondHammerEnemy.transform.position = Vector3.right * hammerFacing * (landingDistance + 1);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, hammerFacing);
+                Require(cleric.TryThrowHammer(), "射程検証用ハンマーを発射");
+                thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                float launchHeight = thrownHammer.transform.position.y;
+                thrownHammer.Advance(0);
+                Require(thrownHammer.transform.position.y == launchHeight, "停止中はハンマーの軌道も停止");
+                thrownHammer.Advance(0.1f);
+                Require(thrownHammer.transform.position.y > launchHeight + 0.45f,
+                    "発射直後に目視できる高さまで放物線が上昇");
+                float peakTime = BrawlerBalance.HammerVerticalSpeed / BrawlerBalance.HammerGravity;
+                thrownHammer.Advance(peakTime - 0.1f);
+                float expectedRise = BrawlerBalance.HammerVerticalSpeed * BrawlerBalance.HammerVerticalSpeed
+                    / (2 * BrawlerBalance.HammerGravity);
+                Require(Mathf.Abs(thrownHammer.transform.position.y - launchHeight - expectedRise) < 0.01f
+                    && expectedRise >= 3f, "頂点で実際のTransformが発射位置から3.0以上上昇");
+                thrownHammer.Advance(10f);
+                Require(Mathf.Abs(thrownHammer.transform.position.y) < 0.001f
+                    && (bool)GetPrivateField(thrownHammer, "_hasFinished"), "地面に到達した時点で消滅する");
+                Require(secondHammerEnemy.Health == firstHammerHealth
+                    && Mathf.Abs(Mathf.Abs(thrownHammer.transform.position.x) - landingDistance) < 0.01f,
+                    "大きな経過時間でも着地点を超えて飛ばない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
+                // 大きな身体には同じハンマーが時間差で2回当たり、3回目は発生しません。
+                firstHammerEnemy.transform.position = new Vector3(20, 0, 3);
+                Fighter largeHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test large hammer target", Vector3.right * hammerFacing * 9.2f, false, false, true, false });
+                turnEnemies.Add(largeHammerEnemy);
+                int largeHealth = largeHammerEnemy.Health;
+                game.ThrowHammer(player);
+                thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                thrownHammer.Advance(10f);
+                Require(largeHammerEnemy.Health == largeHealth - BrawlerBalance.HammerDamage * 2,
+                    $"左右・低FPSでも大型の敵に同じハンマーが最大2ヒット：HP {largeHealth} → {largeHammerEnemy.Health}");
+                thrownHammer.Advance(10f);
+                Require(largeHammerEnemy.Health == largeHealth - BrawlerBalance.HammerDamage * 2,
+                    "着地後は大型の敵にも追加命中しない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
-                Require(player.TryStoreThrowingKnife(), "次の左右検証用に補充");
+                Require(player.TryStoreThrowingHammer(), "次の左右検証用に補充");
             }
             // 成功した防御・反撃だけが専用演出を生成することを確認します。
             foreach (Fighter effectEnemy in turnEnemies)
@@ -845,7 +909,7 @@ public static class CombatValidation
             player.transform.position = Vector3.zero;
             typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
             foreach (BrawlerDefines.DamageKind numberKind in new BrawlerDefines.DamageKind[]
-                { BrawlerDefines.DamageKind.Normal, BrawlerDefines.DamageKind.Counter, BrawlerDefines.DamageKind.HeavyStrike })
+                { BrawlerDefines.DamageKind.Normal, BrawlerDefines.DamageKind.Counter, BrawlerDefines.DamageKind.Critical })
             {
                 Fighter numberTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test damage number", Vector3.right, false, false, false, false });
                 turnEnemies.Add(numberTarget);
@@ -855,8 +919,10 @@ public static class CombatValidation
                 {
                     string actionName = numberKind == BrawlerDefines.DamageKind.Counter ? "StartCounterAttack" : "StartHeavyStrike";
                     typeof(Fighter).GetMethod(actionName, BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
-                    numberDamage = numberKind == BrawlerDefines.DamageKind.Counter ? BrawlerBalance.CounterDamage : BrawlerBalance.HeavyStrikeDamage;
-                    game.Hit(player, numberDamage);
+                    numberDamage = numberKind == BrawlerDefines.DamageKind.Counter ? BrawlerBalance.CounterDamage
+                        : Mathf.CeilToInt(BrawlerBalance.HeavyStrikeDamage * BrawlerBalance.CriticalDamageMultiplier);
+                    game.Hit(player, numberKind == BrawlerDefines.DamageKind.Critical
+                        ? BrawlerBalance.HeavyStrikeDamage : numberDamage);
                 }
                 else
                 {
@@ -865,7 +931,7 @@ public static class CombatValidation
                 Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "実際の命中で数値を一つ表示");
                 DamageNumber shownNumber = Array.Find(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Amount == numberDamage
                     && n.Kind == numberKind && Vector3.Distance(n.transform.position, numberTarget.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight) < 0.01f);
-                Require(shownNumber != null, "通常・反撃・大斬りの種類と威力を頭上表示へ渡す");
+                Require(shownNumber != null, "通常・反撃・クリティカルの種類と威力を頭上表示へ渡す");
                 numberTarget.TakeDamage(numberDamage, 1);
                 Require(UnityEngine.Object.FindObjectsByType<DamageNumber>().Length == damageNumberCount + 1, "硬直中の無効な命中では表示を追加しない");
                 Vector3 numberStart = shownNumber.transform.position;
@@ -939,19 +1005,35 @@ public static class CombatValidation
             typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
             typeof(ClericFighter).GetProperty("ProtectionUsesRemaining").SetValue(cleric, 1);
             typeof(Fighter).GetProperty("HealingPotionsHeld").SetValue(player, 1);
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 1);
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 1);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Healing) == BrawlerDefines.ActionUseStatus.HealthFull
                 && !cleric.TryHeal() && cleric.HealingUsesRemaining == 1, "HP満タン表示と回復の拒否が一致");
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.HealingPotion) == BrawlerDefines.ActionUseStatus.HealthFull
                 && !cleric.TryUseHealingPotion() && player.HealingPotionsHeld == 1, "HP満タン表示とポーションの拒否が一致");
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
-            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingKnife) == BrawlerDefines.ActionUseStatus.Empty
-                && !cleric.TryThrowKnife(), "残りゼロ表示とナイフの拒否が一致");
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 0);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingHammer) == BrawlerDefines.ActionUseStatus.Empty
+                && !cleric.TryThrowHammer(), "残りゼロ表示とハンマーの拒否が一致");
             SetPrivateField(cleric, "_protectionRemaining", 1f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.ProtectionActive
                 && !cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中表示と補助魔法の拒否が一致");
             foreach (BrawlerDefines.UsableAction statusAction in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
             {
+                if (statusAction == BrawlerDefines.UsableAction.None)
+                {
+                    Require(cleric.GetActionUseStatus(statusAction) == BrawlerDefines.ActionUseStatus.Empty,
+                        "NOTHINGは空き枠として表示する");
+                    continue;
+                }
+                if (!cleric.CanUseAction(statusAction))
+                {
+                    Require(cleric.GetActionUseStatus(statusAction) == BrawlerDefines.ActionUseStatus.Unavailable,
+                        "職業で禁止された項目は使用不可");
+                    continue;
+                }
+                if (cleric.Inventory.GetCount(statusAction) == 0)
+                {
+                    Require(cleric.Inventory.TryAdd(statusAction), "使用可否検証用の所持品を補充する");
+                }
                 typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, statusAction);
                 SetPrivateField(player, "_attackRemaining", 0.1f);
                 Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Busy
@@ -962,6 +1044,7 @@ public static class CombatValidation
                     && !cleric.TryUseSelectedAction(), "空中表示と選択発動の拒否が一致");
                 SetPrivateField(player, "_jumpHeight", 0f);
             }
+            typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.Healing);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
                 && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
@@ -1091,7 +1174,17 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
+            ValidateInventory(game, createTurnEnemy);
+            ValidateAttackBoost(game, createTurnEnemy, turnEnemies);
+            ValidateMagicScrolls(game, createTurnEnemy);
+            ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
+            ValidateDirectionalInputOrder();
+            ValidatePlayerCombosAndCancels(game, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
+            ValidateEnemyAttackSounds(game, createTurnEnemy);
+            ValidateBoss(game, createTurnEnemy, turnEnemies);
+            ValidateBossPhase(game, createTurnEnemy);
+            ValidateBossPreparation(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
@@ -1129,11 +1222,708 @@ public static class CombatValidation
         Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
     }
 
+    private static void ValidateInventory(BeltBrawler game, MethodInfo createFighter)
+    {
+        var inventory = new ActionInventory();
+        Require(inventory.SlotCount == BrawlerBalance.InventorySlotCount, "所持欄は6スロット固定");
+        for (int slot = 0; slot < inventory.SlotCount; slot++)
+        {
+            Require(inventory.GetAction(slot) == BrawlerDefines.UsableAction.None
+                && inventory.GetSlotCount(slot) == 0, "初期の空き枠はNOTHING");
+        }
+        Require(!inventory.TryAdd(BrawlerDefines.UsableAction.None)
+            && !inventory.TryAdd((BrawlerDefines.UsableAction)99)
+            && !inventory.TryAdd(BrawlerDefines.UsableAction.Healing, -1), "無効な種類・数量は取得しない");
+        foreach (BrawlerDefines.UsableAction action in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
+        {
+            if (action != BrawlerDefines.UsableAction.None)
+            {
+                Require(inventory.TryAdd(action), "6種類を個別のスロットへ格納できる");
+            }
+        }
+        Require(inventory.FindSlot(BrawlerDefines.UsableAction.None) < 0, "6種類で空き枠がなくなる");
+        Require(inventory.TryAdd(BrawlerDefines.UsableAction.Healing, BrawlerBalance.InventoryStackLimit - 1)
+            && inventory.GetCount(BrawlerDefines.UsableAction.Healing) == BrawlerBalance.InventoryStackLimit
+            && !inventory.TryAdd(BrawlerDefines.UsableAction.Healing), "満枠でも同種を9まで加算し10は拒否する");
+        int freedSlot = inventory.FindSlot(BrawlerDefines.UsableAction.Protection);
+        Require(inventory.TryConsume(BrawlerDefines.UsableAction.Protection)
+            && inventory.GetAction(freedSlot) == BrawlerDefines.UsableAction.None
+            && inventory.GetCount(BrawlerDefines.UsableAction.AttackBoost) == 1, "0になった枠だけ空にし別魔法の数は維持する");
+        Require(inventory.TryAdd(BrawlerDefines.UsableAction.Protection)
+            && inventory.FindSlot(BrawlerDefines.UsableAction.Protection) == freedSlot, "再取得は空き枠を再利用する");
+
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test inventory cleric", Vector3.zero, true, false, false, false });
+        int selected = cleric.SelectedSlot;
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        cleric.TakeDamage(10, 1);
+        SetPrivateField(cleric, "_stunRemaining", 0f);
+        SetPrivateField(cleric, "_attackCooldown", 0f);
+        Require(cleric.TryUseSelectedAction() && cleric.SelectedSlot == selected
+            && cleric.SelectedAction == BrawlerDefines.UsableAction.None
+            && cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Empty,
+            "選択魔法を使い切ると同じ位置がNOTHINGになり自動で別項目へ移らない");
+        Require(!cleric.TryUseSelectedAction() && cleric.TryStoreHealingPotion()
+            && cleric.SelectedAction == BrawlerDefines.UsableAction.HealingPotion,
+            "空き枠使用は何もせず、新しい取得はその空き枠へ入る");
+        Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, BrawlerBalance.InventoryStackLimit)
+            && cleric.HealingUsesRemaining == BrawlerBalance.InventoryStackLimit
+            && !cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "魔法も個別に最大9まで補充できる");
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
+    private static void ValidateAttackBoost(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test attack boost cleric", Vector3.zero, true, false, false, false });
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.AttackBoost);
+        int healingBefore = cleric.HealingUsesRemaining;
+        SetPrivateField(cleric, "_jumpHeight", 1f);
+        Require(!cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses,
+            "空中の攻撃強化は回数を消費しない");
+        SetPrivateField(cleric, "_jumpHeight", 0f);
+        Require(cleric.TryUseSelectedAction() && cleric.IsAttackBoosted
+            && cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds
+            && cleric.AttackBoostUsesRemaining == BrawlerBalance.AttackBoostUses - 1
+            && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses
+            && cleric.HealingUsesRemaining == healingBefore,
+            "選択使用で攻撃強化だけを消費し、他の魔法回数は保持する");
+        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.AttackBoostActive
+            && !cleric.TryAttackBoost(), "効果中の再発動は消費も時間延長もしない");
+        Require(cleric.CalculateMeleeDamage(1) == 2, "攻撃強化は端数を切り上げる");
+        foreach (Fighter existing in enemies)
+        {
+            if (existing != null)
+            {
+                existing.transform.position = new Vector3(20, 0, 3);
+            }
+        }
+        var target = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test boosted melee target", Vector3.right, false, false, false, false });
+        enemies.Add(target);
+        int healthBefore = target.Health;
+        game.Hit(cleric, BrawlerBalance.NormalDamage);
+        Require(target.Health == healthBefore - Mathf.CeilToInt(BrawlerBalance.NormalDamage
+            * BrawlerBalance.AttackBoostDamageMultiplier), "実際の近接命中に攻撃強化を一度だけ適用する");
+        SetPrivateField(target, "_downRemaining", BrawlerBalance.DownSeconds);
+        SetPrivateField(target, "_hasReceivedGroundHit", false);
+        healthBefore = target.Health;
+        game.HitGroundTarget(cleric, target, BrawlerBalance.GroundAttackDamage);
+        Require(target.Health == Mathf.Max(0, healthBefore - Mathf.CeilToInt(BrawlerBalance.GroundAttackDamage
+            * BrawlerBalance.AttackBoostDamageMultiplier)), "追撃にも同じ倍率を適用する");
+        Require(cleric.TryProtection() && cleric.IsProtected && cleric.IsAttackBoosted
+            && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 1, "防御・攻撃強化は共存し各回数を独立して消費する");
+        Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Protection, 1)
+            && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 2, "防御スクロールで攻撃強化の回数を変更しない");
+        MethodInfo updateBoost = typeof(ClericFighter).GetMethod("UpdateAttackBoost", BindingFlags.Instance | BindingFlags.NonPublic);
+        updateBoost.Invoke(cleric, new object[] { 0f });
+        Require(cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds, "時間停止中は強化時間も停止する");
+        updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostSeconds - BrawlerBalance.AttackBoostWarningSeconds });
+        Require(cleric.IsAttackBoostExpiring, "残り時間が少なくなると終了予告を表示する");
+        updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostWarningSeconds });
+        Require(!cleric.IsAttackBoosted && !cleric.IsAttackBoostExpiring
+            && cleric.CalculateMeleeDamage(BrawlerBalance.NormalDamage) == BrawlerBalance.NormalDamage,
+            "時間切れで威力・終了予告が元に戻る");
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
+    private static void ValidateMagicScrolls(BeltBrawler game, MethodInfo createFighter)
+    {
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test scroll cleric", Vector3.zero, true, false, false, false });
+        var audio = (BrawlerAudio)GetPrivateField(game, "_audio");
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        int previousKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+        var scrollObject = new GameObject("Test scroll");
+        var scroll = scrollObject.AddComponent<MagicScrollPickup>();
+        scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Healing);
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, BrawlerBalance.InventoryStackLimit);
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == BrawlerBalance.InventoryStackLimit,
+            "満回数ではスクロールが床に残る");
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        scrollObject.transform.position = Vector3.right * 3;
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == 1, "離れたスクロールは取得しない");
+        scrollObject.transform.position = Vector3.zero;
+        SetPrivateField(cleric, "_recoveryRemaining", BrawlerBalance.SpellRecoverySeconds);
+        int protectionBefore = cleric.ProtectionUsesRemaining;
+        Require(scroll.TryCollect() && cleric.HealingUsesRemaining == 2
+            && cleric.Inventory.GetCount(BrawlerDefines.UsableAction.Healing) == 2
+            && cleric.Health == cleric.MaxHealth && cleric.ProtectionUsesRemaining == protectionBefore,
+            "HP満タン・発動後の隙でも対応レベルだけ1回補充する");
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == 2, "同じスクロールは二重取得しない");
+        UnityEngine.Object.DestroyImmediate(scrollObject);
+
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.None, 1)
+            && !cleric.TryRestoreSpellUses((BrawlerDefines.UsableAction)99, 1), "未対応レベルは補充しない");
+        var enemy = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test nonmagic scroll target", Vector3.zero, false, false, false, false });
+        scrollObject = new GameObject("Test protection scroll");
+        scroll = scrollObject.AddComponent<MagicScrollPickup>();
+        scroll.Initialize(enemy, audio, BrawlerDefines.UsableAction.Protection);
+        Require(!scroll.TryCollect(), "魔法に未対応のキャラクターはスクロールを取得しない");
+        scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Protection);
+        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == protectionBefore - 1,
+            "魔法使用はレベル共通枠を消費する");
+        Require(scroll.TryCollect() && cleric.ProtectionUsesRemaining == protectionBefore
+            && cleric.HealingUsesRemaining == 2 && cleric.IsProtected,
+            "補助スクロールは効果を延長せず補助の回数だけ補充する");
+        UnityEngine.Object.DestroyImmediate(scrollObject);
+
+        // 撃破時の生成経路も確認し、試験用キャラ・通算撃破数を後続の検証へ持ち越しません。
+        SetPrivateField(game, "_player", cleric);
+        for (int dropNumber = 1; dropNumber <= BrawlerBalance.ScrollActionCycleLength; dropNumber++)
+        {
+            SetPrivateField(game, "_defeatedEnemyCount", dropNumber * BrawlerBalance.ScrollDropInterval - 1);
+            var victim = (Fighter)createFighter.Invoke(game,
+                new object[] { "Test scroll drop enemy", Vector3.zero, false, false, false, false });
+            int scrollsBefore = UnityEngine.Object.FindObjectsByType<MagicScrollPickup>().Length;
+            victim.TakeDamage(victim.MaxHealth, 1);
+            MagicScrollPickup[] drops = UnityEngine.Object.FindObjectsByType<MagicScrollPickup>();
+            Require(drops.Length == scrollsBefore + 1, "指定撃破数でスクロールを生成する");
+            BrawlerDefines.UsableAction expectedAction = dropNumber switch
+            {
+                1 => BrawlerDefines.UsableAction.Healing,
+                2 => BrawlerDefines.UsableAction.Protection,
+                _ => BrawlerDefines.UsableAction.AttackBoost
+            };
+            bool foundLevel = false;
+            foreach (MagicScrollPickup drop in drops)
+            {
+                foundLevel |= drop.TargetAction == expectedAction;
+            }
+            Require(foundLevel, "回復・補助スクロールを交互に生成する");
+            victim.TakeDamage(victim.MaxHealth, 1);
+            Require(UnityEngine.Object.FindObjectsByType<MagicScrollPickup>().Length == drops.Length,
+                "撃破済みの敵からスクロールを重複生成しない");
+            UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        }
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, true);
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "ゲーム終了後は補充しない");
+        typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, false);
+        cleric.TakeDamage(cleric.MaxHealth * 2, 1);
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "死亡中は補充しない");
+        typeof(BeltBrawler).GetProperty("IsDefeated").SetValue(game, false);
+        SetPrivateField(game, "_player", previousPlayer);
+        SetPrivateField(game, "_defeatedEnemyCount", previousKills);
+        UnityEngine.Object.DestroyImmediate(enemy.gameObject);
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
+    // 聴感はUnityで確認し、自動検証では音を要求する攻撃段階と空振りの分類を確認します。
+    private static void ValidateDirectionalInputOrder()
+    {
+        foreach (float facing in new float[] { -1f, 1f })
+        {
+            var commands = new DirectionCommandBuffer();
+            Vector3 diagonal = new Vector3(facing, 0, -1);
+            commands.Record(Vector3.zero, facing, 0f, 1);
+            commands.Record(Vector3.back, facing, 0.1f, 2);
+            commands.Record(diagonal, facing, 0.2f, 3);
+            Require(!commands.TryConsumeDownForward(diagonal, 0.2f, out _, true, 3),
+                "方向と攻撃が同じ入力更新なら必殺技を出さない");
+            Require(commands.TryConsumeDownForward(diagonal, 0.2f, out float actualFacing, true, 4)
+                && actualFacing == facing, "次の入力更新なら時間停止中でも左右の必殺技を受理する");
+            Require(!commands.TryConsumeDownForward(diagonal, 0.2f, out _, true, 5), "保持で必殺技を繰り返さない");
+            var noNeutral = new DirectionCommandBuffer();
+            noNeutral.Record(Vector3.back, facing, 0f, 1);
+            noNeutral.Record(diagonal, facing, 0.1f, 2);
+            Require(!noNeutral.TryConsumeDownForward(diagonal, 0.2f, out _, true, 3),
+                "開始時のニュートラルがないダッシュ必殺技は拒否する");
+            Require(noNeutral.TryConsumeDownForward(diagonal, 0.2f, out _, false, 3),
+                "同じ履歴でもスライディングには開始時のニュートラルを要求しない");
+            var uppercut = new DirectionCommandBuffer();
+            uppercut.Record(Vector3.zero, facing, 0f, 1);
+            uppercut.Record(Vector3.back, facing, 0.1f, 2);
+            uppercut.Record(Vector3.forward, facing, 0.2f, 3);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 0.3f, 4), "下→上の間のニュートラルを省略できない");
+            uppercut.Record(Vector3.zero, facing, 0.4f, 5);
+            uppercut.Record(diagonal, facing, 0.5f, 6);
+            uppercut.Record(Vector3.zero, facing, 0.6f, 7);
+            uppercut.Record(Vector3.forward, facing, 0.7f, 8);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 0.8f, 9), "斜め下を対空の下入力として代用しない");
+            uppercut.Record(Vector3.zero, facing, 1f, 10);
+            uppercut.Record(Vector3.back, facing, 1.1f, 11);
+            uppercut.Record(Vector3.zero, facing, 1.2f, 12);
+            uppercut.Record(Vector3.forward, facing, 1.3f, 13);
+            Require(!uppercut.TryConsumeDownUp(Vector3.forward, 1.3f, 13), "上入力と同時押しの対空を拒否する");
+            Require(uppercut.TryConsumeDownUp(Vector3.forward, 1.8f, 14), "受付の余裕を維持し、上の後の攻撃を受理する");
+            var forward = new DirectionCommandBuffer();
+            forward.Record(Vector3.zero, facing, 0f, 1);
+            forward.Record(Vector3.right * facing, facing, 0.1f, 2);
+            Require(forward.EnteredForwardFromNeutral && !forward.TryConsumeForward(facing, 0.1f, 2),
+                "大斬りはニュートラルから純粋な前方向へ入れ、ボタンは後にする");
+            Require(forward.TryConsumeForward(facing, 0.5f, 3), "前を先に入れた大斬りを左右とも受理する");
+            forward.Record(Vector3.zero, facing, 1f, 4);
+            forward.Record(new Vector3(facing, 0, 1), facing, 1.1f, 5);
+            Require(!forward.EnteredForwardFromNeutral && !forward.TryConsumeForward(facing, 1.2f, 6),
+                "斜め入力を大斬りや横ダッシュの開始として扱わない");
+            var crouch = new DirectionCommandBuffer();
+            crouch.Record(Vector3.back, facing, 0f, 1);
+            Require(!crouch.IsDownHeldBeforeButton(0f, 1) && crouch.IsDownHeldBeforeButton(0f, 2),
+                "しゃがみはニュートラル不要だが、下を先に入れる必要がある");
+        }
+    }
+
+    private static void ValidateMeleeHitRestrictions(BeltBrawler game, MethodInfo createFighter)
+    {
+        var attacker = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test hit restriction attacker", Vector3.zero, true, false, false, false });
+        var victim = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test hit restriction victim", Vector3.right, false, false, true, false });
+        try
+        {
+            // 低威力のコマンド技でも転倒することと、強化魔法との補正順を確認します。
+            foreach (BrawlerDefines.AttackKind attackKind in new[]
+            {
+                BrawlerDefines.AttackKind.HeavyStrike, BrawlerDefines.AttackKind.DashSpecial,
+                BrawlerDefines.AttackKind.Uppercut
+            })
+            {
+                SetPrivateField(attacker, "_attackKind", attackKind);
+                Require(attacker.IsCriticalAttack && attacker.CalculateMeleeHitDamage(1) == 2,
+                    "各コマンド技は共通の1.5倍補正を切り上げる");
+                SetPrivateField(victim, "_stunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", 0f);
+                victim.TakeMeleeDamage(attacker.CalculateMeleeHitDamage(1), attacker, BrawlerDefines.DamageKind.Critical);
+                Require(victim.IsDowned, "しきい値未満のクリティカルでも敵を転倒させる");
+            }
+            typeof(ClericFighter).GetField("_attackBoostRemaining", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(attacker, BrawlerBalance.AttackBoostSeconds);
+            Require(attacker.CalculateMeleeHitDamage(1) == 3, "クリティカルと攻撃強化をそれぞれ一度だけ適用");
+            typeof(ClericFighter).GetField("_attackBoostRemaining", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(attacker, 0f);
+            SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Normal);
+            Require(!attacker.IsCriticalAttack && attacker.CalculateMeleeHitDamage(1) == 1,
+                "通常攻撃の威力にはクリティカル補正を加えない");
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(attacker, facing);
+                SetPrivateField(victim, "_stunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", 0f);
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.DashSpecial);
+                int health = victim.Health;
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 1, "左右とも同じ必殺技の再ヒットを拒否");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Uppercut);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 2, "未使用の別技は硬直中につながる");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.DashSpecial);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 2, "A→B→Aでも使用済みの技を拒否");
+                typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(victim, new object[] { BrawlerBalance.StunSeconds });
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "硬直終了後は同じ技が再び命中");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Push);
+                SetPrivateField(victim, "_hammerStunRemaining", BrawlerBalance.HammerStunSeconds);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "異なる技でもハンマー気絶中は連携の例外を適用しない");
+                SetPrivateField(victim, "_hammerStunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", BrawlerBalance.DownSeconds);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "転倒中は異なる近接技でも再ヒットしない");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(attacker.gameObject);
+            UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        }
+    }
+
+    private static void ValidatePlayerCombosAndCancels(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        ValidateMeleeHitRestrictions(game, createFighter);
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test combo player", Vector3.zero, true, false, false, false });
+        var victim = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test combo victim", Vector3.right, false, false, true, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        Fighter[] previousEnemies = enemies.ToArray();
+        enemies.Clear();
+        enemies.Add(victim);
+        SetPrivateField(game, "_player", player);
+        typeof(Fighter).GetProperty("Facing").SetValue(player, 1f);
+        MethodInfo attack = typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo canInput = typeof(Fighter).GetMethod("CanAcceptNormalAttackInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo canCancel = typeof(Fighter).GetMethod("CanCancelAttackTo", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo uppercut = typeof(Fighter).GetMethod("StartUppercut", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo special = typeof(Fighter).GetMethod("StartDashSpecial", BindingFlags.Instance | BindingFlags.NonPublic);
+        attack.Invoke(player, null);
+        Require(!(bool)canInput.Invoke(player, null), "初段の命中前は次段入力を受理しない");
+        victim.transform.position = Vector3.right * 10;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(!(bool)canInput.Invoke(player, null), "空振りしても次段入力を受理しない");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 1, "空振り後に再攻撃しても初段になる");
+        victim.transform.position = Vector3.right;
+        int initialHealth = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(victim.Health < initialHealth && (bool)canInput.Invoke(player, null), "実際の命中後に次段入力を受理する");
+        Require((bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.HeavyStrike })
+            && (bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial }),
+            "初段の命中判定後は大斬り・必殺技へのキャンセルを許可する");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 2, "命中後の次の通常攻撃は2段目になる");
+        int secondHealth = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(victim.Health < secondHealth, "別段の通常攻撃は同じ攻撃者の被弾硬直中にもつながる");
+        int repeatHealth = victim.Health;
+        victim.TakeMeleeDamage(1, player, BrawlerDefines.DamageKind.Normal);
+        Require(victim.Health == repeatHealth, "通常コンボの同じ段は硬直中に再ヒットしない");
+        SetPrivateField(player, "_comboStep", 1);
+        victim.TakeMeleeDamage(1, player, BrawlerDefines.DamageKind.Normal);
+        Require(victim.Health == repeatHealth, "別段を挟んでも使用済みの初段を再ヒットさせない");
+        SetPrivateField(player, "_comboStep", 2);
+
+        attack.Invoke(player, null);
+        Require(player.ComboStep == BrawlerBalance.ComboSteps, "2段目の命中後は最終段へ進む");
+        animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(!(bool)canInput.Invoke(player, null), "最終段から次段を予約しない");
+        attack.Invoke(player, null);
+        Require(player.ComboStep == 1, "最終段の後は初段へ戻る");
+        SetPrivateField(victim, "_stunRemaining", 0f);
+        SetPrivateField(victim, "_downRemaining", 0f);
+        victim.transform.position = Vector3.right;
+        game.Hit(player, BrawlerBalance.NormalDamage);
+        special.Invoke(player, new object[] { 1f });
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut }), "必殺技の攻撃判定前はキャンセルしない");
+        int beforeSpecial = victim.Health;
+        animate.Invoke(player, new object[] { BrawlerBalance.DashSpecialHitDelaySeconds + 0.01f });
+        Require(victim.Health < beforeSpecial, "通常攻撃からつないだ別技は通常の被弾硬直で無効にならない");
+        Require((bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut })
+            && !(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial })
+            && !(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.HeavyStrike }),
+            "ダッシュ必殺技から対空のみを許可し、同じ技・下位技へ戻さない");
+        uppercut.Invoke(player, null);
+        SetPrivateField(player, "_hasDealtHit", true);
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.DashSpecial }), "対空からダッシュ必殺技への逆方向は禁止する");
+        SetPrivateField(player, "_stunRemaining", BrawlerBalance.StunSeconds);
+        Require(!(bool)canCancel.Invoke(player, new object[] { BrawlerDefines.AttackKind.Uppercut }), "被弾硬直中はキャンセルを許可しない");
+        SetPrivateField(game, "_player", previousPlayer);
+        enemies.Clear();
+        enemies.AddRange(previousEnemies);
+        UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    private static void ValidateEnemyAttackSounds(BeltBrawler game, MethodInfo createFighter)
+    {
+        var audio = (BrawlerAudio)GetPrivateField(game, "_audio");
+        var played = (System.Collections.Generic.Dictionary<BrawlerSound, float>)GetPrivateField(audio, "_lastPlayedAt");
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test sound player", Vector3.right * 10, true, false, false, false });
+        SetPrivateField(game, "_player", player);
+        var normal = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test enemy sound", Vector3.zero, false, false, false, false });
+        var boss = (BossFighter)factory.CreateFighter("Test boss sound", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        MethodInfo begin = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        foreach (Fighter enemy in new Fighter[] { normal, boss })
+        {
+            bool isBoss = enemy == boss;
+            BrawlerSound warningSound = isBoss ? BrawlerSound.BossWarning : BrawlerSound.EnemyWarning;
+            BrawlerSound swingSound = isBoss ? BrawlerSound.BossSwing : BrawlerSound.EnemySwing;
+            BrawlerSound missSound = isBoss ? BrawlerSound.BossMiss : BrawlerSound.EnemyMiss;
+            player.transform.position = Vector3.right * 10;
+            typeof(Fighter).GetProperty("Facing").SetValue(enemy, 1f);
+            played.Clear();
+            begin.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(played.ContainsKey(warningSound) && !played.ContainsKey(swingSound), "敵種別に対応する予兆音を開始時に鳴らす");
+            played.Clear();
+            windup.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(played.ContainsKey(swingSound) && !played.ContainsKey(missSound), "予兆終了と振り始めで風切り音を鳴らす");
+            played.Clear();
+            animate.Invoke(enemy, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+            Require(played.ContainsKey(missSound), "命中判定時に相手が範囲外なら空振り音を鳴らす");
+            played.Clear();
+            animate.Invoke(enemy, new object[] { 0f });
+            Require(!played.ContainsKey(missSound), "同じ攻撃の空振り音を毎フレーム繰り返さない");
+            player.transform.position = Vector3.right;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            game.Hit(enemy, BrawlerBalance.BossStrikeDamage);
+            Require(played.ContainsKey(BrawlerSound.Guard) && !played.ContainsKey(missSound), "正面ガードはガード音を使い、空振り扱いにしない");
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+            begin.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            enemy.TakeDamage(1, 1);
+            played.Clear();
+            windup.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(!played.ContainsKey(swingSound), "被弾で予兆を中断されたら振り始めの音を鳴らさない");
+        }
+        var projectile = new GameObject("Test missed projectile").AddComponent<EnemyProjectile>();
+        projectile.Initialize(player, 1f, game);
+        SetPrivateField(projectile, "_remainingLifetime", 0f);
+        MethodInfo updateProjectile = typeof(EnemyProjectile).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        played.Clear();
+        updateProjectile.Invoke(projectile, null);
+        Require(played.ContainsKey(BrawlerSound.EnemyMiss), "遠距離攻撃を避けた場合は寿命終了時に空振り音を鳴らす");
+        played.Clear();
+        updateProjectile.Invoke(projectile, null);
+        Require(played.Count == 0, "終了済みの弾は空振り音を再生し直さない");
+        UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+        SetPrivateField(game, "_player", previousPlayer);
+        UnityEngine.Object.DestroyImmediate(normal.gameObject);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    private static void ValidateBoss(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        var boss = (BossFighter)factory.CreateFighter("Test Boss", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test boss player", Vector3.right * BrawlerBalance.BossStrikeStopDistance, true, false, false, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        SetPrivateField(game, "_player", player);
+        enemies.Add(boss);
+        MethodInfo move = typeof(BossFighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo recovery = typeof(BossFighter).GetMethod("UpdateRecovery", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo hit = typeof(BossFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(boss.MaxHealth == BrawlerBalance.BossHealth && boss.HammerHitLimit == 2,
+            "ボスは専用HPと大型のハンマー2ヒット設定を持つ");
+        move.Invoke(boss, null);
+        Require(boss.IsWindingUp && !boss.IsWideAttack && boss.WarningRangeEnd == boss.MeleeAttackReach,
+            "最初は長い一撃を予告し、実際のリーチと表示を共用する");
+        EnemyAttackWarning marker = boss.GetComponentInChildren<EnemyAttackWarning>();
+        marker.Refresh();
+        Require(marker.IsVisible && !marker.IsShowingOpening
+            && marker.CurrentColor == BrawlerBalance.BossStrikeWarningStartColor,
+            "長い一撃は橙色の予兆で開始する");
+        int healthBefore = player.Health;
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds / 2 });
+        marker.Refresh();
+        Require(marker.CurrentColor == Color.Lerp(BrawlerBalance.BossStrikeWarningStartColor,
+            BrawlerBalance.BossStrikeWarningEndColor, boss.AttackWindupProgress), "長い一撃の色は予告の進行に連動する");
+        Require(player.Health == healthBefore && boss.IsWindingUp, "予告の途中ではダメージが発生しない");
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds });
+        animate.Invoke(boss, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(player.Health == healthBefore - BrawlerBalance.BossStrikeDamage && boss.IsRecovering,
+            "予告と攻撃動作の後に一度だけ命中し、反撃できる隙へ移る");
+        marker.Refresh();
+        Require(marker.IsVisible && marker.IsShowingOpening && marker.CurrentColor == BrawlerBalance.BossOpeningColor
+            && !marker.transform.Find("Attack direction").GetComponent<Renderer>().enabled,
+            "反撃の隙は緑色の足元枠になり、攻撃方向は表示しない");
+        Require(Mathf.Abs(marker.transform.Find("Front edge").localScale.x
+            - BrawlerBalance.OpeningMarkerHalfSize * 2) < 0.01f, "反撃の枠は攻撃範囲とは異なる小さい枠にする");
+        player.transform.position = Vector3.right * 10;
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        Require((Vector3)move.Invoke(boss, null) == Vector3.zero, "攻撃後の隙は追跡を停止する");
+        recovery.Invoke(boss, new object[] { 0f });
+        Require(boss.RecoverySecondsRemaining == BrawlerBalance.BossRecoverySeconds, "時間停止中はボスの隙も停止する");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        marker.Refresh();
+        Require(!marker.IsVisible && !marker.IsShowingOpening, "隙が終わると緑の枠を消す");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossAttackIntervalSeconds + 0.001f });
+        SetPrivateField(boss, "_attackRemaining", 0f);
+        player.transform.position = Vector3.right;
+        move.Invoke(boss, null);
+        Require(boss.IsWideAttack && boss.IsWindingUp && boss.WarningLaneHalfWidth == BrawlerBalance.BossWideLaneHalfWidth,
+            "次は幅広い攻撃を選び、予告幅も切り替える");
+        marker.Refresh();
+        Require(marker.CurrentColor == BrawlerBalance.BossWideWarningStartColor && !marker.IsShowingOpening
+            && marker.transform.Find("Attack direction").GetComponent<Renderer>().enabled,
+            "幅広い攻撃は紫色の予兆になり、方向表示も復帰する");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        player.transform.position += Vector3.forward;
+        healthBefore = player.Health;
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossWideWindupSeconds });
+        animate.Invoke(boss, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(player.Health == healthBefore - BrawlerBalance.BossWideDamage,
+            "幅広い攻撃は通常敵の攻撃幅より奥行きの離れた相手に命中する");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+        typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+        healthBefore = player.Health;
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossWideDamage });
+        Require(player.Health == healthBefore && boss.IsRecovering, "ボス攻撃も正面ガードで防げ、空振りと同様に隙が残る");
+        typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+        player.transform.position = new Vector3(1, 0, BrawlerBalance.BossWideLaneHalfWidth + 0.1f);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossWideDamage });
+        Require(player.Health == healthBefore, "ボスの予告範囲外へ奥行き回避するとダメージを受けない");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds + BrawlerBalance.BossAttackIntervalSeconds });
+        SetPrivateField(boss, "_attackRemaining", 0f);
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        player.transform.position = Vector3.left;
+        move.Invoke(boss, null);
+        Require(!boss.IsWideAttack && boss.Facing == -1 && boss.IsWindingUp, "隙の後は振り向き、長い一撃へ循環する");
+        boss.TakeDamage(BrawlerBalance.NormalDamage, 1);
+        Require(!boss.IsWindingUp, "予告中の被弾でボスの攻撃を中断できる");
+        marker.Refresh();
+        Require(!marker.IsVisible, "予告が中断された場合は緑の反撃枠を新しく出さない");
+        boss.TakeDamage(BrawlerBalance.BossHealth, 1);
+        marker.Refresh();
+        Require(!marker.IsVisible, "死亡後はボスの予兆・反撃枠を表示しない");
+        SetPrivateField(game, "_player", previousPlayer);
+        enemies.Remove(boss);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    // 閾値・一度だけの通知・既存攻撃の維持・実際の攻撃待機をまとめて検証します。
+    private static void ValidateBossPhase(BeltBrawler game, MethodInfo createFighter)
+    {
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        var boss = (BossFighter)factory.CreateFighter("Test boss phase", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test phase player", Vector3.right, true, false, false, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        SetPrivateField(game, "_player", player);
+        MethodInfo phase = typeof(BossFighter).GetMethod("UpdatePhase", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo recovery = typeof(BossFighter).GetMethod("UpdateRecovery", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo move = typeof(BossFighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo hit = typeof(BossFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo beginWindup = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo reduceHealth = typeof(Combatant).GetMethod("ReduceHealth", BindingFlags.Instance | BindingFlags.NonPublic);
+        // 境界を正確に作るためHP計算だけを呼び、被弾の硬直と行動変化を切り分けます。
+        int threshold = Mathf.FloorToInt(boss.MaxHealth * BrawlerBalance.BossSecondPhaseHealthFraction);
+        reduceHealth.Invoke(boss, new object[] { boss.MaxHealth - threshold - 1 });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(!boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "HPが半分より1多い間は前半のまま");
+        beginWindup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds });
+        SetPrivateField(boss, "_windupRemaining", BrawlerBalance.BossStrikeWindupSeconds / 2);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossStrikeDamage });
+        float previousRest = (float)GetPrivateField(boss, "_attackRestRemaining");
+        reduceHealth.Invoke(boss, new object[] { 1 });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && boss.IsShowingPhaseNotice, "HPがちょうど半分で後半へ移行する");
+        Require(boss.IsWindingUp && Mathf.Abs(boss.AttackWindupProgress - 0.5f) < 0.01f
+            && boss.RecoverySecondsRemaining == BrawlerBalance.BossRecoverySeconds
+            && (float)GetPrivateField(boss, "_attackRestRemaining") == previousRest,
+            "移行そのものは予兆・反撃の隙・進行中の待機を変更しない");
+        PropertyInfo speed = typeof(BossFighter).GetProperty("EnemyMovementSpeed", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require((float)speed.GetValue(boss) == BrawlerBalance.BossSecondPhaseSpeed,
+            "後半は共通の移動処理が参照する速度を切り替える");
+        phase.Invoke(boss, new object[] { 0f });
+        Require((float)GetPrivateField(boss, "_phaseNoticeRemaining") == BrawlerBalance.BossPhaseNoticeSeconds,
+            "時間停止中は移行通知も停止する");
+        phase.Invoke(boss, new object[] { BrawlerBalance.BossPhaseNoticeSeconds });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "後半の通知は一度だけ表示し、再点灯しない");
+        boss.RestoreHealth(boss.MaxHealth);
+        phase.Invoke(boss, new object[] { 0f });
+        Require(boss.IsSecondPhase && !boss.IsShowingPhaseNotice, "回復しても後半状態は維持する");
+        SetPrivateField(boss, "_windupRemaining", 0f);
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossStrikeDamage });
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        move.Invoke(boss, null);
+        Require(!boss.IsRecovering && !boss.IsWindingUp, "後半も1.4秒の隙を維持し、その直後は追加待機する");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossSecondPhaseAttackIntervalSeconds + 0.001f });
+        move.Invoke(boss, null);
+        Require(boss.IsWindingUp && boss.WarningRangeEnd == BrawlerBalance.BossStrikeReach
+            && (float)GetPrivateField(boss, "_windupDuration") == BrawlerBalance.BossStrikeWindupSeconds,
+            "後半は0.1秒の追加待機後に、従来と同じ予兆時間・範囲で攻撃する");
+        reduceHealth.Invoke(boss, new object[] { boss.MaxHealth });
+        phase.Invoke(boss, new object[] { 0f });
+        Require(!boss.IsShowingPhaseNotice, "死亡時は移行通知を表示しない");
+        var defeatedBoss = (BossFighter)factory.CreateFighter("Test defeated boss phase", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        reduceHealth.Invoke(defeatedBoss, new object[] { defeatedBoss.MaxHealth });
+        phase.Invoke(defeatedBoss, new object[] { 0f });
+        Require(!defeatedBoss.IsSecondPhase, "一撃で倒されたボスは後半への移行を開始しない");
+        SetPrivateField(game, "_player", previousPlayer);
+        UnityEngine.Object.DestroyImmediate(defeatedBoss.gameObject);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    private static void ValidateBossPreparation(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies, System.Collections.Generic.List<Vector3> pending,
+        MethodInfo waveProgress)
+    {
+        var player = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test preparation player", Vector3.right * BrawlerBalance.StageHalfWidth, true, false, false, false });
+        SetPrivateField(game, "_player", player);
+        enemies.Clear();
+        pending.Clear();
+        SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
+        SetPrivateField(game, "_nextWaveElapsed", 0f);
+        player.TakeDamage(BrawlerBalance.BossPreparationHealingAmount, 1);
+        waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+        Require(game.IsPreparingBoss && !game.IsRunFinished && pending.Count == 0
+            && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount - 1
+            && player.Health == player.MaxHealth, "第4ウェーブ後は回復して準備に入り、ボスを自動予約しない");
+        var supplies = (System.Collections.Generic.List<CollectibleItem>)GetPrivateField(game, "_preparationSupplies");
+        Require(supplies.Count == BrawlerBalance.BossPreparationSupplyCount, "支給品を一組だけ配置する");
+        MethodInfo advanceLifetime = typeof(CollectibleItem).GetMethod("AdvanceLifetime", BindingFlags.Instance | BindingFlags.NonPublic);
+        foreach (CollectibleItem supply in supplies)
+        {
+            Require(supply.IsLifetimePaused && Mathf.Abs(supply.transform.position.x) <= BrawlerBalance.StageHalfWidth,
+                "端で準備しても支給品は場内に置かれ、時間切れを停止する");
+            float lifetime = (float)GetPrivateField(supply, "_remainingLifetime");
+            advanceLifetime.Invoke(supply, new object[] { lifetime + 1 });
+            Require((float)GetPrivateField(supply, "_remainingLifetime") == lifetime, "準備に時間をかけても支給品は消えない");
+        }
+        waveProgress.Invoke(game, new object[] { 100f });
+        Require(game.IsPreparingBoss && supplies.Count == BrawlerBalance.BossPreparationSupplyCount && pending.Count == 0,
+            "準備中は時間で進行せず支給品を重複生成しない");
+        var potion = (HealingPotion)supplies[0];
+        player.transform.position = potion.transform.position;
+        Require(potion.TryCollect() && player.HealingPotionsHeld == 1 && !potion.TryCollect(),
+            "支給品も通常のスロット保存と二重取得防止を使用する");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        SetPrivateField(player, "_attackCooldown", 0f);
+        SetPrivateField(player, "_jumpHeight", 1f);
+        Require(!game.TryStartBossBattle() && game.IsPreparingBoss, "空中ではボス戦開始を拒否する");
+        SetPrivateField(player, "_jumpHeight", 0f);
+        SetPrivateField(player, "_recoveryRemaining", BrawlerBalance.SpellRecoverySeconds);
+        Require(!game.TryStartBossBattle() && game.IsPreparingBoss, "魔法使用後の隙ではボス戦開始を拒否する");
+        SetPrivateField(player, "_recoveryRemaining", 0f);
+        CollectibleItem remainingSupply = supplies[1];
+        Require(game.TryStartBossBattle() && !game.IsPreparingBoss
+            && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount
+            && pending.Count == BrawlerBalance.BossWaveEnemyCount && !remainingSupply.IsLifetimePaused,
+            "準備完了でボス出現を予約し、残った支給品の寿命を再開する");
+        Require(!game.TryStartBossBattle() && pending.Count == BrawlerBalance.BossWaveEnemyCount,
+            "ボス戦開始は一度だけ受理する");
+        float remainingLifetime = (float)GetPrivateField(remainingSupply, "_remainingLifetime");
+        advanceLifetime.Invoke(remainingSupply, new object[] { 1f });
+        Require((float)GetPrivateField(remainingSupply, "_remainingLifetime") == remainingLifetime - 1,
+            "戦闘開始後は残った支給品も通常の期限に従う");
+        pending.Clear();
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
     private static void ValidateStageClear(BeltBrawler game, MethodInfo createTurnEnemy,
         System.Collections.Generic.List<Fighter> turnEnemies,
         System.Collections.Generic.List<Vector3> bannerPending, MethodInfo waveProgress)
     {
-        // 最終ウェーブの出現待ち・戦闘中はクリアせず、全滅して消えた時点だけ結果を確定します。
+        // 撃破演出とヒットストップが重なった状態でも、無効化で元の速度へ戻します。
+        MethodInfo beginDefeat = typeof(BeltBrawler).GetMethod("BeginBossDefeat", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo updateDefeat = typeof(BeltBrawler).GetMethod("UpdateBossDefeat", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo beginStop = typeof(BeltBrawler).GetMethod("BeginHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo updateStop = typeof(BeltBrawler).GetMethod("UpdateHitStop", BindingFlags.Instance | BindingFlags.NonPublic);
+        typeof(BeltBrawler).GetMethod("RestoreCombatTime", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
+        Time.timeScale = 0.8f;
+        beginDefeat.Invoke(game, null);
+        Require(Mathf.Abs(Time.timeScale - 0.8f * BrawlerBalance.BossDefeatSlowTimeScale) < 0.01f,
+            "撃破スローは開始前の速度を基準にする");
+        beginStop.Invoke(game, new object[] { BrawlerBalance.StrongHitStopSeconds });
+        game.enabled = false;
+        Require(Time.timeScale == 0.8f && !game.IsShowingBossDefeat,
+            "低速再生と停止が重なっていても、無効化時は元の速度へ復元する");
+        game.enabled = true;
+        Time.timeScale = 1f;
+        SetPrivateField(game, "_bossDefeatStarted", false);
+        // 最終ウェーブの出現待ち・戦闘中はクリアせず、撃破表示と消滅が終わって結果を確定します。
         Fighter resultPlayer = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test result player", Vector3.zero, true, false, false, false });
         SetPrivateField(game, "_player", resultPlayer);
         turnEnemies.Clear();
@@ -1145,10 +1935,31 @@ public static class CombatValidation
         typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
             .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds });
         Require(turnEnemies.Count > 0 && !game.IsStageCleared, "最終ウェーブにも敵を配置");
+        Require(turnEnemies.Count == BrawlerBalance.BossWaveEnemyCount && turnEnemies[0] is BossFighter,
+            "最終ウェーブはボス戦になり、倒すまでクリアしない");
         foreach (Fighter finalEnemy in turnEnemies)
         {
             finalEnemy.TakeDamage(1000, 1);
         }
+        Require(game.IsShowingBossDefeat && Time.timeScale == 0, "ボスへの致命傷で撃破表示と最後の一撃の停止を開始する");
+        float initialSlow = (float)GetPrivateField(game, "_bossSlowRemaining");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds });
+        Require((float)GetPrivateField(game, "_bossSlowRemaining") == initialSlow,
+            "ヒットストップ中は低速再生の持続時間を消費しない");
+        updateStop.Invoke(game, new object[] { BrawlerBalance.StrongHitStopSeconds + 0.01f });
+        Require(Time.timeScale == BrawlerBalance.BossDefeatSlowTimeScale,
+            "最後の一撃の停止後は撃破スローへつながる");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatSlowSeconds / 2 });
+        float remainingNotice = (float)GetPrivateField(game, "_bossDefeatRemaining");
+        beginDefeat.Invoke(game, null);
+        Require((float)GetPrivateField(game, "_bossDefeatRemaining") == remainingNotice,
+            "撃破通知を再要求しても演出を延長しない");
+        beginStop.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds });
+        updateStop.Invoke(game, new object[] { BrawlerBalance.NormalHitStopSeconds + 0.01f });
+        Require(Time.timeScale == BrawlerBalance.BossDefeatSlowTimeScale,
+            "撃破スロー中の追加ヒットストップを解除してもスローを維持する");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatSlowSeconds / 2 + 0.01f });
+        Require(Time.timeScale == 1 && game.IsShowingBossDefeat, "低速再生は実時間で終了し、撃破表示は残る");
         waveProgress.Invoke(game, new object[] { 0f });
         Require(!game.IsStageCleared, "撃破フェード中は結果画面へ移らない");
         foreach (Fighter finalEnemy in turnEnemies)
@@ -1158,6 +1969,9 @@ public static class CombatValidation
         turnEnemies.Clear();
         int finalScore = (int)GetPrivateField(game, "_score");
         int finalKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
+        waveProgress.Invoke(game, new object[] { 0f });
+        Require(!game.IsStageCleared, "ボスが消えても撃破表示が残っていれば結果画面を待つ");
+        updateDefeat.Invoke(game, new object[] { BrawlerBalance.BossDefeatNoticeSeconds });
         waveProgress.Invoke(game, new object[] { 0f });
         Require(game.IsStageCleared && game.ResultScore == finalScore && game.ResultDefeatedEnemies == finalKills,
             "最終全滅後にクリアとスコア・撃破数を確定");
@@ -1178,6 +1992,93 @@ public static class CombatValidation
         int stoppedHealth = stoppedTarget.Health;
         Require(!stoppedTarget.TryTakeGroundHit(BrawlerBalance.GroundAttackDamage, 1)
             && stoppedTarget.Health == stoppedHealth, "終了後は追撃経路でもHPを変更しない");
+    }
+
+    // 新しい職業を追加する前に、共通キャラとクレリックの許可・所持・投擲の違いを確認します。
+    private static void ValidateThrownItems(BeltBrawler game, ClericFighter cleric, MethodInfo createEnemy,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        // 死亡・魔法検証から状態を引き継がず、新しいクレリックで制限を検証します。
+        cleric = (ClericFighter)createEnemy.Invoke(game,
+            new object[] { "Test item permissions cleric", Vector3.zero, true, false, false, false });
+        Require(!cleric.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+            && cleric.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer), "クレリックは刃物を禁止しハンマーを許可");
+        int knivesBefore = UnityEngine.Object.FindObjectsByType<ThrowingKnifeProjectile>().Length;
+        Require(!cleric.TryStoreThrowingKnife() && !cleric.TryThrowKnife() && cleric.ThrowingKnivesHeld == 0,
+            "クレリックはナイフを保存・消費しない");
+        game.ThrowKnife(cleric);
+        Require(UnityEngine.Object.FindObjectsByType<ThrowingKnifeProjectile>().Length == knivesBefore,
+            "管理役の直接呼び出しも職業制限を守る");
+        BrawlerDefines.UsableAction selectedBefore = cleric.SelectedAction;
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
+        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Empty && !cleric.TryUseSelectedAction(),
+            "未所持のナイフを指定しても空き枠として扱い使用しない");
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, selectedBefore);
+        for (int i = 0; i < BrawlerBalance.InventorySlotCount; i++)
+        {
+            cleric.SelectNextAction();
+            Require(cleric.SelectedAction != BrawlerDefines.UsableAction.ThrowingKnife, "クレリックの選択順にナイフを含めない");
+        }
+
+        var ownerObject = new GameObject("Test generic item user");
+        Fighter owner = ownerObject.AddComponent<Fighter>();
+        var model = new GameObject("Model").transform;
+        model.SetParent(ownerObject.transform, false);
+        owner.Initialize(game, true, BrawlerBalance.PlayerMaxHealth, model, model, model, model);
+        Require(owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife), "共通キャラはナイフの使用が可能");
+        var pickupObject = new GameObject("Test knife pickup");
+        ThrowingKnifePickup pickup = pickupObject.AddComponent<ThrowingKnifePickup>();
+        pickupObject.transform.position = cleric.transform.position;
+        pickup.Initialize(cleric, (BrawlerAudio)GetPrivateField(game, "_audio"));
+        Require(!pickup.TryCollect(), "クレリックは床ナイフを残す");
+        pickupObject.transform.position = owner.transform.position;
+        pickup.Initialize(owner, (BrawlerAudio)GetPrivateField(game, "_audio"));
+        Require(pickup.TryCollect() && owner.ThrowingKnivesHeld == 1 && !pickup.TryCollect(),
+            "使用可能なキャラだけ床ナイフを一度取得");
+        Require(owner.TryStoreThrowingHammer() && owner.ThrowingHammersHeld == 1 && owner.ThrowingKnivesHeld == 1,
+            "ナイフとハンマーの所持数は独立");
+        UnityEngine.Object.DestroyImmediate(pickupObject);
+        for (int i = owner.ThrowingKnivesHeld; i < BrawlerBalance.KnifeCapacity; i++)
+        {
+            Require(owner.TryStoreThrowingKnife(), "ナイフの所持数を上限まで保存");
+        }
+        Require(!owner.TryStoreThrowingKnife(), "ナイフの独立した所持上限を守る");
+        foreach (float facing in new float[] { -1, 1 })
+        {
+            foreach (Fighter existing in enemies)
+            {
+                if (existing != null)
+                {
+                    existing.transform.position = new Vector3(20, 0, 3);
+                }
+            }
+            Fighter nearest = (Fighter)createEnemy.Invoke(game,
+                new object[] { "Test knife nearest", Vector3.right * facing * 3, false, false, false, false });
+            Fighter further = (Fighter)createEnemy.Invoke(game,
+                new object[] { "Test knife further", Vector3.right * facing * 5, false, false, false, false });
+            enemies.AddRange(new[] { further, nearest });
+            typeof(Fighter).GetProperty("Facing").SetValue(owner, facing);
+            typeof(Fighter).GetProperty("Facing").SetValue(nearest, -facing);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(nearest, true);
+            SetPrivateField(owner, "_itemRecoveryRemaining", 0f);
+            int heldBefore = owner.ThrowingKnivesHeld;
+            Require(owner.TryThrowKnife() && owner.ThrowingKnivesHeld == heldBefore - 1 && !owner.TryThrowKnife(),
+                "ナイフ使用成功時だけ消費し、後隙中は連射しない");
+            ThrowingKnifeProjectile knife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
+            typeof(Fighter).GetProperty("Facing").SetValue(owner, -facing);
+            int nearestHealth = nearest.Health;
+            int furtherHealth = further.Health;
+            float initialHeight = knife.transform.position.y;
+            knife.Advance(1f);
+            Require(nearest.Health == nearestHealth - BrawlerBalance.KnifeDamage && further.Health == furtherHealth
+                && knife.transform.position.y == initialHeight && !nearest.IsHammerStunned,
+                "左右・低FPSでも直進ナイフは最初の敵だけに命中し気絶を付けない");
+            knife.Advance(1f);
+            Require(nearest.Health == nearestHealth - BrawlerBalance.KnifeDamage, "ナイフも二重命中を防止");
+            UnityEngine.Object.DestroyImmediate(knife.gameObject);
+        }
+        UnityEngine.Object.DestroyImmediate(ownerObject);
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
     }
 
     // 本番の開始処理を呼び、技を切り替えたときに前の攻撃種別が残らないことを確認します。

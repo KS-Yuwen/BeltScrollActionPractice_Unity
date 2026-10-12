@@ -225,6 +225,8 @@ public static class BrawlerBalance
     public const float JumpDirectionThreshold = 0.5f;
     public const float ForwardInputThreshold = 0.6f;
     public const float DoubleTapWindowSeconds = 0.25f;
+    // バックステップのボタン間隔。走りの2回入力とは独立して調整します。
+    public const float BackstepInputWindowSeconds = 0.25f;
     public const float FacingInputThreshold = 0.01f;
     // パッドの奥行き操作に混じる微小な左右入力で、意図せず反転するのを抑えます。
     public const float PlayerFacingInputThreshold = 0.2f;
@@ -261,6 +263,8 @@ public static class BrawlerBalance
     public const int GroundAttackDamage = 24;
     public const int ComboSteps = 3;
     public const float AttackBufferSeconds = 0.2f;
+    // 大斬りも方向を先に入れてから押す技です。方向コマンドと同じ余裕を確保します。
+    public static float HeavyStrikeButtonWindowSeconds => SlideButtonWindowSeconds;
     public const float ComboWindowSeconds = 0.85f;
     public const float AttackSeconds = 0.3f;
     public const float NormalCooldownSeconds = 0.32f;
@@ -288,6 +292,8 @@ public static class BrawlerBalance
     public const float StunSeconds = 0.25f;
     public const float EnemyHitCooldownSeconds = 0.6f;
     public const float DownSeconds = 0.7f;
+    // コマンド技の基礎威力に適用する共通倍率。端数は切り上げます。
+    public const float CriticalDamageMultiplier = 1.5f;
     public const int KnockdownDamageThreshold = 30;
     public const float KnockbackSpeed = 5;
     public const float StrongKnockbackSpeed = 9;
@@ -295,6 +301,8 @@ public static class BrawlerBalance
     public const float BlockKnockbackSpeed = 1.5f;
     public const float BlockFlashSeconds = 0.15f;
     public const float CounterWindowSeconds = 0.45f;
+    // ガード解除後の無敵時間（試作の調整値）。対空反撃への移行にも適用します。
+    public const float GuardReleaseInvulnerabilitySeconds = 0.2f;
     public const float DamageFlashSeconds = 0.12f;
     public const float EnemyRemovalSeconds = 0.5f;
     public const float StageHalfWidth = 22;
@@ -311,13 +319,106 @@ public static class BrawlerBalance
     public const float TurnUndeadCooldownSeconds = 4f;
     public const int UndeadSpawnIndex = 1;
     public const int HealingUses = 3;
+    // 最終ウェーブのボス。狭く長い一撃と、短く幅広い攻撃を交互に使います。
+    public const int BossHealth = 320;
+    public const float BossSpeed = 2f;
+    public const float BossStrikeReach = 2.4f;
+    public const float BossStrikeLaneHalfWidth = 0.75f;
+    public const float BossStrikeStopDistance = 2f;
+    public const float BossStrikeWindupSeconds = 0.9f;
+    public const int BossStrikeDamage = 22;
+    public const float BossWideReach = 1.8f;
+    public const float BossWideLaneHalfWidth = 1.4f;
+    public const float BossWideStopDistance = 1.5f;
+    public const float BossWideWindupSeconds = 0.7f;
+    public const int BossWideDamage = 18;
+    public const float BossApproachLaneTolerance = 0.5f;
+    public const float BossRecoverySeconds = 1.4f;
+    public const float BossAttackIntervalSeconds = 0.3f;
+    // 後半も予兆時間・反撃の隙・攻撃力は共通です。追跡と攻撃間の待機だけを調整します。
+    public const float BossSecondPhaseHealthFraction = 0.5f;
+    public const float BossSecondPhaseSpeed = 2.4f;
+    public const float BossSecondPhaseAttackIntervalSeconds = 0.1f;
+    public const float BossPhaseNoticeSeconds = 2f;
+    public static readonly UnityEngine.Color BossSecondPhaseColor = new UnityEngine.Color(1f, 0.35f, 0.2f);
+    public const int BossWaveEnemyCount = 1;
+    public const int BossPreparationHealingAmount = 40;
+    public const int BossPreparationSupplyCount = 5;
+    public const int BossPreparationSpellSupplyOffset = 2;
+    public const float BossPreparationSupplySpacing = 1.6f;
+    public const float BossPreparationHudTop = 370f;
+    public const float BossPreparationHudWidth = 1050f;
+    public const float BossPreparationHudLineHeight = 35f;
+    public const float BossHudWidth = 320f;
+    public const float BossHudMargin = 24f;
+    public const float BossHudTitleHeight = 36f;
+    public const float BossHudBarHeight = 22f;
+    public const float BossMaceSize = 0.65f;
+    // 予兆の種類は色と範囲の形で区別します。開始から発動まで同じ色系統で濃くします。
+    public static readonly UnityEngine.Color BossStrikeWarningStartColor = new UnityEngine.Color(1f, 0.7f, 0.15f);
+    public static readonly UnityEngine.Color BossStrikeWarningEndColor = new UnityEngine.Color(1f, 0.25f, 0f);
+    public static readonly UnityEngine.Color BossWideWarningStartColor = new UnityEngine.Color(0.85f, 0.5f, 1f);
+    public static readonly UnityEngine.Color BossWideWarningEndColor = new UnityEngine.Color(0.65f, 0.1f, 1f);
+    public static readonly UnityEngine.Color BossOpeningColor = UnityEngine.Color.green;
+    public const float OpeningMarkerHalfSize = 0.65f;
+    public const float BossOpeningBarHeight = 8f;
+    // 撃破演出は実時間で計測し、低速再生でも必ず終了するようにします。
+    public const float BossDefeatSlowTimeScale = 0.25f;
+    public const float BossDefeatSlowSeconds = 0.6f;
+    public const float BossDefeatNoticeSeconds = 1.2f;
+    public const float BossDefeatNoticeWidth = 640f;
+    public const float BossDefeatNoticeHeight = 80f;
+    public const float BossDefeatNoticeTopFraction = 0.35f;
+    public const int BossDefeatNoticeFontSize = 42;
     public const int ProtectionUses = 2;
+    public const int AttackBoostUses = 2;
+    public const int InventorySlotCount = 6;
+    public const int InventoryStackLimit = 9;
+    public const float AttackBoostSeconds = 13f;
+    public const float AttackBoostDamageMultiplier = 1.5f;
+    public const float AttackBoostWarningSeconds = 3f;
+    public const int ScrollRestoreUses = 1;
+    public const int ScrollDropInterval = 4;
+    public const int ScrollActionCycleLength = 3;
+    public const float ScrollPickupRadius = 0.7f;
+    public const float ScrollLifetimeSeconds = 20f;
+    public const float ScrollLaneOffset = -0.8f;
+    public const float ScrollModelHeight = 0.25f;
+    public const float ScrollModelWidth = 0.6f;
+    public const float ScrollModelDepth = 0.3f;
+    public const float ScrollBandWidth = 0.12f;
+    public const float ScrollBandHeight = 0.27f;
+    public const float ScrollBandDepth = 0.32f;
     public const float SpellRecoverySeconds = 0.6f;
     public const float ProtectionSeconds = 8;
     public const float ProtectionDamageMultiplier = 0.5f;
     public const int PotionHealingAmount = 20;
     // 有限の所持品。射程は時間ではなく飛んだ距離で制限します。
-    public const int KnifeCapacity = 9;
+    // ハンマーの軌道・気絶は試作用の調整値です。通常の転倒や被弾硬直とは区別します。
+    // 大きな弧を描き、0.5秒で発射位置から3.0上昇します。着地までは約1.09秒です。
+    // 動画を参考にした試作値で、映像から実測した数値ではありません。
+    public const float HammerVerticalSpeed = 12f;
+    public const float HammerGravity = 24f;
+    public const int LargeEnemyHammerHitLimit = 2;
+    public const float LargeEnemyHammerBodyRadius = 0.45f;
+    public const float HammerRepeatHitIntervalSeconds = 0.1f;
+    public const float ThrownProjectileCollisionStepSeconds = 0.025f;
+    // 胴体の中心から上下への命中範囲。弧の上昇区間でも頭・胴体に当たるようにします。
+    public const float HammerTargetVerticalHalfHeight = 0.6f;
+    public const float HammerSpinDegreesPerSecond = 720f;
+    public const float HammerStunSeconds = 1.5f;
+    public const float HammerStunLabelWidth = 90f;
+    public const float HammerStunLabelHeight = 35f;
+    public const float HammerHeadWidth = 0.4f;
+    public const float HammerHeadHeight = 0.24f;
+    public const float HammerHeadDepth = 0.24f;
+    public const float HammerHandleLength = 0.5f;
+    public const float HammerHandleThickness = 0.1f;
+    public const float HammerHandleOffset = -0.3f;
+    public const float HammerPickupHeight = 0.2f;
+    public const float HammerPickupLaneOffset = 0.4f;
+    // 所持上限は共通の9。射程・使用後の隙などの挙動は種類ごとに調整できます。
+    public const int KnifeCapacity = InventoryStackLimit;
     public const int KnifeDamage = 24;
     public const int KnifeDropInterval = 2;
     public const float KnifeSpeed = 12f;
@@ -328,8 +429,27 @@ public static class BrawlerBalance
     public const float KnifeHitRadius = 0.45f;
     public const float KnifeLaunchOffset = 0.7f;
     public const float KnifeHeight = 1.2f;
+    public const float KnifeBladeLength = 0.65f;
+    public const float KnifeBladeThickness = 0.08f;
+    public const float KnifeBladeDepth = 0.12f;
+    public const float KnifeGripLength = 0.2f;
+    public const float KnifeGripThickness = 0.12f;
+    public const float KnifeGripDepth = 0.14f;
+    public const float KnifeGripOffset = 0.4f;
+    public const float KnifePickupHeight = 0.2f;
+    public const float KnifePickupLaneOffset = -0.4f;
+    public const int HammerCapacity = InventoryStackLimit;
+    public const int HammerDamage = 24;
+    public const int HammerDropInterval = 2;
+    public const float HammerSpeed = 9f;
+    public const float HammerRecoverySeconds = 0.35f;
+    public const float HammerPickupRadius = 0.7f;
+    public const float HammerPickupLifetimeSeconds = 20f;
+    public const float HammerHitRadius = 0.45f;
+    public const float HammerLaunchOffset = 0.7f;
+    public const float HammerHeight = 1.2f;
     // 所持上限と使用後の隙は、将来の外部データ調整でも同じ窓口を使います。
-    public const int PotionCapacity = 9;
+    public const int PotionCapacity = InventoryStackLimit;
     public const float PotionRecoverySeconds = 0.6f;
     public const float PotionPickupRadius = 0.7f;
     public const float PotionLifetimeSeconds = 20;

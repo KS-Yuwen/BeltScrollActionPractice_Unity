@@ -9,13 +9,37 @@ public enum BrawlerSound
     Guard,
     Heal,
     Protection,
-    Pickup
+    Pickup,
+    EnemyWarning,
+    EnemySwing,
+    EnemyMiss,
+    BossWarning,
+    BossSwing,
+    BossMiss
 }
 
 // 試作用の短い効果音を起動時に生成し、同じ AudioClip を繰り返し再生します。
 public sealed class BrawlerAudio : MonoBehaviour
 {
     private const int SampleRate = 44100;
+    // 音作りの調整値。ボスは低い音域にし、複数の通常敵がいる場面でも聞き分けられます。
+    private const float WarningDuration = 0.16f;
+    private const float SwingDuration = 0.12f;
+    private const float MissDuration = 0.09f;
+    private const float EnemyWarningStartFrequency = 520f;
+    private const float EnemyWarningEndFrequency = 780f;
+    private const float BossWarningStartFrequency = 180f;
+    private const float BossWarningEndFrequency = 320f;
+    private const float EnemySwingStartFrequency = 420f;
+    private const float EnemySwingEndFrequency = 130f;
+    private const float BossSwingStartFrequency = 200f;
+    private const float BossSwingEndFrequency = 55f;
+    private const float EnemyMissStartFrequency = 250f;
+    private const float EnemyMissEndFrequency = 90f;
+    private const float BossMissStartFrequency = 120f;
+    private const float BossMissEndFrequency = 40f;
+    private const float WhooshToneWeight = 0.3f;
+    private const float WhooshNoiseWeight = 0.7f;
     private readonly Dictionary<BrawlerSound, AudioClip> _clips = new Dictionary<BrawlerSound, AudioClip>();
     private readonly Dictionary<BrawlerSound, float> _lastPlayedAt = new Dictionary<BrawlerSound, float>();
     private AudioSource _source;
@@ -49,7 +73,16 @@ public sealed class BrawlerAudio : MonoBehaviour
     private static AudioClip CreateClip(BrawlerSound sound)
     {
         bool isImpact = sound == BrawlerSound.Hit || sound == BrawlerSound.StrongHit;
-        float duration = sound == BrawlerSound.Heal || sound == BrawlerSound.Protection ? 0.4f : 0.18f;
+        bool isWhoosh = sound == BrawlerSound.EnemySwing || sound == BrawlerSound.BossSwing
+            || sound == BrawlerSound.EnemyMiss || sound == BrawlerSound.BossMiss;
+        float duration = sound switch
+        {
+            BrawlerSound.EnemyWarning or BrawlerSound.BossWarning => WarningDuration,
+            BrawlerSound.EnemySwing or BrawlerSound.BossSwing => SwingDuration,
+            BrawlerSound.EnemyMiss or BrawlerSound.BossMiss => MissDuration,
+            BrawlerSound.Heal or BrawlerSound.Protection => 0.4f,
+            _ => 0.18f
+        };
         var samples = new float[Mathf.CeilToInt(duration * SampleRate)];
         // ノイズは専用の乱数を使い、敵の出現位置などゲーム側の乱数列を変えません。
         var noise = new System.Random(17 + (int)sound);
@@ -64,9 +97,24 @@ public sealed class BrawlerAudio : MonoBehaviour
                 : sound == BrawlerSound.Heal ? Mathf.Lerp(400, 900, progress)
                 : sound == BrawlerSound.Protection ? Mathf.Lerp(650, 350, progress)
                 : progress < 0.5f ? 700 : 1050;
+            // 予兆は上昇する合図、振りと空振りは短い風切り音として作ります。
+            frequency = sound switch
+            {
+                BrawlerSound.EnemyWarning => Mathf.Lerp(EnemyWarningStartFrequency, EnemyWarningEndFrequency, progress),
+                BrawlerSound.BossWarning => Mathf.Lerp(BossWarningStartFrequency, BossWarningEndFrequency, progress),
+                BrawlerSound.EnemySwing => Mathf.Lerp(EnemySwingStartFrequency, EnemySwingEndFrequency, progress),
+                BrawlerSound.BossSwing => Mathf.Lerp(BossSwingStartFrequency, BossSwingEndFrequency, progress),
+                BrawlerSound.EnemyMiss => Mathf.Lerp(EnemyMissStartFrequency, EnemyMissEndFrequency, progress),
+                BrawlerSound.BossMiss => Mathf.Lerp(BossMissStartFrequency, BossMissEndFrequency, progress),
+                _ => frequency
+            };
             phase += 2 * Mathf.PI * frequency / SampleRate;
             float tone = Mathf.Sin(phase);
-            if (isImpact)
+            if (isWhoosh)
+            {
+                tone = tone * WhooshToneWeight + ((float)noise.NextDouble() * 2 - 1) * WhooshNoiseWeight;
+            }
+            else if (isImpact)
             {
                 tone = tone * 0.65f + ((float)noise.NextDouble() * 2 - 1) * 0.35f;
             }

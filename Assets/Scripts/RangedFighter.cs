@@ -49,6 +49,6 @@ public sealed class RangedFighter : Fighter
         projectileObject.GetComponent<Renderer>().sharedMaterial = GetComponentInChildren<Renderer>().sharedMaterial;
         // 判定は移動区間と対象の距離で行います。物理コライダーは使いません。
         Destroy(projectileObject.GetComponent<Collider>());
-        projectileObject.AddComponent<EnemyProjectile>().Initialize(Game.Target, Facing);
+        projectileObject.AddComponent<EnemyProjectile>().Initialize(Game.Target, Facing, Game);
     }
 }

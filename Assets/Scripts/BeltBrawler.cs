@@ -26,6 +26,14 @@ public sealed class BeltBrawler : MonoBehaviour
     // 終了理由を分けつつ、操作や得点の停止条件は共通にします。
     public bool IsDefeated { get; private set; }
     public bool IsRunFinished => IsStageCleared || IsDefeated;
+    public bool IsPreparingBoss { get; private set; }
+    private readonly List<CollectibleItem> _preparationSupplies = new List<CollectibleItem>();
+    private static readonly BrawlerDefines.UsableAction[] s_preparationSpells =
+    {
+        BrawlerDefines.UsableAction.Healing,
+        BrawlerDefines.UsableAction.Protection,
+        BrawlerDefines.UsableAction.AttackBoost
+    };
     public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
@@ -43,6 +51,11 @@ public sealed class BeltBrawler : MonoBehaviour
     private float _spawnWarningRemaining;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
+    private bool _bossDefeatStarted;
+    private float _bossDefeatRemaining;
+    private float _bossSlowRemaining;
+    private float _timeScaleBeforeBossSlow = 1f;
+    public bool IsShowingBossDefeat => _bossDefeatRemaining > 0 && !IsRunFinished;
     private BrawlerAudio _audio;
     private Font _pickupNoticeFont;
 
@@ -78,7 +91,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
-        if (IsRunFinished || _wave >= BrawlerBalance.StageWaveCount)
+        if (IsRunFinished || IsPreparingBoss || _wave >= BrawlerBalance.StageWaveCount)
         {
             return;
         }
@@ -86,11 +99,13 @@ public sealed class BeltBrawler : MonoBehaviour
         _waveClearAnnounced = false;
         _waveBanner.ShowStart(_wave);
         // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
-        if (_wave > 1)
+        if (_wave > 1 && _wave < BrawlerBalance.StageWaveCount)
         {
             _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
-        for (int i = 0; i < Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount); i++)
+        int enemyCount = _wave == BrawlerBalance.StageWaveCount ? BrawlerBalance.BossWaveEnemyCount
+            : Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount);
+        for (int i = 0; i < enemyCount; i++)
         {
             _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
         }
@@ -122,6 +137,12 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         for (int i = 0; i < _pendingSpawnPositions.Count; i++)
         {
+            if (_wave == BrawlerBalance.StageWaveCount)
+            {
+                _enemies.Add(_factory.CreateFighter("Warden Boss", _pendingSpawnPositions[i], false, _wave,
+                    isBoss: true));
+                continue;
+            }
             // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
             bool isRanged = i % BrawlerBalance.RangedSpawnInterval == BrawlerBalance.RangedSpawnOffset;
             // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
@@ -138,6 +159,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
+        UpdateBossDefeat(Time.unscaledDeltaTime);
         _hitDirectionIndicator.Advance(Time.unscaledDeltaTime);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, Time.deltaTime);
         _waveBanner.Advance(Time.deltaTime);
@@ -151,9 +173,10 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
+        bool wasPreparingBoss = IsPreparingBoss;
         UpdateWaveProgress(Time.deltaTime);
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
-        if (BrawlerInput.WasRestartPressed())
+        if (BrawlerInput.WasRestartPressed(allowGamepad: !wasPreparingBoss))
         {
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
         }
@@ -170,11 +193,23 @@ public sealed class BeltBrawler : MonoBehaviour
             FinishRun(false);
             return;
         }
+        if (IsPreparingBoss)
+        {
+            if (BrawlerInput.WasPreparationConfirmPressed())
+            {
+                TryStartBossBattle();
+            }
+            return;
+        }
         if (_enemies.Count == 0 && _pendingSpawnPositions.Count == 0)
         {
             if (_wave >= BrawlerBalance.StageWaveCount)
             {
-                // 最終ウェーブの敵が消えてから結果を確定し、六つ目のウェーブは予約しません。
+                // 消滅と撃破表示の両方が終わってからリザルトへ進みます。
+                if (IsShowingBossDefeat)
+                {
+                    return;
+                }
                 FinishRun(true);
                 return;
             }
@@ -189,9 +224,71 @@ public sealed class BeltBrawler : MonoBehaviour
             if (_nextWaveElapsed > BrawlerBalance.NextWaveDelaySeconds)
             {
                 _nextWaveElapsed = 0;
-                SpawnWave();
+                if (_wave == BrawlerBalance.StageWaveCount - 1)
+                {
+                    BeginBossPreparation();
+                }
+                else
+                {
+                    SpawnWave();
+                }
             }
         }
+    }
+
+    private void BeginBossPreparation()
+    {
+        if (IsPreparingBoss || IsRunFinished || _player.Health <= 0)
+        {
+            return;
+        }
+        IsPreparingBoss = true;
+        _waveBanner.Clear();
+        _player.RestoreHealth(BrawlerBalance.BossPreparationHealingAmount);
+        // 端にいても支給品が場外へ出ない位置に並べます。取得は通常の6スロット規則を使います。
+        float halfSpan = (BrawlerBalance.BossPreparationSupplyCount - 1) * BrawlerBalance.BossPreparationSupplySpacing / 2;
+        float center = Mathf.Clamp(_player.transform.position.x,
+            -BrawlerBalance.StageHalfWidth + halfSpan, BrawlerBalance.StageHalfWidth - halfSpan);
+        Vector3 first = new Vector3(center - halfSpan, 0, 0);
+        _preparationSupplies.Add(DropPotion(first));
+        _preparationSupplies.Add(DropHammer(first + Vector3.right * BrawlerBalance.BossPreparationSupplySpacing));
+        for (int i = 0; i < s_preparationSpells.Length; i++)
+        {
+            BrawlerDefines.UsableAction action = s_preparationSpells[i];
+            if (_player.CanUseAction(action))
+            {
+                _preparationSupplies.Add(DropMagicScroll(first + Vector3.right
+                    * ((i + BrawlerBalance.BossPreparationSpellSupplyOffset) * BrawlerBalance.BossPreparationSupplySpacing), action));
+            }
+        }
+        foreach (CollectibleItem supply in _preparationSupplies)
+        {
+            supply.SetLifetimePaused(true);
+        }
+    }
+
+    public bool TryStartBossBattle()
+    {
+        if (!IsPreparingBoss || IsRunFinished || !_player.IsReadyForStageTransition)
+        {
+            return false;
+        }
+        IsPreparingBoss = false;
+        ReleasePreparationSupplies();
+        SpawnWave();
+        return true;
+    }
+
+    private void ReleasePreparationSupplies()
+    {
+        foreach (CollectibleItem supply in _preparationSupplies)
+        {
+            if (supply != null)
+            {
+                supply.SetLifetimePaused(false);
+            }
+        }
+        _preparationSupplies.Clear();
     }
 
     // 終了した瞬間の値を保存します。以後は呼び直しても結果を上書きしません。
@@ -201,8 +298,11 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
+        RestoreCombatTime();
         IsStageCleared = cleared;
         IsDefeated = !cleared;
+        IsPreparingBoss = false;
+        ReleasePreparationSupplies();
         ResultWave = Mathf.Clamp(_wave, 1, BrawlerBalance.StageWaveCount);
         ResultScore = _score;
         ResultDefeatedEnemies = _defeatedEnemyCount;
@@ -233,7 +333,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         var notice = new GameObject("Pickup Notice");
         // 二種類を同時に拾っても、通知が同じ行に重ならないよう高さを分けます。
-        float height = BrawlerBalance.PickupNoticeHeight + (kind == BrawlerDefines.PickupKind.ThrowingKnife
+        float height = BrawlerBalance.PickupNoticeHeight + (kind == BrawlerDefines.PickupKind.ThrowingHammer
             ? BrawlerBalance.PickupNoticeItemSpacing : 0);
         notice.transform.position = target.transform.position + Vector3.up * height;
         notice.AddComponent<PickupNotice>().Initialize(_camera, kind, _pickupNoticeFont);
@@ -289,8 +389,9 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
-        PlaySound(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerSound.StrongHit : BrawlerSound.Hit);
-        CreateHitImpact(victim.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, attackDamage >= BrawlerBalance.KnockdownDamageThreshold);
+        bool isStrongHit = kind == BrawlerDefines.DamageKind.Critical || attackDamage >= BrawlerBalance.KnockdownDamageThreshold;
+        PlaySound(isStrongHit ? BrawlerSound.StrongHit : BrawlerSound.Hit);
+        CreateHitImpact(victim.transform.position + Vector3.up * BrawlerBalance.HitImpactHeight, isStrongHit);
         if (!victim.IsPlayer)
         {
             if (actualDamage > 0)
@@ -300,7 +401,7 @@ public sealed class BeltBrawler : MonoBehaviour
                 number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
                 number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
             }
-            BeginHitStop(attackDamage >= BrawlerBalance.KnockdownDamageThreshold ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
         }
         _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
         if (victim.IsPlayer)
@@ -316,17 +417,42 @@ public sealed class BeltBrawler : MonoBehaviour
         _score += BrawlerBalance.HitScore * Mathf.Min(_hitChain, BrawlerBalance.HitScoreMultiplierLimit);
         if (victim.Health == 0)
         {
+            if (victim is BossFighter && _wave == BrawlerBalance.StageWaveCount)
+            {
+                BeginBossDefeat();
+            }
             _score += BrawlerBalance.DefeatScore;
             // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
             // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
             _defeatedEnemyCount++;
-            if (_defeatedEnemyCount % BrawlerBalance.KnifeDropInterval == 0)
+            if (_player.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer)
+                && _defeatedEnemyCount % BrawlerBalance.HammerDropInterval == 0)
+            {
+                DropHammer(victim.transform.position);
+            }
+            else if (_player.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+                && _defeatedEnemyCount % BrawlerBalance.KnifeDropInterval == 0)
             {
                 DropKnife(victim.transform.position);
             }
             if (_defeatedEnemyCount % BrawlerBalance.PotionDropInterval == 0)
             {
                 DropPotion(victim.transform.position);
+            }
+            if (_defeatedEnemyCount % BrawlerBalance.ScrollDropInterval == 0)
+            {
+                // 撃破数を通算し、回復・防御・攻撃強化のスクロールを順番に落とします。
+                int dropIndex = _defeatedEnemyCount / BrawlerBalance.ScrollDropInterval;
+                BrawlerDefines.UsableAction action = ((dropIndex - 1) % BrawlerBalance.ScrollActionCycleLength) switch
+                {
+                    0 => BrawlerDefines.UsableAction.Healing,
+                    1 => BrawlerDefines.UsableAction.Protection,
+                    _ => BrawlerDefines.UsableAction.AttackBoost
+                };
+                if (_player.CanUseAction(action))
+                {
+                    DropMagicScroll(victim.transform.position, action);
+                }
             }
         }
     }
@@ -335,7 +461,8 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         if (_hitStopRemaining <= 0)
         {
-            _timeScaleBeforeHitStop = Time.timeScale;
+            // 低速再生中の値を元の速度として保存しないようにします。
+            _timeScaleBeforeHitStop = _bossSlowRemaining > 0 ? _timeScaleBeforeBossSlow : Time.timeScale;
         }
         // 複数の敵に同時命中しても秒数を足しません。最も長い停止だけを採用します。
         _hitStopRemaining = Mathf.Max(_hitStopRemaining, duration);
@@ -351,18 +478,63 @@ public sealed class BeltBrawler : MonoBehaviour
         _hitStopRemaining = Mathf.Max(0, _hitStopRemaining - deltaTime);
         if (_hitStopRemaining <= 0)
         {
+            // 致命傷のヒットストップが終わったら、続けて撃破の低速再生へ入ります。
+            Time.timeScale = _bossSlowRemaining > 0
+                ? _timeScaleBeforeBossSlow * BrawlerBalance.BossDefeatSlowTimeScale : _timeScaleBeforeHitStop;
+        }
+    }
+
+    private void BeginBossDefeat()
+    {
+        if (_bossDefeatStarted || IsRunFinished)
+        {
+            return;
+        }
+        _bossDefeatStarted = true;
+        _bossDefeatRemaining = BrawlerBalance.BossDefeatNoticeSeconds;
+        _bossSlowRemaining = BrawlerBalance.BossDefeatSlowSeconds;
+        _timeScaleBeforeBossSlow = _hitStopRemaining > 0 ? _timeScaleBeforeHitStop : Time.timeScale;
+        if (_hitStopRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow * BrawlerBalance.BossDefeatSlowTimeScale;
+        }
+    }
+
+    private void UpdateBossDefeat(float unscaledDeltaTime)
+    {
+        float elapsed = Mathf.Max(0, unscaledDeltaTime);
+        _bossDefeatRemaining = Mathf.Max(0, _bossDefeatRemaining - elapsed);
+        // 最後の一撃の停止中には低速再生の時間を消費しません。
+        if (_bossSlowRemaining <= 0 || _hitStopRemaining > 0)
+        {
+            return;
+        }
+        _bossSlowRemaining = Mathf.Max(0, _bossSlowRemaining - elapsed);
+        if (_bossSlowRemaining <= 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow;
+        }
+    }
+
+    private void RestoreCombatTime()
+    {
+        // リスタート・敗北・Play終了でも、次のシーンへ停止や低速再生を持ち越しません。
+        if (_bossSlowRemaining > 0)
+        {
+            Time.timeScale = _timeScaleBeforeBossSlow;
+        }
+        else if (_hitStopRemaining > 0)
+        {
             Time.timeScale = _timeScaleBeforeHitStop;
         }
+        _bossSlowRemaining = 0;
+        _hitStopRemaining = 0;
+        _bossDefeatRemaining = 0;
     }
 
     private void OnDisable()
     {
-        // リスタートやPlay終了が停止中でも、次のシーンに timeScale=0 を残しません。
-        if (_hitStopRemaining > 0)
-        {
-            Time.timeScale = _timeScaleBeforeHitStop;
-            _hitStopRemaining = 0;
-        }
+        RestoreCombatTime();
     }
 
     public void CreateGuardImpact(Fighter defender)
@@ -407,38 +579,95 @@ public sealed class BeltBrawler : MonoBehaviour
         impactObject.AddComponent<HitImpact>().Initialize(isStrong ? BrawlerBalance.StrongHitImpactSize : BrawlerBalance.NormalHitImpactSize);
     }
 
+    public void ThrowHammer(Fighter owner)
+    {
+        if (owner == null || !owner.IsPlayer || IsRunFinished || !owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer))
+        {
+            return;
+        }
+        Vector3 position = owner.transform.position + Vector3.up * BrawlerBalance.HammerHeight
+            + Vector3.right * (owner.Facing * BrawlerBalance.HammerLaunchOffset);
+        var hammer = new GameObject("Thrown Hammer");
+        hammer.transform.position = position;
+        CreateHammerModel(hammer.transform, Vector3.zero);
+        hammer.AddComponent<ThrowingHammerProjectile>().Initialize(this, owner);
+    }
+
     public void ThrowKnife(Fighter owner)
     {
-        Vector3 position = owner.transform.position + Vector3.up * BrawlerBalance.KnifeHeight
-            + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
+        if (owner == null || !owner.IsPlayer || IsRunFinished || !owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife))
+        {
+            return;
+        }
         var knife = new GameObject("Thrown Knife");
-        knife.transform.position = position;
-        _factory.CreateBodyPart("Knife blade", Vector3.zero, new Vector3(0.65f, 0.08f, 0.12f), _factory.KnifeMaterial, knife.transform);
-        _factory.CreateBodyPart("Knife grip", Vector3.left * (owner.Facing * 0.4f), new Vector3(0.2f, 0.12f, 0.14f), _factory.FloorMaterial, knife.transform);
+        knife.transform.position = owner.transform.position + Vector3.up * BrawlerBalance.KnifeHeight
+            + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
+        CreateKnifeModel(knife.transform, Vector3.zero);
         knife.AddComponent<ThrowingKnifeProjectile>().Initialize(this, owner);
     }
 
-    public Fighter FindKnifeTarget(Vector3 start, Vector3 end)
+    // ナイフは直進する刃と柄を持ち、ハンマーとは別の形状で生成します。
+    private void CreateKnifeModel(Transform parent, Vector3 offset)
+    {
+        _factory.CreateBodyPart("Knife blade", offset,
+            new Vector3(BrawlerBalance.KnifeBladeLength, BrawlerBalance.KnifeBladeThickness, BrawlerBalance.KnifeBladeDepth),
+            _factory.HammerMaterial, parent);
+        _factory.CreateBodyPart("Knife grip", offset + Vector3.left * BrawlerBalance.KnifeGripOffset,
+            new Vector3(BrawlerBalance.KnifeGripLength, BrawlerBalance.KnifeGripThickness, BrawlerBalance.KnifeGripDepth),
+            _factory.FloorMaterial, parent);
+    }
+
+    // 床の取得物と飛んでいるハンマーで、同じ頭部・柄の仮モデルを使います。
+    private void CreateHammerModel(Transform parent, Vector3 offset)
+    {
+        _factory.CreateBodyPart("Hammer head", offset,
+            new Vector3(BrawlerBalance.HammerHeadWidth, BrawlerBalance.HammerHeadHeight, BrawlerBalance.HammerHeadDepth),
+            _factory.HammerMaterial, parent);
+        _factory.CreateBodyPart("Hammer handle", offset + Vector3.up * BrawlerBalance.HammerHandleOffset,
+            new Vector3(BrawlerBalance.HammerHandleThickness, BrawlerBalance.HammerHandleLength, BrawlerBalance.HammerHandleThickness),
+            _factory.FloorMaterial, parent);
+    }
+    public Fighter FindThrownProjectileTarget(Vector3 start, Vector3 end, float hitRadius, float targetHeight,
+        float targetVerticalHalfHeight = 0, System.Predicate<Fighter> canHit = null)
     {
         Fighter nearest = null;
         float nearestFraction = float.PositiveInfinity;
         Vector3 travel = end - start;
-        float hitRadiusSquared = BrawlerBalance.KnifeHitRadius * BrawlerBalance.KnifeHitRadius;
         foreach (Fighter enemy in _enemies)
         {
-            if (enemy == null || enemy.Health <= 0)
+            if (enemy == null || enemy.Health <= 0 || (canHit != null && !canHit(enemy)))
             {
                 continue;
             }
-            Vector3 target = enemy.transform.position + Vector3.up * (BrawlerBalance.KnifeHeight + enemy.JumpHeight);
+            Vector3 target = enemy.transform.position + Vector3.up * (targetHeight + enemy.JumpHeight);
             // 発射地点より後ろや射程末端より先の敵には当てません。
             float fraction = travel.sqrMagnitude > 0 ? Vector3.Dot(target - start, travel) / travel.sqrMagnitude : 0;
-            if (fraction < 0 || fraction > 1)
+            if (targetVerticalHalfHeight <= 0 && (fraction < 0 || fraction > 1))
             {
                 continue;
             }
             Vector3 closest = start + travel * fraction;
-            if ((target - closest).sqrMagnitude <= hitRadiusSquared && fraction < nearestFraction)
+            // ハンマーは点ではなく縦に伸びた身体を対象にします。ナイフは従来どおり中心点です。
+            // 飛行区間と縦線分の最短距離を調べ、放物線の上昇中も身体との接触を拾います。
+            if (targetVerticalHalfHeight > 0)
+            {
+                // 身体に幅がある場合は、中心の射影が区間外でも端点との接触を調べます。
+                // 中心だけで除外すると、接触が一瞬になり大型相手への2ヒットを見落とします。
+                Vector3 horizontalTravel = new Vector3(travel.x, 0, travel.z);
+                Vector3 horizontalOffset = target - start;
+                horizontalOffset.y = 0;
+                fraction = horizontalTravel.sqrMagnitude > 0
+                    ? Mathf.Clamp01(Vector3.Dot(horizontalOffset, horizontalTravel) / horizontalTravel.sqrMagnitude) : fraction;
+                closest = start + travel * fraction;
+                target.y = Mathf.Clamp(closest.y, target.y - targetVerticalHalfHeight, target.y + targetVerticalHalfHeight);
+                // 端点の丸い範囲だけでなく、区間内の斜め接触も判定します。
+                fraction = travel.sqrMagnitude > 0
+                    ? Mathf.Clamp01(Vector3.Dot(target - start, travel) / travel.sqrMagnitude) : 0;
+                closest = start + travel * fraction;
+            }
+            // ハンマーだけ体格による横幅を加味します。直進ナイフの判定は維持します。
+            float targetRadius = targetVerticalHalfHeight > 0 ? hitRadius + enemy.HammerBodyRadius : hitRadius;
+            if ((target - closest).sqrMagnitude <= targetRadius * targetRadius && fraction < nearestFraction)
             {
                 nearest = enemy;
                 nearestFraction = fraction;
@@ -450,14 +679,49 @@ public sealed class BeltBrawler : MonoBehaviour
     private void DropKnife(Vector3 position)
     {
         var knife = new GameObject("Knife Pickup");
-        // ポーションと同時に落ちても重ならず、床に銀色の刃が見えるよう少しずらします。
-        knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + 0.4f, -3, 3));
-        _factory.CreateBodyPart("Blade", new Vector3(0, 0.2f, 0), new Vector3(0.6f, 0.08f, 0.18f), _factory.KnifeMaterial, knife.transform);
-        _factory.CreateBodyPart("Grip", new Vector3(-0.4f, 0.2f, 0), new Vector3(0.2f, 0.12f, 0.2f), _factory.FloorMaterial, knife.transform);
+        knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + BrawlerBalance.KnifePickupLaneOffset,
+            -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        CreateKnifeModel(knife.transform, Vector3.up * BrawlerBalance.KnifePickupHeight);
         knife.AddComponent<ThrowingKnifePickup>().Initialize(_player, _audio);
     }
 
-    private void DropPotion(Vector3 position)
+    private ThrowingHammerPickup DropHammer(Vector3 position)
+    {
+        var hammer = new GameObject("Hammer Pickup");
+        // ポーションと同時に落ちても重ならず、床に銀色のハンマー頭部が見えるよう少しずらします。
+        hammer.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + BrawlerBalance.HammerPickupLaneOffset, -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        CreateHammerModel(hammer.transform, Vector3.up * BrawlerBalance.HammerPickupHeight);
+        var pickup = hammer.AddComponent<ThrowingHammerPickup>();
+        pickup.Initialize(_player, _audio);
+        return pickup;
+    }
+
+    private MagicScrollPickup DropMagicScroll(Vector3 position, BrawlerDefines.UsableAction action)
+    {
+        var scroll = new GameObject("Magic Scroll Pickup");
+        // 同時に落ちるポーション・ハンマーと重なりにくい位置に置きます。
+        scroll.transform.position = new Vector3(position.x, 0,
+            Mathf.Clamp(position.z + BrawlerBalance.ScrollLaneOffset,
+                -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        Vector3 modelPosition = Vector3.up * BrawlerBalance.ScrollModelHeight;
+        _factory.CreateBodyPart("Scroll parchment", modelPosition,
+            new Vector3(BrawlerBalance.ScrollModelWidth, BrawlerBalance.ScrollModelHeight,
+                BrawlerBalance.ScrollModelDepth), _factory.SkinMaterial, scroll.transform);
+        Material bandMaterial = action switch
+        {
+            BrawlerDefines.UsableAction.Healing => _factory.HealingScrollMaterial,
+            BrawlerDefines.UsableAction.AttackBoost => _factory.AttackBoostScrollMaterial,
+            _ => _factory.ProtectionScrollMaterial
+        };
+        _factory.CreateBodyPart("Scroll band", modelPosition,
+            new Vector3(BrawlerBalance.ScrollBandWidth, BrawlerBalance.ScrollBandHeight,
+                BrawlerBalance.ScrollBandDepth), bandMaterial, scroll.transform);
+        var pickup = scroll.AddComponent<MagicScrollPickup>();
+        pickup.Initialize(_player, _audio, action);
+        return pickup;
+    }
+
+    private HealingPotion DropPotion(Vector3 position)
     {
         var potionObject = new GameObject("Healing Potion");
         potionObject.transform.position = new Vector3(position.x, 0, position.z);
@@ -466,14 +730,18 @@ public sealed class BeltBrawler : MonoBehaviour
             _factory.PotionMaterial, potionObject.transform);
         _factory.CreateBodyPart("Bottle neck", new Vector3(0, 0.57f, 0), new Vector3(0.16f, 0.15f, 0.16f),
             _factory.SkinMaterial, potionObject.transform);
-        potionObject.AddComponent<HealingPotion>().Initialize(_player, _audio);
+        var pickup = potionObject.AddComponent<HealingPotion>();
+        pickup.Initialize(_player, _audio);
+        return pickup;
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
     public void Hit(Fighter attacker, int damage)
     {
+        damage = attacker.CalculateMeleeHitDamage(damage);
         if (attacker.IsPlayer)
         {
+            bool didHit = false;
             foreach (var enemy in _enemies)
             {
                 if (enemy != null && IsInAttackRange(attacker, enemy))
@@ -481,13 +749,22 @@ public sealed class BeltBrawler : MonoBehaviour
                     int healthBeforeHit = enemy.Health;
                     if (attacker.IsPushAttacking)
                     {
-                        enemy.TakePushDamage(damage, attacker.Facing);
+                        enemy.TakeMeleeDamage(damage, attacker, BrawlerDefines.DamageKind.Normal);
+                        if (enemy.Health < healthBeforeHit)
+                        {
+                            enemy.ApplyPushKnockback(attacker.Facing);
+                        }
                     }
                     else
                     {
-                        BrawlerDefines.DamageKind kind = attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
+                        BrawlerDefines.DamageKind kind = attacker.IsCriticalAttack ? BrawlerDefines.DamageKind.Critical
+                            : attacker.IsCounterAttacking ? BrawlerDefines.DamageKind.Counter
                             : attacker.IsHeavyStriking ? BrawlerDefines.DamageKind.HeavyStrike : BrawlerDefines.DamageKind.Normal;
-                        enemy.TakeDamage(damage, attacker.Facing, kind);
+                        enemy.TakeMeleeDamage(damage, attacker, kind);
+                    }
+                    if (enemy.Health < healthBeforeHit)
+                    {
+                        didHit = true;
                     }
                     // 無敵・硬直・撃破済みで拒否された命中や空振りでは、反撃専用の演出を出しません。
                     if (attacker.IsCounterAttacking && enemy.Health < healthBeforeHit)
@@ -497,10 +774,21 @@ public sealed class BeltBrawler : MonoBehaviour
                     }
                 }
             }
+            // 全対象へ同じ技・範囲を適用してから通知し、途中の技変更で判定が変わることを防ぎます。
+            if (didHit)
+            {
+                attacker.NotifyMeleeHit();
+            }
         }
         else if (IsInAttackRange(attacker, _player))
         {
             _player.TakeDamage(damage, attacker.Facing);
+        }
+        else if (!IsRunFinished && _player.Health > 0 && attacker.Health > 0)
+        {
+            // 範囲外へ避けたときだけ空振り音を出します。
+            // ガード・無敵・硬直でダメージが拒否された接触を空振りとして扱いません。
+            PlaySound(attacker.EnemyMissSound);
         }
     }
 
@@ -560,7 +848,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         if (target != null && IsInGroundAttackRange(attacker, target))
         {
-            target.TryTakeGroundHit(damage, attacker.Facing);
+            target.TryTakeGroundHit(attacker.CalculateMeleeDamage(damage), attacker.Facing);
         }
     }
 
@@ -580,12 +868,12 @@ public sealed class BeltBrawler : MonoBehaviour
         // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
         float attackReach = attacker.IsHeavyStriking ? BrawlerBalance.HeavyStrikeReach
             : attacker.IsPushAttacking ? BrawlerBalance.PushReach : attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
-            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : BrawlerBalance.EnemyAttackReach;
+            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : attacker.MeleeAttackReach;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
         return target.Health > 0
-            && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth
+            && Mathf.Abs(delta.z) < (attacker.IsPlayer ? BrawlerBalance.AttackLaneHalfWidth : attacker.MeleeLaneHalfWidth)
             && Mathf.Abs(delta.x) < attackReach
             && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }

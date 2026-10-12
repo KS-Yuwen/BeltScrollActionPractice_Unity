@@ -7,6 +7,9 @@ public abstract class CollectibleItem : MonoBehaviour
     private BrawlerAudio _audio;
     private float _remainingLifetime;
     private bool _wasCollected;
+    // 準備区間の支給品は時間切れにせず、戦闘開始時から通常の寿命を進めます。
+    public bool IsLifetimePaused { get; private set; }
+    public void SetLifetimePaused(bool paused) => IsLifetimePaused = paused;
 
     protected abstract float PickupRadius { get; }
     protected abstract BrawlerDefines.PickupKind Kind { get; }
@@ -22,13 +25,21 @@ public abstract class CollectibleItem : MonoBehaviour
 
     protected virtual void Update()
     {
-        _remainingLifetime = Mathf.Max(0, _remainingLifetime - Time.deltaTime);
+        AdvanceLifetime(Time.deltaTime);
         if (_remainingLifetime <= 0)
         {
             Destroy(gameObject);
             return;
         }
         TryCollect();
+    }
+
+    private void AdvanceLifetime(float deltaTime)
+    {
+        if (!IsLifetimePaused)
+        {
+            _remainingLifetime = Mathf.Max(0, _remainingLifetime - Mathf.Max(0, deltaTime));
+        }
     }
 
     public bool TryCollect()

@@ -14,9 +14,13 @@ public sealed class BrawlerSceneFactory
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
     private Material _heavyEnemyMaterial;
+    private Material _bossMaterial;
     private Material _undeadEnemyMaterial;
     private Material _potionMaterial;
-    private Material _knifeMaterial;
+    private Material _healingScrollMaterial;
+    private Material _protectionScrollMaterial;
+    private Material _attackBoostScrollMaterial;
+    private Material _hammerMaterial;
     private Material _impactMaterial;
     private Material _guardImpactMaterial;
     private Material _counterImpactMaterial;
@@ -25,7 +29,10 @@ public sealed class BrawlerSceneFactory
     public Material FloorMaterial => _floorMaterial;
     public Material SkinMaterial => _skinMaterial;
     public Material PotionMaterial => _potionMaterial;
-    public Material KnifeMaterial => _knifeMaterial;
+    public Material HealingScrollMaterial => _healingScrollMaterial;
+    public Material ProtectionScrollMaterial => _protectionScrollMaterial;
+    public Material AttackBoostScrollMaterial => _attackBoostScrollMaterial;
+    public Material HammerMaterial => _hammerMaterial;
     public Material ImpactMaterial => _impactMaterial;
     public Material GuardImpactMaterial => _guardImpactMaterial;
     public Material CounterImpactMaterial => _counterImpactMaterial;
@@ -44,9 +51,13 @@ public sealed class BrawlerSceneFactory
         _skinMaterial = CreateMaterial(new Color(0.95f, 0.73f, 0.52f));
         _rangedEnemyMaterial = CreateMaterial(new Color(0.8f, 0.35f, 1));
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
+        _bossMaterial = CreateMaterial(new Color(0.65f, 0.2f, 0.65f));
         _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
-        _knifeMaterial = CreateMaterial(new Color(0.8f, 0.85f, 0.95f));
+        _healingScrollMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
+        _protectionScrollMaterial = CreateMaterial(new Color(1, 0.8f, 0.3f));
+        _attackBoostScrollMaterial = CreateMaterial(new Color(1, 0.45f, 0.2f));
+        _hammerMaterial = CreateMaterial(new Color(0.8f, 0.85f, 0.95f));
         // 発光風の色を、照明に左右されない素材で描きます。
         _impactMaterial = CreateOwnedMaterial("Unlit/Color");
         _impactMaterial.color = new Color(1, 0.85f, 0.25f);
@@ -121,23 +132,26 @@ public sealed class BrawlerSceneFactory
         return boxObject;
     }
 
-    public Fighter CreateFighter(string label, Vector3 position, bool isPlayer, int wave, bool isRanged = false, bool isHeavy = false, bool isUndead = false)
+    public Fighter CreateFighter(string label, Vector3 position, bool isPlayer, int wave, bool isRanged = false,
+        bool isHeavy = false, bool isUndead = false, bool isBoss = false)
     {
         var root = new GameObject(label);
         root.transform.position = position;
         Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+            : isBoss ? root.AddComponent<BossFighter>()
             : isHeavy ? root.AddComponent<HeavyFighter>()
             : isRanged ? root.AddComponent<RangedFighter>()
             : isUndead ? root.AddComponent<UndeadFighter>() : root.AddComponent<Fighter>();
         // 三項演算子「条件 ? 真の場合 : 偽の場合」で初期 HP を選びます。
         int maxHealth = isPlayer ? BrawlerBalance.PlayerMaxHealth
+            : isBoss ? BrawlerBalance.BossHealth
             : isHeavy ? BrawlerBalance.HeavyBaseHealth + wave * BrawlerBalance.HeavyHealthPerWave
             : BrawlerBalance.EnemyBaseHealth + wave * BrawlerBalance.EnemyHealthPerWave;
         // 移動を担う親と、見た目を担う Model を分離します。
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : isHeavy ? _heavyEnemyMaterial
+        var bodyMaterial = isPlayer ? _playerMaterial : isBoss ? _bossMaterial : isHeavy ? _heavyEnemyMaterial
             : isRanged ? _rangedEnemyMaterial : isUndead ? _undeadEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
@@ -151,12 +165,19 @@ public sealed class BrawlerSceneFactory
             CreateBodyPart("Undead ribs", new Vector3(0, 1.15f, -0.25f), new Vector3(0.45f, 0.12f, 0.1f), bodyMaterial, visual);
             visual.Find("Head").GetComponent<Renderer>().sharedMaterial = bodyMaterial;
         }
-        if (isHeavy)
+        if (isHeavy || isBoss)
         {
             // 大きな胴鎧と肩当てで区別します。判定用の親や通常のリーチは拡大しません。
             CreateBodyPart("Heavy armor", new Vector3(0, 1.15f, 0), new Vector3(0.8f, 0.9f, 0.55f), bodyMaterial, visual);
             CreateBodyPart("Right pauldron", new Vector3(0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
             CreateBodyPart("Left pauldron", new Vector3(-0.45f, 1.5f, 0), new Vector3(0.35f, 0.25f, 0.5f), bodyMaterial, visual);
+        }
+        if (isBoss)
+        {
+            // 親のスケールを変更せず、大きい鈍器と紫の鎧で区別します。床予告の範囲も拡大されません。
+            Transform mace = CreateBodyPart("Boss mace", new Vector3(0.4f, 1.65f, -0.1f),
+                Vector3.one * BrawlerBalance.BossMaceSize, _hammerMaterial, visual);
+            mace.SetParent(attackArm, true);
         }
         if (isPlayer)
         {
