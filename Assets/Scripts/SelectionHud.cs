@@ -1,6 +1,6 @@
 using UnityEngine;
 
-// 魔法・所持品の選択表示。入力や所持数を変更せず、クレリックの状態を読み取って描画します。
+// 魔法・所持品の選択表示。入力や所持数を変更せず、職業共通の状態を読み取って描画します。
 public static class SelectionHud
 {
     // 表示内容は固定リストではなく、実際の6スロットから取得します。
@@ -22,7 +22,9 @@ public static class SelectionHud
         s_statusStyle.font = statusFont;
         float width = player.Inventory.SlotCount * BrawlerBalance.SelectionCardWidth
             + (player.Inventory.SlotCount - 1) * BrawlerBalance.SelectionCardGap;
-        float height = BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight * 2;
+        // 魔法職ではバーの場所を常に確保し、発動のたびに所持欄が上下へ跳ねないようにします。
+        float height = BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight * 2
+            + (player is SpellFighter ? BrawlerBalance.SelectionSpellProgressHeight : 0);
         float scale = Mathf.Min(1, Mathf.Max(0, Screen.width - BrawlerBalance.SelectionHudMargin * 2) / width);
         Matrix4x4 previousMatrix = GUI.matrix;
         Color previousColor = GUI.color;
@@ -39,7 +41,9 @@ public static class SelectionHud
         BrawlerDefines.ActionUseStatus status = ((IPlayerActionUser)player).SelectedActionUseStatus;
         string reason = player is SpellFighter caster && caster.IsCastingSpell
             ? $"CASTING {caster.SpellCastSecondsRemaining:F1}s"
-            : player is SpellFighter releasing && releasing.IsReleasingSpell ? "SPELL EFFECT" : status switch
+            : player is SpellFighter releasing && releasing.IsReleasingSpell ? $"SPELL EFFECT {releasing.SpellEffectSecondsRemaining:F1}s"
+            : player is SpellFighter recovering && recovering.IsRecoveringFromSpell ? $"RECOVERING {recovering.SpellRecoverySecondsRemaining:F1}s"
+            : status switch
         {
             BrawlerDefines.ActionUseStatus.Ready => "READY",
             BrawlerDefines.ActionUseStatus.Empty => "EMPTY",
@@ -54,8 +58,46 @@ public static class SelectionHud
         GUI.color = status == BrawlerDefines.ActionUseStatus.Ready ? Color.green : Color.yellow;
         GUI.Label(new Rect(0, BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight,
             width, BrawlerBalance.SelectionHintHeight), "SELECTED: " + reason, s_hintStyle);
+        DrawSpellProgress(player, width);
         GUI.matrix = previousMatrix;
         GUI.color = previousColor;
+    }
+
+    private static void DrawSpellProgress(Fighter player, float width)
+    {
+        if (player is not SpellFighter caster || player.Health <= 0
+            || (!caster.IsCastingSpell && !caster.IsReleasingSpell && !caster.IsRecoveringFromSpell))
+        {
+            return;
+        }
+        // 選択枠と独立して表示するので、使用でNOTHINGになった場合や枠を切り替えた場合も維持します。
+        float gap = BrawlerBalance.SelectionSpellProgressGap;
+        float phaseWidth = (width - gap * (BrawlerBalance.SelectionSpellPhaseCount - 1)) / BrawlerBalance.SelectionSpellPhaseCount;
+        float y = BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight * 2;
+        DrawSpellPhase(0, y, phaseWidth, "CASTING", caster.IsCastingSpell,
+            caster.IsCastingSpell ? caster.SpellCastProgress : 1, caster.SpellCastSecondsRemaining,
+            BrawlerBalance.SelectionSpellCastColor);
+        DrawSpellPhase(phaseWidth + gap, y, phaseWidth, "SPELL EFFECT", caster.IsReleasingSpell,
+            caster.IsCastingSpell ? 0 : caster.IsReleasingSpell ? caster.SpellEffectProgress : 1,
+            caster.SpellEffectSecondsRemaining, BrawlerBalance.SelectionSpellEffectColor);
+        DrawSpellPhase((phaseWidth + gap) * 2, y, phaseWidth, "RECOVERING", caster.IsRecoveringFromSpell,
+            caster.IsRecoveringFromSpell ? caster.SpellRecoveryProgress : 0, caster.SpellRecoverySecondsRemaining,
+            BrawlerBalance.SelectionSpellRecoveryColor);
+    }
+
+    private static void DrawSpellPhase(float x, float y, float width, string label, bool active,
+        float progress, float remaining, Color color)
+    {
+        GUI.color = active ? color : Color.gray;
+        float labelHeight = BrawlerBalance.SelectionSpellProgressHeight - BrawlerBalance.SelectionSpellBarHeight;
+        GUI.Label(new Rect(x, y, width, labelHeight), active ? $"> {label} {remaining:F1}s" : label, s_hintStyle);
+        var bar = new Rect(x, y + labelHeight, width, BrawlerBalance.SelectionSpellBarHeight);
+        GUI.color = new Color(0.05f, 0.07f, 0.1f, 0.9f);
+        GUI.DrawTexture(bar, Texture2D.whiteTexture);
+        // 各段階で左から満ち、現在の段階は色と「>」の両方で示します。
+        GUI.color = active ? color : Color.gray;
+        bar.width *= Mathf.Clamp01(progress);
+        GUI.DrawTexture(bar, Texture2D.whiteTexture);
     }
 
     private static void DrawCard(Fighter player, int slot, float x)

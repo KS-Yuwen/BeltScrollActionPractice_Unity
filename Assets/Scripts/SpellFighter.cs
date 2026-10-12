@@ -43,9 +43,15 @@ public abstract class SpellFighter : ItemFighter
 
     public bool IsCastingSpell => _castingAction != BrawlerDefines.UsableAction.None;
     public float SpellCastSecondsRemaining => _spellCastRemaining;
+    // 表示用の進行率も実際のタイマーから求め、HUD用の時間を別に進めません。
+    public float SpellCastProgress => _spellCastDuration > 0 ? Mathf.Clamp01(1 - _spellCastRemaining / _spellCastDuration) : 1;
     public bool IsReleasingSpell => _spellEffectRemaining > 0;
+    public float SpellEffectSecondsRemaining => _spellEffectRemaining;
     public float SpellEffectProgress => _spellEffectDuration > 0 ? 1 - _spellEffectRemaining / _spellEffectDuration : 1;
     public bool IsRecoveringFromSpell => _spellRecoveryRemaining > 0;
+    public float SpellRecoverySecondsRemaining => _spellRecoveryRemaining;
+    public float SpellRecoveryProgress => _spellRecoveryDuration > 0
+        ? Mathf.Clamp01(1 - _spellRecoveryRemaining / _spellRecoveryDuration) : 1;
     protected override bool IsUsingSpecialAction => base.IsUsingSpecialAction || IsCastingSpell || IsReleasingSpell || IsRecoveringFromSpell;
     protected override Color? SpecialFeedbackColor => IsCastingSpell ? Color.yellow
         : IsReleasingSpell || IsRecoveringFromSpell ? SpellEffectColor : base.SpecialFeedbackColor;

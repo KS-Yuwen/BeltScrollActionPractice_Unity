@@ -89,6 +89,13 @@ public static class BrawlerBalance
     public const float SelectionBorderWidth = 3f;
     public const float SelectionHintHeight = 30f;
     public const float SelectionBottomOffset = 52f;
+    public const int SelectionSpellPhaseCount = 3;
+    public const float SelectionSpellProgressHeight = 32f;
+    public const float SelectionSpellProgressGap = 8f;
+    public const float SelectionSpellBarHeight = 6f;
+    public static readonly UnityEngine.Color SelectionSpellCastColor = UnityEngine.Color.yellow;
+    public static readonly UnityEngine.Color SelectionSpellEffectColor = UnityEngine.Color.cyan;
+    public static readonly UnityEngine.Color SelectionSpellRecoveryColor = UnityEngine.Color.green;
     public const int SelectionTitleFontSize = 18;
     public const int SelectionCountFontSize = 22;
     public const float PickupNoticeSeconds = 0.9f;
