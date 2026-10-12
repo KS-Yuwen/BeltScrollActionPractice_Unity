@@ -49,8 +49,8 @@ public class Fighter : Combatant
     private float _comboHitAt = BrawlerDefines.UnsetTime;
     private float _comboHitFacing;
     private Fighter _lastMeleeAttacker;
-    private BrawlerDefines.AttackKind _lastReceivedMeleeKind;
-    private int _lastReceivedComboStep;
+    // 一連の被弾硬直中に受けた技を保持します。直前だけではA→B→Aの再命中を防げません。
+    private readonly System.Collections.Generic.HashSet<(BrawlerDefines.AttackKind Kind, int ComboStep)> _receivedMeleeAttacks = new();
     // 同時に複数の技が有効にならないよう、種類は一つの値で保持します。
     private BrawlerDefines.AttackKind _attackKind;
     // 被ダメージ時に押し戻される速度。
@@ -426,6 +426,12 @@ public class Fighter : Combatant
         _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
         _attackCooldown -= deltaTime;
         _stunRemaining -= deltaTime;
+        if (_stunRemaining <= 0)
+        {
+            // 起き上がり・通常硬直が終われば、次の攻撃では同じ技も再び命中できます。
+            _lastMeleeAttacker = null;
+            _receivedMeleeAttacks.Clear();
+        }
         _hammerStunRemaining = Mathf.Max(0, _hammerStunRemaining - deltaTime);
         _dashCooldown -= deltaTime;
         _flashRemaining -= deltaTime;
@@ -1440,8 +1446,13 @@ public class Fighter : Combatant
     public void TakeMeleeDamage(int amount, Fighter attacker, BrawlerDefines.DamageKind kind)
     {
         int healthBefore = Health;
-        bool isDifferentAttack = _lastReceivedMeleeKind != attacker._attackKind
-            || attacker._attackKind == BrawlerDefines.AttackKind.Normal && _lastReceivedComboStep != attacker.ComboStep;
+        if (attacker == null)
+        {
+            return;
+        }
+        var attackIdentity = (attacker._attackKind, attacker._attackKind == BrawlerDefines.AttackKind.Normal
+            ? attacker.ComboStep : BrawlerDefines.NoComboStep);
+        bool isDifferentAttack = !_receivedMeleeAttacks.Contains(attackIdentity);
         // 同じ相手から異なる技をつないだ場合だけ、通常の被弾硬直中にも追加入力の成果を反映します。
         // 転倒・ハンマー気絶・回避・空中の無敵や、別の攻撃者の攻撃にはこの例外を適用しません。
         bool canReceiveChain = !IsPlayer && !IsGuarding && Health > 0 && !Game.IsRunFinished
@@ -1450,7 +1461,7 @@ public class Fighter : Combatant
             && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
         if (canReceiveChain && amount > 0)
         {
-            ApplyDamage(amount, attacker.Facing, false, kind);
+            ApplyDamage(amount, attacker.Facing, false, kind, preserveMeleeChain: true);
         }
         else
         {
@@ -1459,16 +1470,19 @@ public class Fighter : Combatant
         if (Health < healthBefore)
         {
             _lastMeleeAttacker = attacker;
-            _lastReceivedMeleeKind = attacker._attackKind;
-            _lastReceivedComboStep = attacker.ComboStep;
+            _receivedMeleeAttacks.Add(attackIdentity);
         }
     }
 
     private void ApplyDamage(int amount, float direction, bool isGroundHit,
-        BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
+        BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal, bool preserveMeleeChain = false)
     {
-        // 投擲などが間に入った場合、前の近接連携の例外を持ち越しません。
-        _lastMeleeAttacker = null;
+        // 別のダメージや硬直終了後の新しい攻撃では履歴を消し、近接連携だけ履歴を引き継ぎます。
+        if (!preserveMeleeChain)
+        {
+            _lastMeleeAttacker = null;
+            _receivedMeleeAttacks.Clear();
+        }
         ResetAttackKind();
         ClearAttackHold();
         _slideRemaining = 0;

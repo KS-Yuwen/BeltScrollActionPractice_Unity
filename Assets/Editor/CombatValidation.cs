@@ -1466,9 +1466,55 @@ public static class CombatValidation
         }
     }
 
+    private static void ValidateMeleeHitRestrictions(BeltBrawler game, MethodInfo createFighter)
+    {
+        var attacker = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test hit restriction attacker", Vector3.zero, true, false, false, false });
+        var victim = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test hit restriction victim", Vector3.right, false, false, true, false });
+        try
+        {
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(attacker, facing);
+                SetPrivateField(victim, "_stunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", 0f);
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.DashSpecial);
+                int health = victim.Health;
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 1, "左右とも同じ必殺技の再ヒットを拒否");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Uppercut);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 2, "未使用の別技は硬直中につながる");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.DashSpecial);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 2, "A→B→Aでも使用済みの技を拒否");
+                typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(victim, new object[] { BrawlerBalance.StunSeconds });
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "硬直終了後は同じ技が再び命中");
+                SetPrivateField(attacker, "_attackKind", BrawlerDefines.AttackKind.Push);
+                SetPrivateField(victim, "_hammerStunRemaining", BrawlerBalance.HammerStunSeconds);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "異なる技でもハンマー気絶中は連携の例外を適用しない");
+                SetPrivateField(victim, "_hammerStunRemaining", 0f);
+                SetPrivateField(victim, "_downRemaining", BrawlerBalance.DownSeconds);
+                victim.TakeMeleeDamage(1, attacker, BrawlerDefines.DamageKind.Normal);
+                Require(victim.Health == health - 3, "転倒中は異なる近接技でも再ヒットしない");
+            }
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(attacker.gameObject);
+            UnityEngine.Object.DestroyImmediate(victim.gameObject);
+        }
+    }
+
     private static void ValidatePlayerCombosAndCancels(BeltBrawler game, MethodInfo createFighter,
         System.Collections.Generic.List<Fighter> enemies)
     {
+        ValidateMeleeHitRestrictions(game, createFighter);
         var player = (Fighter)createFighter.Invoke(game,
             new object[] { "Test combo player", Vector3.zero, true, false, false, false });
         var victim = (Fighter)createFighter.Invoke(game,
@@ -1504,6 +1550,14 @@ public static class CombatValidation
         int secondHealth = victim.Health;
         animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
         Require(victim.Health < secondHealth, "別段の通常攻撃は同じ攻撃者の被弾硬直中にもつながる");
+        int repeatHealth = victim.Health;
+        victim.TakeMeleeDamage(1, player, BrawlerDefines.DamageKind.Normal);
+        Require(victim.Health == repeatHealth, "通常コンボの同じ段は硬直中に再ヒットしない");
+        SetPrivateField(player, "_comboStep", 1);
+        victim.TakeMeleeDamage(1, player, BrawlerDefines.DamageKind.Normal);
+        Require(victim.Health == repeatHealth, "別段を挟んでも使用済みの初段を再ヒットさせない");
+        SetPrivateField(player, "_comboStep", 2);
+
         attack.Invoke(player, null);
         Require(player.ComboStep == BrawlerBalance.ComboSteps, "2段目の命中後は最終段へ進む");
         animate.Invoke(player, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
