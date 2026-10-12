@@ -1166,6 +1166,7 @@ public static class CombatValidation
             ValidateMagicScrolls(game, createTurnEnemy);
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
+            ValidateBoss(game, createTurnEnemy, turnEnemies);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
@@ -1394,6 +1395,76 @@ public static class CombatValidation
         UnityEngine.Object.DestroyImmediate(cleric.gameObject);
     }
 
+    private static void ValidateBoss(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        var boss = (BossFighter)factory.CreateFighter("Test Boss", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test boss player", Vector3.right * BrawlerBalance.BossStrikeStopDistance, true, false, false, false });
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        SetPrivateField(game, "_player", player);
+        enemies.Add(boss);
+        MethodInfo move = typeof(BossFighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo recovery = typeof(BossFighter).GetMethod("UpdateRecovery", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo hit = typeof(BossFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+        Require(boss.MaxHealth == BrawlerBalance.BossHealth && boss.HammerHitLimit == 2,
+            "ボスは専用HPと大型のハンマー2ヒット設定を持つ");
+        move.Invoke(boss, null);
+        Require(boss.IsWindingUp && !boss.IsWideAttack && boss.WarningRangeEnd == boss.MeleeAttackReach,
+            "最初は長い一撃を予告し、実際のリーチと表示を共用する");
+        int healthBefore = player.Health;
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds / 2 });
+        Require(player.Health == healthBefore && boss.IsWindingUp, "予告の途中ではダメージが発生しない");
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossStrikeWindupSeconds });
+        animate.Invoke(boss, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(player.Health == healthBefore - BrawlerBalance.BossStrikeDamage && boss.IsRecovering,
+            "予告と攻撃動作の後に一度だけ命中し、反撃できる隙へ移る");
+        player.transform.position = Vector3.right * 10;
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        Require((Vector3)move.Invoke(boss, null) == Vector3.zero, "攻撃後の隙は追跡を停止する");
+        recovery.Invoke(boss, new object[] { 0f });
+        Require(boss.RecoverySecondsRemaining == BrawlerBalance.BossRecoverySeconds, "時間停止中はボスの隙も停止する");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        SetPrivateField(boss, "_attackRemaining", 0f);
+        player.transform.position = Vector3.right;
+        move.Invoke(boss, null);
+        Require(boss.IsWideAttack && boss.IsWindingUp && boss.WarningLaneHalfWidth == BrawlerBalance.BossWideLaneHalfWidth,
+            "次は幅広い攻撃を選び、予告幅も切り替える");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        player.transform.position += Vector3.forward;
+        healthBefore = player.Health;
+        windup.Invoke(boss, new object[] { BrawlerBalance.BossWideWindupSeconds });
+        animate.Invoke(boss, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+        Require(player.Health == healthBefore - BrawlerBalance.BossWideDamage,
+            "幅広い攻撃は通常敵の攻撃幅より奥行きの離れた相手に命中する");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+        typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+        healthBefore = player.Health;
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossWideDamage });
+        Require(player.Health == healthBefore && boss.IsRecovering, "ボス攻撃も正面ガードで防げ、空振りと同様に隙が残る");
+        typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+        player.transform.position = new Vector3(1, 0, BrawlerBalance.BossWideLaneHalfWidth + 0.1f);
+        hit.Invoke(boss, new object[] { BrawlerBalance.BossWideDamage });
+        Require(player.Health == healthBefore, "ボスの予告範囲外へ奥行き回避するとダメージを受けない");
+        recovery.Invoke(boss, new object[] { BrawlerBalance.BossRecoverySeconds });
+        SetPrivateField(boss, "_attackRemaining", 0f);
+        SetPrivateField(boss, "_attackCooldown", 0f);
+        player.transform.position = Vector3.left;
+        move.Invoke(boss, null);
+        Require(!boss.IsWideAttack && boss.Facing == -1 && boss.IsWindingUp, "隙の後は振り向き、長い一撃へ循環する");
+        boss.TakeDamage(BrawlerBalance.NormalDamage, 1);
+        Require(!boss.IsWindingUp, "予告中の被弾でボスの攻撃を中断できる");
+        SetPrivateField(game, "_player", previousPlayer);
+        enemies.Remove(boss);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
     private static void ValidateStageClear(BeltBrawler game, MethodInfo createTurnEnemy,
         System.Collections.Generic.List<Fighter> turnEnemies,
         System.Collections.Generic.List<Vector3> bannerPending, MethodInfo waveProgress)
@@ -1410,6 +1481,8 @@ public static class CombatValidation
         typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
             .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds });
         Require(turnEnemies.Count > 0 && !game.IsStageCleared, "最終ウェーブにも敵を配置");
+        Require(turnEnemies.Count == BrawlerBalance.BossWaveEnemyCount && turnEnemies[0] is BossFighter,
+            "最終ウェーブはボス戦になり、倒すまでクリアしない");
         foreach (Fighter finalEnemy in turnEnemies)
         {
             finalEnemy.TakeDamage(1000, 1);

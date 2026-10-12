@@ -90,7 +90,9 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
-        for (int i = 0; i < Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount); i++)
+        int enemyCount = _wave == BrawlerBalance.StageWaveCount ? BrawlerBalance.BossWaveEnemyCount
+            : Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount);
+        for (int i = 0; i < enemyCount; i++)
         {
             _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
         }
@@ -122,6 +124,12 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         for (int i = 0; i < _pendingSpawnPositions.Count; i++)
         {
+            if (_wave == BrawlerBalance.StageWaveCount)
+            {
+                _enemies.Add(_factory.CreateFighter("Warden Boss", _pendingSpawnPositions[i], false, _wave,
+                    isBoss: true));
+                continue;
+            }
             // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
             bool isRanged = i % BrawlerBalance.RangedSpawnInterval == BrawlerBalance.RangedSpawnOffset;
             // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
@@ -690,12 +698,12 @@ public sealed class BeltBrawler : MonoBehaviour
         // 敵は 1.65 のままにして、鈍器の間合いを活かせるようにします。
         float attackReach = attacker.IsHeavyStriking ? BrawlerBalance.HeavyStrikeReach
             : attacker.IsPushAttacking ? BrawlerBalance.PushReach : attacker.IsUppercutAttacking ? BrawlerBalance.UppercutReach
-            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : BrawlerBalance.EnemyAttackReach;
+            : attacker.IsPlayer ? BrawlerBalance.PlayerAttackReach : attacker.MeleeAttackReach;
         // 生存・奥行き差・左右距離・向きの 4 条件をすべて満たすと命中します。
         // facing は右 +1 / 左 -1。差に掛けると、左右どちらでも前方が正になります。
         // -0.25 の余裕を持たせ、ほぼ重なった相手にも攻撃が当たるようにしています。
         return target.Health > 0
-            && Mathf.Abs(delta.z) < BrawlerBalance.AttackLaneHalfWidth
+            && Mathf.Abs(delta.z) < (attacker.IsPlayer ? BrawlerBalance.AttackLaneHalfWidth : attacker.MeleeLaneHalfWidth)
             && Mathf.Abs(delta.x) < attackReach
             && delta.x * attacker.Facing > -BrawlerBalance.AttackBehindAllowance;
     }

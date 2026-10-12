@@ -8,7 +8,9 @@ public class Fighter : Combatant
 
     // 近接予告の範囲。遠距離型は弾の射線へ上書きし、表示側に敵の型判定を持たせません。
     public virtual float WarningRangeStart => -BrawlerBalance.AttackBehindAllowance;
-    public virtual float WarningRangeEnd => BrawlerBalance.EnemyAttackReach;
+    public virtual float MeleeAttackReach => BrawlerBalance.EnemyAttackReach;
+    public virtual float MeleeLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
+    public virtual float WarningRangeEnd => MeleeAttackReach;
     public virtual float WarningLaneHalfWidth => BrawlerBalance.AttackLaneHalfWidth;
     private BeltBrawler _game;
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。

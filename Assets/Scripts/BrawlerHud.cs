@@ -7,6 +7,27 @@ public sealed class BrawlerHud
     private GUIStyle _style;
     private GUIStyle _healthStyle;
 
+    private static void DrawBossStatus(BossFighter boss, GUIStyle style)
+    {
+        float width = BrawlerBalance.BossHudWidth;
+        float x = Mathf.Max(BrawlerBalance.BossHudMargin, Screen.width - width - BrawlerBalance.BossHudMargin);
+        float y = BrawlerBalance.BossHudMargin;
+        Color previousColor = GUI.color;
+        GUI.color = Color.white;
+        GUI.Label(new Rect(x, y, width, BrawlerBalance.BossHudTitleHeight),
+            $"WARDEN  {boss.Health}/{boss.MaxHealth}", style);
+        y += BrawlerBalance.BossHudTitleHeight;
+        GUI.color = Color.gray;
+        GUI.DrawTexture(new Rect(x, y, width, BrawlerBalance.BossHudBarHeight), Texture2D.whiteTexture);
+        GUI.color = new Color(0.8f, 0.25f, 0.65f);
+        GUI.DrawTexture(new Rect(x, y, width * boss.Health / boss.MaxHealth, BrawlerBalance.BossHudBarHeight), Texture2D.whiteTexture);
+        GUI.color = boss.IsRecovering ? Color.green : Color.yellow;
+        string state = boss.IsRecovering ? $"OPENING {boss.RecoverySecondsRemaining:F1}s"
+            : boss.IsWindingUp ? (boss.IsWideAttack ? "WIDE ATTACK" : "LONG STRIKE") : "BOSS";
+        GUI.Label(new Rect(x, y + BrawlerBalance.BossHudBarHeight, width, BrawlerBalance.BossHudTitleHeight), state, style);
+        GUI.color = previousColor;
+    }
+
     public void Draw(BeltBrawler game, Fighter player, IReadOnlyList<Fighter> enemies,
         Camera camera, int wave, int score, int hitChain, HealthBarFeedback healthFeedback,
         IReadOnlyList<Vector3> pendingSpawns, float spawnWarningRemaining, Font font,
@@ -105,6 +126,10 @@ public sealed class BrawlerHud
             if (enemy == null || enemy.Health <= 0)
             {
                 continue;
+            }
+            if (enemy is BossFighter boss)
+            {
+                DrawBossStatus(boss, style);
             }
             Vector3 screen = camera.WorldToScreenPoint(enemy.transform.position + Vector3.up * BrawlerBalance.EnemyHealthBarWorldHeight);
             if (screen.z <= 0)
