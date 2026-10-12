@@ -29,7 +29,8 @@ public static class BrawlerDefines
         Ground,
         Air,
         DownThrust,
-        Crouch
+        Crouch,
+        Backstab
     }
 
     public enum ActionUseStatus

@@ -234,6 +234,16 @@ public static class BrawlerBalance
     // 移動速度（Unity単位/秒）・行動時間（秒）。
     // シーフの基本性能（試作用）。専用アクションの性能とは分けて管理します。
     // ステージ端を壁として扱う三角跳びの試作調整値。
+    public const float BackstabDirectionWindowSeconds = 0.9f;
+    public const float BackstabButtonWindowSeconds = 0.6f;
+    public const int BackstabDamage = 50;
+    public const float BackstabAttackSeconds = 0.45f;
+    public const float BackstabHitDelaySeconds = 0.15f;
+    public const float BackstabCooldownSeconds = 0.8f;
+    public const float BackstabReach = 1.1f;
+    public const float BackstabLaneHalfWidth = 0.5f;
+    public const float BackstabBehindMinimum = 0.1f;
+    public const float BackstabArmAngle = 60f;
     public const int ThiefWallJumps = 1;
     public const float ThiefWallJumpMargin = 0.45f;
     public const float ThiefWallJumpVelocity = 7f;

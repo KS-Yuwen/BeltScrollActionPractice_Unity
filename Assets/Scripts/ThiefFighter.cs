@@ -9,5 +9,32 @@ public sealed class ThiefFighter : ItemFighter
     protected override float WallJumpMargin => BrawlerBalance.ThiefWallJumpMargin;
     protected override float WallJumpVelocity => BrawlerBalance.ThiefWallJumpVelocity;
     protected override float WallJumpDriftSpeed => BrawlerBalance.ThiefWallJumpDriftSpeed;
+    private readonly BackstabCommandBuffer _backstabCommands = new BackstabCommandBuffer();
+
+    protected override bool UpdateSpecialAction()
+    {
+        UnityEngine.Vector3 input = BrawlerInput.ReadMovement();
+        _backstabCommands.Record(input, Facing, UnityEngine.Time.time);
+        if (base.UpdateSpecialAction())
+        {
+            return true;
+        }
+        if (CommonActionUseStatus != BrawlerDefines.ActionUseStatus.Ready)
+        {
+            return false;
+        }
+        if (BrawlerInput.WasAttackPressed() && !BrawlerInput.WasJumpPressed()
+            && _backstabCommands.TryConsume(input, UnityEngine.Time.time, out float direction))
+        {
+            Fighter target = Game.FindBackstabTarget(this, direction);
+            if (target != null)
+            {
+                StartBackstab(target, direction);
+                return true;
+            }
+        }
+        return false;
+    }
+
     public override PlayerClassSettings ClassSettings => PlayerClassCatalog.Thief;
 }

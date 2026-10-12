@@ -3,6 +3,7 @@ using UnityEngine;
 // 重装型の被弾・気絶・転倒を共用し、ボスの攻撃選択と反撃できる隙だけを追加します。
 public sealed class BossFighter : HeavyFighter
 {
+    public override bool CanBeBackstabbed => false;
     private bool _nextAttackIsWide;
     private bool _isWideAttack;
     private float _recoveryRemaining;

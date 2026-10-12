@@ -766,6 +766,47 @@ public sealed class BeltBrawler : MonoBehaviour
     }
 
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
+    public Fighter FindBackstabTarget(Fighter attacker, float direction)
+    {
+        Fighter nearest = null;
+        float nearestDistance = float.PositiveInfinity;
+        foreach (Fighter target in _enemies)
+        {
+            if (CanBackstabTarget(attacker, target, direction))
+            {
+                float distance = (target.transform.position - attacker.transform.position).sqrMagnitude;
+                if (distance < nearestDistance)
+                {
+                    nearest = target;
+                    nearestDistance = distance;
+                }
+            }
+        }
+        return nearest;
+    }
+
+    private bool CanBackstabTarget(Fighter attacker, Fighter target, float direction)
+    {
+        if (IsRunFinished || target == null || !target.CanBeBackstabbed || target.Health <= 0 || target.IsDowned)
+        {
+            return false;
+        }
+        Vector3 delta = target.transform.position - attacker.transform.position;
+        // 相手の向きを基準に背後を判定し、自分の前にいる近距離の敵だけを対象にします。
+        return delta.x * target.Facing > BrawlerBalance.BackstabBehindMinimum
+            && delta.x * direction > 0 && Mathf.Abs(delta.x) < BrawlerBalance.BackstabReach
+            && Mathf.Abs(delta.z) < BrawlerBalance.BackstabLaneHalfWidth;
+    }
+
+    public void HitBackstabTarget(Fighter attacker, Fighter target, int damage)
+    {
+        // 対象の移動・振り向き・撃破を命中時にも確認し、選んだ一体以外へは当てません。
+        if (CanBackstabTarget(attacker, target, attacker.Facing))
+        {
+            target.TakeMeleeDamage(attacker.CalculateMeleeDamage(damage), attacker, BrawlerDefines.DamageKind.Normal);
+        }
+    }
+
     public void Hit(Fighter attacker, int damage)
     {
         damage = attacker.CalculateMeleeHitDamage(damage);

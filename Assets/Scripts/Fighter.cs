@@ -5,6 +5,9 @@ public class Fighter : Combatant
 {
     // 敵の属性は派生クラスが宣言します。見た目やクラス名で魔法の対象を判定しません。
     public virtual bool IsUndead => false;
+    public virtual bool CanBeBackstabbed => !IsPlayer;
+    public bool IsBackstabbing => _attackKind == BrawlerDefines.AttackKind.Backstab && _attackRemaining > 0;
+    private Fighter _backstabTarget;
 
     // 近接予告の範囲。遠距離型は弾の射線へ上書きし、表示側に敵の型判定を持たせません。
     public virtual float WarningRangeStart => -BrawlerBalance.AttackBehindAllowance;
@@ -965,6 +968,10 @@ public class Fighter : Combatant
                     // 開始時に選んだ1体だけに命中。起き上がりや距離の変化は命中時に再判定します。
                     _game.HitGroundTarget(this, _groundAttackTarget, BrawlerBalance.GroundAttackDamage);
                 }
+                else if (_attackKind == BrawlerDefines.AttackKind.Backstab)
+                {
+                    _game.HitBackstabTarget(this, _backstabTarget, damage);
+                }
                 else
                 {
                     DealAttackDamage(damage);
@@ -988,6 +995,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabDamage,
             BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeDamage,
             BrawlerDefines.AttackKind.Push => BrawlerBalance.PushDamage,
             BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutDamage,
@@ -1008,6 +1016,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabAttackSeconds - BrawlerBalance.BackstabHitDelaySeconds,
             BrawlerDefines.AttackKind.HeavyStrike => BrawlerBalance.HeavyStrikeAttackSeconds - BrawlerBalance.HeavyStrikeHitDelaySeconds,
             BrawlerDefines.AttackKind.Push => BrawlerBalance.PushAttackSeconds - BrawlerBalance.PushHitDelaySeconds,
             BrawlerDefines.AttackKind.Uppercut => BrawlerBalance.UppercutAttackSeconds - BrawlerBalance.UppercutHitDelaySeconds,
@@ -1023,6 +1032,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Backstab => BrawlerBalance.BackstabArmAngle,
             BrawlerDefines.AttackKind.Normal => NormalAttackArmAngle,
             BrawlerDefines.AttackKind.Push => 35,
             BrawlerDefines.AttackKind.HeavyStrike => 135,
@@ -1122,6 +1132,7 @@ public class Fighter : Combatant
         _canContinueCombo = false;
         _attackKind = BrawlerDefines.AttackKind.None;
         _groundAttackTarget = null;
+        _backstabTarget = null;
     }
 
     // 着地など、一部の行動だけを解除する場面で使います。他の技は変更しません。
@@ -1212,6 +1223,17 @@ public class Fighter : Combatant
     public void ApplyPushKnockback(float direction)
     {
         _knockbackVelocity = new Vector3(direction * BrawlerBalance.PushKnockbackSpeed, 0, 0);
+    }
+
+    protected void StartBackstab(Fighter target, float direction)
+    {
+        StartCounterAttack();
+        _attackKind = BrawlerDefines.AttackKind.Backstab;
+        _backstabTarget = target;
+        Facing = direction;
+        _isRunning = false;
+        _attackRemaining = BrawlerBalance.BackstabAttackSeconds;
+        _attackCooldown = BrawlerBalance.BackstabCooldownSeconds;
     }
 
     private void StartUppercut()

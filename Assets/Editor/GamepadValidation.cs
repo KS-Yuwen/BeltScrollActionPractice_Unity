@@ -477,6 +477,7 @@ public static class GamepadValidation
             ValidateThiefClassInput(player, keyboard);
             ValidateThiefAirJumpInput(player, keyboard);
             ValidateThiefWallJumpInput(player);
+            ValidateBackstabInput(player);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -490,6 +491,78 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateBackstabInput(Fighter sourcePlayer)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var enemies = (System.Collections.Generic.List<Fighter>)typeof(BeltBrawler).GetField("_enemies", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        Fighter[] previousEnemies = enemies.ToArray();
+        Fighter player = factory.CreateFighter("Test backstab", Vector3.zero, true, 1, playerClass: BrawlerDefines.PlayerClass.Thief);
+        Fighter target = factory.CreateFighter("Test backstab target", Vector3.right, false, 1, isHeavy: true);
+        Fighter boss = factory.CreateFighter("Test backstab boss", Vector3.right, false, 1, isBoss: true);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo canTarget = typeof(BeltBrawler).GetMethod("CanBackstabTarget", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            enemies.Clear();
+            enemies.Add(target);
+            Require(!boss.CanBeBackstabbed, "ボスはバックスタブ対象外");
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                SetPlayerTimer(player, "_attackRemaining", 0);
+                SetPlayerTimer(player, "_attackCooldown", 0);
+                SetPlayerTimer(target, "_stunRemaining", 0);
+                SetPlayerTimer(target, "_downRemaining", 0);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                typeof(Fighter).GetProperty("Facing").SetValue(target, facing);
+                target.transform.position = Vector3.right * facing * BrawlerBalance.BackstabReach * 0.7f;
+                SendState(pad, new GamepadState());
+                read.Invoke(player, null);
+                GamepadButton backward = facing > 0 ? GamepadButton.DpadLeft : GamepadButton.DpadRight;
+                GamepadButton forward = facing > 0 ? GamepadButton.DpadRight : GamepadButton.DpadLeft;
+                SendState(pad, new GamepadState().WithButton(backward));
+                read.Invoke(player, null);
+                // 後ろへの移動で向きが変わっても、コマンド開始時の前方向を記憶します。
+                typeof(Fighter).GetProperty("Facing").SetValue(player, -facing);
+                SendState(pad, new GamepadState().WithButton(forward));
+                read.Invoke(player, null);
+                SendState(pad, new GamepadState().WithButton(forward).WithButton(GamepadButton.West));
+                read.Invoke(player, null);
+                Require(player.IsBackstabbing && player.Facing == facing, "左右とも後ろ→前→攻撃でバックスタブを優先");
+                int health = target.Health;
+                animate.Invoke(player, new object[] { BrawlerBalance.BackstabHitDelaySeconds * 1.1f });
+                Require(target.Health == health - BrawlerBalance.BackstabDamage, "選択した背後の敵へ専用威力で命中");
+                animate.Invoke(player, new object[] { 0.01f });
+                Require(target.Health == health - BrawlerBalance.BackstabDamage, "同じバックスタブで二重命中しない");
+                SetPlayerTimer(target, "_downRemaining", 0);
+                typeof(Fighter).GetProperty("Facing").SetValue(target, -facing);
+                Require(!(bool)canTarget.Invoke(game, new object[] { player, target, facing }), "正面からはバックスタブ対象にしない");
+                int turnedHealth = target.Health;
+                game.HitBackstabTarget(player, target, BrawlerBalance.BackstabDamage);
+                Require(target.Health == turnedHealth, "命中前に振り向いた敵にはバックスタブを当てない");
+            }
+            var command = new BackstabCommandBuffer();
+            command.Record(Vector3.left, 1f, 0f);
+            command.Record(Vector3.right, -1f, 0.1f);
+            Require(!command.TryConsume(Vector3.right, 0.1f, out _), "前と攻撃の同時入力では成立しない");
+            command.Record(Vector3.right, 1f, 0.2f);
+            Require(command.TryConsume(Vector3.right, 0.2f, out _) && !command.TryConsume(Vector3.right, 0.2f, out _),
+                "先行方向入力後だけ受理し、一度だけ消費");
+        }
+        finally
+        {
+            enemies.Clear();
+            enemies.AddRange(previousEnemies);
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
+            UnityEngine.Object.DestroyImmediate(target.gameObject);
+            UnityEngine.Object.DestroyImmediate(boss.gameObject);
         }
     }
 
