@@ -232,6 +232,12 @@ public static class BrawlerBalance
     public const float PlayerFacingInputThreshold = 0.2f;
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
+    public const float SwordWidth = 0.12f;
+    public const float SwordLength = 0.9f;
+    public const float ClassButtonWidth = 170f;
+    public const float ClassButtonHeight = 28f;
+    public const float ClassPanelMargin = 12f;
+
     public const float WalkSpeed = 5;
     public const float RunSpeed = 8;
     public const float DefaultSlideSpeed = 8;

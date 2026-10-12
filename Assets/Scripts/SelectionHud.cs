@@ -9,7 +9,7 @@ public static class SelectionHud
     private static GUIStyle s_hintStyle;
     private static GUIStyle s_statusStyle;
 
-    public static void Draw(ClericFighter cleric, Font statusFont)
+    public static void Draw(Fighter player, Font statusFont)
     {
         // GUI.skinの参照はOnGUIから呼ばれた時だけ行い、スタイルを毎回作り直しません。
         if (s_titleStyle == null)
@@ -20,8 +20,8 @@ public static class SelectionHud
             s_statusStyle = new GUIStyle(GUI.skin.label) { fontSize = BrawlerBalance.SelectionStatusFontSize };
         }
         s_statusStyle.font = statusFont;
-        float width = cleric.Inventory.SlotCount * BrawlerBalance.SelectionCardWidth
-            + (cleric.Inventory.SlotCount - 1) * BrawlerBalance.SelectionCardGap;
+        float width = player.Inventory.SlotCount * BrawlerBalance.SelectionCardWidth
+            + (player.Inventory.SlotCount - 1) * BrawlerBalance.SelectionCardGap;
         float height = BrawlerBalance.SelectionCardHeight + BrawlerBalance.SelectionHintHeight * 2;
         float scale = Mathf.Min(1, Mathf.Max(0, Screen.width - BrawlerBalance.SelectionHudMargin * 2) / width);
         Matrix4x4 previousMatrix = GUI.matrix;
@@ -29,14 +29,14 @@ public static class SelectionHud
         Vector3 origin = new Vector3(BrawlerBalance.SelectionHudMargin,
             Screen.height - BrawlerBalance.SelectionBottomOffset - height * scale, 0);
         GUI.matrix = previousMatrix * Matrix4x4.TRS(origin, Quaternion.identity, Vector3.one * scale);
-        for (int i = 0; i < cleric.Inventory.SlotCount; i++)
+        for (int i = 0; i < player.Inventory.SlotCount; i++)
         {
-            DrawCard(cleric, i, i * (BrawlerBalance.SelectionCardWidth + BrawlerBalance.SelectionCardGap));
+            DrawCard(player, i, i * (BrawlerBalance.SelectionCardWidth + BrawlerBalance.SelectionCardGap));
         }
         GUI.color = Color.white;
         string hint = BrawlerInput.IsGamepadConnected ? "View / Share: Select    RT / R2: Use" : "Q: Select    E: Use";
         GUI.Label(new Rect(0, BrawlerBalance.SelectionCardHeight, width, BrawlerBalance.SelectionHintHeight), hint, s_hintStyle);
-        BrawlerDefines.ActionUseStatus status = cleric.SelectedActionUseStatus;
+        BrawlerDefines.ActionUseStatus status = ((IPlayerActionUser)player).SelectedActionUseStatus;
         string reason = status switch
         {
             BrawlerDefines.ActionUseStatus.Ready => "READY",
@@ -56,16 +56,17 @@ public static class SelectionHud
         GUI.color = previousColor;
     }
 
-    private static void DrawCard(ClericFighter cleric, int slot, float x)
+    private static void DrawCard(Fighter player, int slot, float x)
     {
-        BrawlerDefines.UsableAction action = cleric.Inventory.GetAction(slot);
-        bool selected = cleric.SelectedSlot == slot;
+        var cleric = player as ClericFighter;
+        BrawlerDefines.UsableAction action = player.Inventory.GetAction(slot);
+        bool selected = ((IPlayerActionUser)player).SelectedSlot == slot;
         bool protection = action == BrawlerDefines.UsableAction.Protection;
-        bool expiring = protection && cleric.IsProtectionExpiring;
+        bool expiring = protection && cleric != null && cleric.IsProtectionExpiring;
         // 効果時間から点滅を求め、ヒットストップ中は残り時間も点滅も停止させます。
         float pulse = expiring ? (1 + Mathf.Sin((BrawlerBalance.ProtectionSeconds - cleric.ProtectionSecondsRemaining)
             * BrawlerBalance.ProtectionWarningPulsesPerSecond * Mathf.PI * 2)) / 2 : 0;
-        int count = cleric.Inventory.GetSlotCount(slot);
+        int count = player.Inventory.GetSlotCount(slot);
         int capacity = BrawlerBalance.InventoryStackLimit;
         string title = action switch
         {
@@ -95,7 +96,7 @@ public static class SelectionHud
             (selected ? "> " : "") + title, s_titleStyle);
         GUI.Label(new Rect(x + padding, card.height / 3, card.width - padding * 2, card.height / 3),
             action == BrawlerDefines.UsableAction.None ? "—" : $"{count} / {capacity}", s_countStyle);
-        if (action == BrawlerDefines.UsableAction.AttackBoost && cleric.IsAttackBoosted)
+        if (action == BrawlerDefines.UsableAction.AttackBoost && cleric != null && cleric.IsAttackBoosted)
         {
             GUI.color = cleric.IsAttackBoostExpiring ? Color.yellow : Color.white;
             string boostStatus = cleric.IsAttackBoostExpiring ? "まもなく終了"
@@ -103,7 +104,7 @@ public static class SelectionHud
             GUI.Label(new Rect(x + padding, card.height * 2 / 3, card.width - padding * 2, card.height / 3),
                 boostStatus, s_statusStyle);
         }
-        if (protection && cleric.IsProtected && cleric.Health > 0)
+        if (protection && cleric != null && cleric.IsProtected && player.Health > 0)
         {
             // 他の項目を選択中でも予告を表示します。選択の矢印と枠は引き続き維持します。
             GUI.color = expiring ? Color.yellow : Color.white;

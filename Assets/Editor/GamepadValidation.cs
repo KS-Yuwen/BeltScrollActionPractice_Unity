@@ -472,6 +472,7 @@ public static class GamepadValidation
             ValidateComboAndCancelInput(player, pad);
             ValidateBackstepInput(player, keyboard);
             ValidateGuardReleaseInput(player);
+            ValidateFighterClassInput(player, keyboard);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -485,6 +486,74 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateFighterClassInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var player = (SwordFighter)factory.CreateFighter("Test sword player", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Fighter);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            Require(player.ClassSettings == PlayerClassCatalog.Fighter && Array.Exists(player.GetComponentsInChildren<Transform>(), part => part.name == "Sword"),
+                "ファイターの派生クラス・職業設定・剣を生成");
+            Require(player.Inventory.GetAction(0) == BrawlerDefines.UsableAction.None
+                && player.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+                && !player.CanUseAction(BrawlerDefines.UsableAction.Healing), "ファイターは初期空き枠で、ナイフ可・魔法不可");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.F2));
+            InputSystem.Update();
+            Require(BrawlerInput.WasFighterSelected() && !BrawlerInput.WasClericSelected(), "F2でファイター開始を選択");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.F1));
+            InputSystem.Update();
+            Require(BrawlerInput.WasClericSelected(), "F1でクレリック開始を選択");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadRight));
+            Require(!BrawlerInput.WasFighterSelected(), "通常の右移動では職業を変更しない");
+            SendState(pad, new GamepadState());
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select).WithButton(GamepadButton.DpadRight));
+            Require(BrawlerInput.WasFighterSelected(), "View・Shareと右でファイター選択");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select).WithButton(GamepadButton.DpadLeft));
+            Require(BrawlerInput.WasClericSelected(), "View・Shareと左でクレリック選択");
+            SendState(pad, new GamepadState());
+            Require(player.TryStoreThrowingKnife(), "ファイターがナイフを所持欄へ保存");
+            SendState(pad, new GamepadState { rightTrigger = 1 });
+            read.Invoke(player, null);
+            Require(player.ThrowingKnivesHeld == 0 && player.SelectedAction == BrawlerDefines.UsableAction.None,
+                "パッド使用入力でナイフを消費し、0なら同じ枠が空になる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            read.Invoke(player, null);
+            Require(ReadPlayerTimer(player, "_attackBufferRemaining") == 0, "ファイターも使用後硬直中は攻撃しない");
+            SetPlayerTimer(player, "_itemRecoveryRemaining", 0);
+            Require(player.TryStoreThrowingHammer() && player.TryUseSelectedAction()
+                && player.ThrowingHammersHeld == 0, "ファイターもハンマーを使用可能");
+            SetPlayerTimer(player, "_itemRecoveryRemaining", 0);
+            Require(player.TryStoreHealingPotion() && !player.TryUseSelectedAction(), "HP満タンではポーションを消費しない");
+            player.TakeDamage(1, player.Facing);
+            SetPlayerTimer(player, "_stunRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            Require(player.TryUseSelectedAction() && player.Health == player.MaxHealth
+                && player.HealingPotionsHeld == 0, "ポーション使用で回復し一度だけ消費");
+        }
+        finally
+        {
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            // この項目で発射した投擲物だけを除去し、後続の軌道検証へ残しません。
+            foreach (PlayerThrownProjectile projectile in UnityEngine.Object.FindObjectsByType<PlayerThrownProjectile>())
+            {
+                if ((Fighter)typeof(PlayerThrownProjectile).GetField("_owner", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(projectile) == player)
+                {
+                    UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+                }
+            }
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
     }
 

@@ -10,6 +10,16 @@ public sealed class BeltBrawler : MonoBehaviour
     // 生存中と撃破直後の敵を保持します。破棄された敵は Update で取り除きます。
     private readonly List<Fighter> _enemies = new List<Fighter>();
     private Fighter _player;
+    // シーン再読み込みでも選択を維持します。検証・既存シーンはクレリックを既定にします。
+    private static BrawlerDefines.PlayerClass s_playerClass = BrawlerDefines.PlayerClass.Cleric;
+    public BrawlerDefines.PlayerClass SelectedPlayerClass => s_playerClass;
+
+    public void StartAs(BrawlerDefines.PlayerClass playerClass)
+    {
+        s_playerClass = playerClass;
+        SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+
     private BrawlerSceneFactory _factory;
     private readonly BrawlerHud _hud = new BrawlerHud();
     private readonly HitDirectionIndicator _hitDirectionIndicator = new HitDirectionIndicator();
@@ -76,7 +86,7 @@ public sealed class BeltBrawler : MonoBehaviour
         _pickupNoticeFont = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic", "Meiryo" }, BrawlerBalance.PickupNoticeFontSize);
         _factory = new BrawlerSceneFactory(this);
         _camera = _factory.BuildStage();
-        _player = CreateFighter("Player", new Vector3(-5, 0, 0), true);
+        _player = _factory.CreateFighter("Player", new Vector3(-5, 0, 0), true, _wave, playerClass: s_playerClass);
         _healthBarFeedback.Refresh(_player.Health, _player.MaxHealth, 0);
         SpawnWave();
     }
@@ -173,6 +183,16 @@ public sealed class BeltBrawler : MonoBehaviour
             _hitChain = 0;
         }
         _cameraShakeRemaining = Mathf.Max(0, _cameraShakeRemaining - Time.deltaTime);
+        if (BrawlerInput.WasClericSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Cleric);
+            return;
+        }
+        if (BrawlerInput.WasFighterSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Fighter);
+            return;
+        }
         bool wasPreparingBoss = IsPreparingBoss;
         UpdateWaveProgress(Time.deltaTime);
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
@@ -879,6 +899,17 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
+        float margin = BrawlerBalance.ClassPanelMargin;
+        float width = BrawlerBalance.ClassButtonWidth;
+        float height = BrawlerBalance.ClassButtonHeight;
+        if (GUI.Button(new Rect(Screen.width - width * 2 - margin, margin, width, height), "CLERIC / F1"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Cleric);
+        }
+        if (GUI.Button(new Rect(Screen.width - width - margin, margin, width, height), "FIGHTER / F2"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Fighter);
+        }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
             _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
     }

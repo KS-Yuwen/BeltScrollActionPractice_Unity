@@ -11,6 +11,13 @@ public static class PlayerClassCatalog
         BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
         BrawlerDefines.UsableAction.ThrowingHammer);
 
+    // 最初のファイターは共通の操作性能を使用します。職業差はここで個別に調整できます。
+    public static PlayerClassSettings Fighter { get; } = new PlayerClassSettings(
+        BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,
+        StandardWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
+        BrawlerDefines.UsableAction.ThrowingHammer);
+
     // 刃物を禁止し、回復・補助魔法とポーション・ハンマーを使用できます。
     public static PlayerClassSettings Cleric { get; } = new PlayerClassSettings(
         BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,

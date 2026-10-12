@@ -2,6 +2,12 @@
 // 0/1/2/3 といった番号を直接使わず、名前から入力の意味を読めるようにします。
 public static class BrawlerDefines
 {
+    public enum PlayerClass
+    {
+        Cleric,
+        Fighter
+    }
+
     public const float UnsetTime = -10;
     public const int UnsetInputSample = -1;
     public const int NoComboStep = 0;

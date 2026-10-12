@@ -148,9 +148,12 @@ public sealed class BrawlerHud
             ? "Stick: Move  X / Square: Attack  A / Cross: Jump  RB: Dash  LB / LT: Guard"
             : "WASD / Arrows: Move   J / Space: Attack   U: Jump   Shift: Dash   K: Guard   R: Restart";
         GUI.Label(new Rect(24, Screen.height - 48, 1100, 40), controls, style);
+        if (player is IPlayerActionUser)
+        {
+            SelectionHud.Draw(player, font);
+        }
         if (player is ClericFighter cleric)
         {
-            SelectionHud.Draw(cleric, font);
             string turnButton = BrawlerInput.IsGamepadConnected ? "X / Square + A / Cross" : "J / Space + U";
             GUI.Label(new Rect(24, 323, 1100, 40), cleric.TurnUndeadCooldownRemaining > 0
                 ? $"TURN UNDEAD — {cleric.TurnUndeadCooldownRemaining:F1}s"

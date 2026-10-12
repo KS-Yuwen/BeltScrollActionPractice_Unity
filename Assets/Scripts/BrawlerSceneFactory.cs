@@ -133,11 +133,13 @@ public sealed class BrawlerSceneFactory
     }
 
     public Fighter CreateFighter(string label, Vector3 position, bool isPlayer, int wave, bool isRanged = false,
-        bool isHeavy = false, bool isUndead = false, bool isBoss = false)
+        bool isHeavy = false, bool isUndead = false, bool isBoss = false,
+        BrawlerDefines.PlayerClass playerClass = BrawlerDefines.PlayerClass.Cleric)
     {
         var root = new GameObject(label);
         root.transform.position = position;
-        Fighter fighter = isPlayer ? root.AddComponent<ClericFighter>()
+        Fighter fighter = isPlayer ? (playerClass == BrawlerDefines.PlayerClass.Fighter
+            ? (Fighter)root.AddComponent<SwordFighter>() : root.AddComponent<ClericFighter>())
             : isBoss ? root.AddComponent<BossFighter>()
             : isHeavy ? root.AddComponent<HeavyFighter>()
             : isRanged ? root.AddComponent<RangedFighter>()
@@ -182,8 +184,11 @@ public sealed class BrawlerSceneFactory
         if (isPlayer)
         {
             // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
-            Transform mace = CreateBodyPart("Mace", new Vector3(0.4f, 1.65f, -0.1f), new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
-            mace.SetParent(attackArm, true);
+            bool swordUser = playerClass == BrawlerDefines.PlayerClass.Fighter;
+            Transform weapon = CreateBodyPart(swordUser ? "Sword" : "Mace", new Vector3(0.4f, 1.65f, -0.1f),
+                swordUser ? new Vector3(BrawlerBalance.SwordWidth, BrawlerBalance.SwordLength, BrawlerBalance.SwordWidth)
+                    : new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
+            weapon.SetParent(attackArm, true);
             CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
         }
         fighter.Initialize(_game, isPlayer, maxHealth, visual, attackArm, rightLeg, leftLeg);

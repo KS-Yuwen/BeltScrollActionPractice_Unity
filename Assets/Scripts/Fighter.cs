@@ -237,6 +237,27 @@ public class Fighter : Combatant
         return true;
     }
 
+    // アイテムの消費・硬直は共通処理へ集約し、職業ごとの入力側で複製しません。
+    protected bool TryConsumeThrowingHammerWithRecovery()
+    {
+        if (!TryConsumeThrowingHammer())
+        {
+            return false;
+        }
+        _itemRecoveryRemaining = BrawlerBalance.HammerRecoverySeconds;
+        return true;
+    }
+
+    protected bool TryConsumeHealingPotionWithRecovery()
+    {
+        if (!TryConsumeHealingPotion())
+        {
+            return false;
+        }
+        _itemRecoveryRemaining = BrawlerBalance.PotionRecoverySeconds;
+        return true;
+    }
+
     public void NotifyItemPickup(BrawlerDefines.PickupKind kind)
     {
         if (IsPlayer && _game != null)

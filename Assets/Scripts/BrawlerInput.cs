@@ -6,6 +6,11 @@ using UnityEngine.InputSystem;
 // Gamepad は機種別のボタン番号ではなく位置を表す API で操作を読み取れます。
 public static class BrawlerInput
 {
+    public static bool WasClericSelected() => (Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.left.wasPressedThisFrame);
+    public static bool WasFighterSelected() => (Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.right.wasPressedThisFrame);
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ConfigureInputUpdates()
     {

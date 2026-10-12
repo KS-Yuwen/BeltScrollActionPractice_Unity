@@ -1,7 +1,7 @@
 using UnityEngine;
 
 // クレリック固有の魔法を担当します。移動・攻撃・被ダメージは Fighter の共通処理を使います。
-public sealed class ClericFighter : Fighter
+public sealed class ClericFighter : Fighter, IPlayerActionUser
 {
     // 補充先はレベルではなく魔法そのものです。所持枠・上限はアイテムと共用します。
     public override bool TryRestoreSpellUses(BrawlerDefines.UsableAction action, int amount)
