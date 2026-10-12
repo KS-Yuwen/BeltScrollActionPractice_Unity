@@ -336,13 +336,17 @@ public sealed class BeltBrawler : MonoBehaviour
             }
             if (_defeatedEnemyCount % BrawlerBalance.ScrollDropInterval == 0)
             {
-                // 撃破数を通算し、回復・補助のスクロールを交互に落とします。
+                // 撃破数を通算し、回復・防御・攻撃強化のスクロールを順番に落とします。
                 int dropIndex = _defeatedEnemyCount / BrawlerBalance.ScrollDropInterval;
-                BrawlerDefines.SpellLevel level = dropIndex % BrawlerBalance.ScrollLevelCycleLength == 1
-                    ? BrawlerBalance.HealingSpellLevel : BrawlerBalance.ProtectionSpellLevel;
-                if (_player.SupportsSpellLevel(level))
+                BrawlerDefines.UsableAction action = ((dropIndex - 1) % BrawlerBalance.ScrollActionCycleLength) switch
                 {
-                    DropMagicScroll(victim.transform.position, level);
+                    0 => BrawlerDefines.UsableAction.Healing,
+                    1 => BrawlerDefines.UsableAction.Protection,
+                    _ => BrawlerDefines.UsableAction.AttackBoost
+                };
+                if (_player.CanUseAction(action))
+                {
+                    DropMagicScroll(victim.transform.position, action);
                 }
             }
         }
@@ -539,7 +543,7 @@ public sealed class BeltBrawler : MonoBehaviour
         hammer.AddComponent<ThrowingHammerPickup>().Initialize(_player, _audio);
     }
 
-    private void DropMagicScroll(Vector3 position, BrawlerDefines.SpellLevel level)
+    private void DropMagicScroll(Vector3 position, BrawlerDefines.UsableAction action)
     {
         var scroll = new GameObject("Magic Scroll Pickup");
         // 同時に落ちるポーション・ハンマーと重なりにくい位置に置きます。
@@ -550,12 +554,16 @@ public sealed class BeltBrawler : MonoBehaviour
         _factory.CreateBodyPart("Scroll parchment", modelPosition,
             new Vector3(BrawlerBalance.ScrollModelWidth, BrawlerBalance.ScrollModelHeight,
                 BrawlerBalance.ScrollModelDepth), _factory.SkinMaterial, scroll.transform);
-        Material bandMaterial = level == BrawlerBalance.HealingSpellLevel
-            ? _factory.HealingScrollMaterial : _factory.ProtectionScrollMaterial;
+        Material bandMaterial = action switch
+        {
+            BrawlerDefines.UsableAction.Healing => _factory.HealingScrollMaterial,
+            BrawlerDefines.UsableAction.AttackBoost => _factory.AttackBoostScrollMaterial,
+            _ => _factory.ProtectionScrollMaterial
+        };
         _factory.CreateBodyPart("Scroll band", modelPosition,
             new Vector3(BrawlerBalance.ScrollBandWidth, BrawlerBalance.ScrollBandHeight,
                 BrawlerBalance.ScrollBandDepth), bandMaterial, scroll.transform);
-        scroll.AddComponent<MagicScrollPickup>().Initialize(_player, _audio, level);
+        scroll.AddComponent<MagicScrollPickup>().Initialize(_player, _audio, action);
     }
 
     private void DropPotion(Vector3 position)
@@ -573,6 +581,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 攻撃者の陣営に応じて対象を選びます。プレイヤーの攻撃は範囲内の敵全員に当たります。
     public void Hit(Fighter attacker, int damage)
     {
+        damage = attacker.CalculateMeleeDamage(damage);
         if (attacker.IsPlayer)
         {
             foreach (var enemy in _enemies)
@@ -661,7 +670,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         if (target != null && IsInGroundAttackRange(attacker, target))
         {
-            target.TryTakeGroundHit(damage, attacker.Facing);
+            target.TryTakeGroundHit(attacker.CalculateMeleeDamage(damage), attacker.Facing);
         }
     }
 

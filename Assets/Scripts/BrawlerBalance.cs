@@ -312,11 +312,15 @@ public static class BrawlerBalance
     public const int UndeadSpawnIndex = 1;
     public const int HealingUses = 3;
     public const int ProtectionUses = 2;
-    public const BrawlerDefines.SpellLevel HealingSpellLevel = BrawlerDefines.SpellLevel.Fourth;
-    public const BrawlerDefines.SpellLevel ProtectionSpellLevel = BrawlerDefines.SpellLevel.Second;
+    public const int AttackBoostUses = 2;
+    public const int InventorySlotCount = 6;
+    public const int InventoryStackLimit = 9;
+    public const float AttackBoostSeconds = 13f;
+    public const float AttackBoostDamageMultiplier = 1.5f;
+    public const float AttackBoostWarningSeconds = 3f;
     public const int ScrollRestoreUses = 1;
     public const int ScrollDropInterval = 4;
-    public const int ScrollLevelCycleLength = 2;
+    public const int ScrollActionCycleLength = 3;
     public const float ScrollPickupRadius = 0.7f;
     public const float ScrollLifetimeSeconds = 20f;
     public const float ScrollLaneOffset = -0.8f;
@@ -354,8 +358,8 @@ public static class BrawlerBalance
     public const float HammerHandleOffset = -0.3f;
     public const float HammerPickupHeight = 0.2f;
     public const float HammerPickupLaneOffset = 0.4f;
-    // ナイフとハンマーは別々に調整できるよう、所持上限・射程・使用後の隙も独立させます。
-    public const int KnifeCapacity = 9;
+    // 所持上限は共通の9。射程・使用後の隙などの挙動は種類ごとに調整できます。
+    public const int KnifeCapacity = InventoryStackLimit;
     public const int KnifeDamage = 24;
     public const int KnifeDropInterval = 2;
     public const float KnifeSpeed = 12f;
@@ -375,7 +379,7 @@ public static class BrawlerBalance
     public const float KnifeGripOffset = 0.4f;
     public const float KnifePickupHeight = 0.2f;
     public const float KnifePickupLaneOffset = -0.4f;
-    public const int HammerCapacity = 9;
+    public const int HammerCapacity = InventoryStackLimit;
     public const int HammerDamage = 24;
     public const int HammerDropInterval = 2;
     public const float HammerSpeed = 9f;
@@ -386,7 +390,7 @@ public static class BrawlerBalance
     public const float HammerLaunchOffset = 0.7f;
     public const float HammerHeight = 1.2f;
     // 所持上限と使用後の隙は、将来の外部データ調整でも同じ窓口を使います。
-    public const int PotionCapacity = 9;
+    public const int PotionCapacity = InventoryStackLimit;
     public const float PotionRecoverySeconds = 0.6f;
     public const float PotionPickupRadius = 0.7f;
     public const float PotionLifetimeSeconds = 20;

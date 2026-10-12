@@ -146,15 +146,29 @@ public class Fighter : Combatant
         }
     }
 
-    // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
-    public int HealingPotionsHeld { get; private set; }
+    // 所持品と魔法は職業共通の6枠に保存し、種類ごとの数を独立して管理します。
+    public ActionInventory Inventory { get; } = new ActionInventory();
+    public int HealingPotionsHeld
+    {
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.HealingPotion);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.HealingPotion, value);
+    }
 
-    public int ThrowingHammersHeld { get; private set; }
+    public int ThrowingHammersHeld
+    {
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.ThrowingHammer);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.ThrowingHammer, value);
+    }
 
-    // 魔法を使わない職業はスクロールを取得しません。魔法職はレベルごとの対応を上書きします。
-    public virtual bool SupportsSpellLevel(BrawlerDefines.SpellLevel level) => false;
-    public virtual bool TryRestoreSpellUses(BrawlerDefines.SpellLevel level, int amount) => false;
-    public int ThrowingKnivesHeld { get; private set; }
+    // 魔法を使わない職業はスクロールを取得しません。魔法職は種類ごとの補充を上書きします。
+    public virtual bool TryRestoreSpellUses(BrawlerDefines.UsableAction action, int amount) => false;
+    // 武器による近接攻撃だけに適用します。魔法・投擲・移動接触の威力とは分離します。
+    public virtual int CalculateMeleeDamage(int amount) => amount;
+    public int ThrowingKnivesHeld
+    {
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.ThrowingKnife);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.ThrowingKnife, value);
+    }
     private float _itemRecoveryRemaining;
 
     // 他職業はこの許可判定を上書きします。所持品の処理に具体的な職業名は持ち込みません。
@@ -172,8 +186,7 @@ public class Fighter : Combatant
         {
             return false;
         }
-        ThrowingKnivesHeld++;
-        return true;
+        return Inventory.TryAdd(BrawlerDefines.UsableAction.ThrowingKnife);
     }
 
     public bool TryThrowKnife()
@@ -184,7 +197,7 @@ public class Fighter : Combatant
             return false;
         }
         Game.ThrowKnife(this);
-        ThrowingKnivesHeld--;
+        Inventory.TryConsume(BrawlerDefines.UsableAction.ThrowingKnife);
         _itemRecoveryRemaining = BrawlerBalance.KnifeRecoverySeconds;
         ReleaseDefenseForSpecialAction();
         return true;
@@ -204,8 +217,7 @@ public class Fighter : Combatant
         {
             return false;
         }
-        ThrowingHammersHeld++;
-        return true;
+        return Inventory.TryAdd(BrawlerDefines.UsableAction.ThrowingHammer);
     }
 
     protected bool TryConsumeThrowingHammer()
@@ -216,7 +228,7 @@ public class Fighter : Combatant
             return false;
         }
         Game.ThrowHammer(this);
-        ThrowingHammersHeld--;
+        Inventory.TryConsume(BrawlerDefines.UsableAction.ThrowingHammer);
         ReleaseDefenseForSpecialAction();
         return true;
     }
@@ -228,8 +240,7 @@ public class Fighter : Combatant
         {
             return false;
         }
-        HealingPotionsHeld++;
-        return true;
+        return Inventory.TryAdd(BrawlerDefines.UsableAction.HealingPotion);
     }
 
     protected bool TryConsumeHealingPotion()
@@ -241,7 +252,7 @@ public class Fighter : Combatant
             return false;
         }
         RestoreHealth(BrawlerBalance.PotionHealingAmount);
-        HealingPotionsHeld--;
+        Inventory.TryConsume(BrawlerDefines.UsableAction.HealingPotion);
         Game.PlaySound(BrawlerSound.Heal);
         ReleaseDefenseForSpecialAction();
         return true;
@@ -338,6 +349,12 @@ public class Fighter : Combatant
         _attackArm = attackArm;
         _rightLeg = rightLeg;
         _leftLeg = leftLeg;
+        InitializeInventory();
+    }
+
+    protected virtual void InitializeInventory()
+    {
+        Inventory.Clear();
     }
 
     protected virtual void Start()

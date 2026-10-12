@@ -192,7 +192,7 @@ public static class CombatValidation
             cleric.SelectNextAction();
 
             player.RestoreHealth(100);
-            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.HealingPotion, "補助魔法の次はポーションを選択");
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "初期の3枠目は攻撃強化");
             potion.transform.position = player.transform.position + Vector3.forward;
             Require(!potion.TryCollect(), "奥行きが離れたポーションを拾わない");
             for (int held = 0; held < BrawlerBalance.PotionCapacity; held++)
@@ -210,6 +210,7 @@ public static class CombatValidation
             Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == potionNoticesBefore + 1
                 && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.HealingPotion
                     && n.DisplayText == "ポーション＋1"), "ポーション取得成功時だけ通知を一つ生成");
+            typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.HealingPotion);
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "満タンでは使用しても消費しない");
             player.TakeDamage(35, player.Facing);
             Require(!cleric.TryUseSelectedAction() && player.HealingPotionsHeld == 1, "被ダメージ硬直中は消費しない");
@@ -222,7 +223,9 @@ public static class CombatValidation
             Require(!cleric.TryUseSelectedAction() && player.Health == 85, "所持数ゼロでは回復しない");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
             cleric.SelectNextAction();
-            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.ThrowingHammer, "ポーションの次はスローイングハンマー");
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.None, "空の2枠目はNOTHING");
+            cleric.SelectNextAction();
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "3枠目に初期の攻撃強化が残る");
             cleric.SelectNextAction();
 
             // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
@@ -1002,13 +1005,23 @@ public static class CombatValidation
                 && !cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中表示と補助魔法の拒否が一致");
             foreach (BrawlerDefines.UsableAction statusAction in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
             {
-                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, statusAction);
-                if (!cleric.CanUseAction(statusAction))
+                if (statusAction == BrawlerDefines.UsableAction.None)
                 {
-                    Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable
-                        && !cleric.TryUseSelectedAction(), "職業で禁止された項目は使用不可");
+                    Require(cleric.GetActionUseStatus(statusAction) == BrawlerDefines.ActionUseStatus.Empty,
+                        "NOTHINGは空き枠として表示する");
                     continue;
                 }
+                if (!cleric.CanUseAction(statusAction))
+                {
+                    Require(cleric.GetActionUseStatus(statusAction) == BrawlerDefines.ActionUseStatus.Unavailable,
+                        "職業で禁止された項目は使用不可");
+                    continue;
+                }
+                if (cleric.Inventory.GetCount(statusAction) == 0)
+                {
+                    Require(cleric.Inventory.TryAdd(statusAction), "使用可否検証用の所持品を補充する");
+                }
+                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, statusAction);
                 SetPrivateField(player, "_attackRemaining", 0.1f);
                 Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Busy
                     && !cleric.TryUseSelectedAction(), "行動中の表示と選択発動の拒否が一致");
@@ -1148,6 +1161,8 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
+            ValidateInventory(game, createTurnEnemy);
+            ValidateAttackBoost(game, createTurnEnemy, turnEnemies);
             ValidateMagicScrolls(game, createTurnEnemy);
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
@@ -1188,18 +1203,115 @@ public static class CombatValidation
         Require(healthFeedback.TrailHealth == 0, "大きな経過時間でもゼロを超えず縮みきる");
     }
 
+    private static void ValidateInventory(BeltBrawler game, MethodInfo createFighter)
+    {
+        var inventory = new ActionInventory();
+        Require(inventory.SlotCount == BrawlerBalance.InventorySlotCount, "所持欄は6スロット固定");
+        for (int slot = 0; slot < inventory.SlotCount; slot++)
+        {
+            Require(inventory.GetAction(slot) == BrawlerDefines.UsableAction.None
+                && inventory.GetSlotCount(slot) == 0, "初期の空き枠はNOTHING");
+        }
+        Require(!inventory.TryAdd(BrawlerDefines.UsableAction.None)
+            && !inventory.TryAdd((BrawlerDefines.UsableAction)99)
+            && !inventory.TryAdd(BrawlerDefines.UsableAction.Healing, -1), "無効な種類・数量は取得しない");
+        foreach (BrawlerDefines.UsableAction action in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
+        {
+            if (action != BrawlerDefines.UsableAction.None)
+            {
+                Require(inventory.TryAdd(action), "6種類を個別のスロットへ格納できる");
+            }
+        }
+        Require(inventory.FindSlot(BrawlerDefines.UsableAction.None) < 0, "6種類で空き枠がなくなる");
+        Require(inventory.TryAdd(BrawlerDefines.UsableAction.Healing, BrawlerBalance.InventoryStackLimit - 1)
+            && inventory.GetCount(BrawlerDefines.UsableAction.Healing) == BrawlerBalance.InventoryStackLimit
+            && !inventory.TryAdd(BrawlerDefines.UsableAction.Healing), "満枠でも同種を9まで加算し10は拒否する");
+        int freedSlot = inventory.FindSlot(BrawlerDefines.UsableAction.Protection);
+        Require(inventory.TryConsume(BrawlerDefines.UsableAction.Protection)
+            && inventory.GetAction(freedSlot) == BrawlerDefines.UsableAction.None
+            && inventory.GetCount(BrawlerDefines.UsableAction.AttackBoost) == 1, "0になった枠だけ空にし別魔法の数は維持する");
+        Require(inventory.TryAdd(BrawlerDefines.UsableAction.Protection)
+            && inventory.FindSlot(BrawlerDefines.UsableAction.Protection) == freedSlot, "再取得は空き枠を再利用する");
+
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test inventory cleric", Vector3.zero, true, false, false, false });
+        int selected = cleric.SelectedSlot;
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
+        cleric.TakeDamage(10, 1);
+        SetPrivateField(cleric, "_stunRemaining", 0f);
+        SetPrivateField(cleric, "_attackCooldown", 0f);
+        Require(cleric.TryUseSelectedAction() && cleric.SelectedSlot == selected
+            && cleric.SelectedAction == BrawlerDefines.UsableAction.None
+            && cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Empty,
+            "選択魔法を使い切ると同じ位置がNOTHINGになり自動で別項目へ移らない");
+        Require(!cleric.TryUseSelectedAction() && cleric.TryStoreHealingPotion()
+            && cleric.SelectedAction == BrawlerDefines.UsableAction.HealingPotion,
+            "空き枠使用は何もせず、新しい取得はその空き枠へ入る");
+        Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, BrawlerBalance.InventoryStackLimit)
+            && cleric.HealingUsesRemaining == BrawlerBalance.InventoryStackLimit
+            && !cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "魔法も個別に最大9まで補充できる");
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
+    private static void ValidateAttackBoost(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        var cleric = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test attack boost cleric", Vector3.zero, true, false, false, false });
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.AttackBoost);
+        int healingBefore = cleric.HealingUsesRemaining;
+        SetPrivateField(cleric, "_jumpHeight", 1f);
+        Require(!cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses,
+            "空中の攻撃強化は回数を消費しない");
+        SetPrivateField(cleric, "_jumpHeight", 0f);
+        Require(cleric.TryUseSelectedAction() && cleric.IsAttackBoosted
+            && cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds
+            && cleric.AttackBoostUsesRemaining == BrawlerBalance.AttackBoostUses - 1
+            && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses
+            && cleric.HealingUsesRemaining == healingBefore,
+            "選択使用で攻撃強化だけを消費し、他の魔法回数は保持する");
+        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.AttackBoostActive
+            && !cleric.TryAttackBoost(), "効果中の再発動は消費も時間延長もしない");
+        Require(cleric.CalculateMeleeDamage(1) == 2, "攻撃強化は端数を切り上げる");
+        foreach (Fighter existing in enemies)
+        {
+            if (existing != null)
+            {
+                existing.transform.position = new Vector3(20, 0, 3);
+            }
+        }
+        var target = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test boosted melee target", Vector3.right, false, false, false, false });
+        enemies.Add(target);
+        int healthBefore = target.Health;
+        game.Hit(cleric, BrawlerBalance.NormalDamage);
+        Require(target.Health == healthBefore - Mathf.CeilToInt(BrawlerBalance.NormalDamage
+            * BrawlerBalance.AttackBoostDamageMultiplier), "実際の近接命中に攻撃強化を一度だけ適用する");
+        SetPrivateField(target, "_downRemaining", BrawlerBalance.DownSeconds);
+        SetPrivateField(target, "_hasReceivedGroundHit", false);
+        healthBefore = target.Health;
+        game.HitGroundTarget(cleric, target, BrawlerBalance.GroundAttackDamage);
+        Require(target.Health == Mathf.Max(0, healthBefore - Mathf.CeilToInt(BrawlerBalance.GroundAttackDamage
+            * BrawlerBalance.AttackBoostDamageMultiplier)), "追撃にも同じ倍率を適用する");
+        Require(cleric.TryProtection() && cleric.IsProtected && cleric.IsAttackBoosted
+            && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 1, "防御・攻撃強化は共存し各回数を独立して消費する");
+        Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Protection, 1)
+            && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 2, "防御スクロールで攻撃強化の回数を変更しない");
+        MethodInfo updateBoost = typeof(ClericFighter).GetMethod("UpdateAttackBoost", BindingFlags.Instance | BindingFlags.NonPublic);
+        updateBoost.Invoke(cleric, new object[] { 0f });
+        Require(cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds, "時間停止中は強化時間も停止する");
+        updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostSeconds - BrawlerBalance.AttackBoostWarningSeconds });
+        Require(cleric.IsAttackBoostExpiring, "残り時間が少なくなると終了予告を表示する");
+        updateBoost.Invoke(cleric, new object[] { BrawlerBalance.AttackBoostWarningSeconds });
+        Require(!cleric.IsAttackBoosted && !cleric.IsAttackBoostExpiring
+            && cleric.CalculateMeleeDamage(BrawlerBalance.NormalDamage) == BrawlerBalance.NormalDamage,
+            "時間切れで威力・終了予告が元に戻る");
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
     private static void ValidateMagicScrolls(BeltBrawler game, MethodInfo createFighter)
     {
-        var sharedPool = new SpellUsePool(2);
-        SpellUsePool anotherSpellPool = sharedPool;
-        Require(sharedPool.TryConsume() && anotherSpellPool.Remaining == 1
-            && anotherSpellPool.TryConsume() && sharedPool.Remaining == 0,
-            "同レベルの魔法は同じ回数枠を共有する");
-        Require(!sharedPool.TryConsume() && !sharedPool.TryRestore(0) && !sharedPool.TryRestore(-1),
-            "回数ゼロ・不正な補充量は変更しない");
-        Require(sharedPool.TryRestore(int.MaxValue) && sharedPool.Remaining == sharedPool.Capacity
-            && !sharedPool.TryRestore(1), "大きな補充量でも上限を超えない");
-
         var cleric = (ClericFighter)createFighter.Invoke(game,
             new object[] { "Test scroll cleric", Vector3.zero, true, false, false, false });
         var audio = (BrawlerAudio)GetPrivateField(game, "_audio");
@@ -1207,8 +1319,9 @@ public static class CombatValidation
         int previousKills = (int)GetPrivateField(game, "_defeatedEnemyCount");
         var scrollObject = new GameObject("Test scroll");
         var scroll = scrollObject.AddComponent<MagicScrollPickup>();
-        scroll.Initialize(cleric, audio, BrawlerBalance.HealingSpellLevel);
-        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == BrawlerBalance.HealingUses,
+        scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Healing);
+        typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, BrawlerBalance.InventoryStackLimit);
+        Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == BrawlerBalance.InventoryStackLimit,
             "満回数ではスクロールが床に残る");
         typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
         scrollObject.transform.position = Vector3.right * 3;
@@ -1217,21 +1330,21 @@ public static class CombatValidation
         SetPrivateField(cleric, "_recoveryRemaining", BrawlerBalance.SpellRecoverySeconds);
         int protectionBefore = cleric.ProtectionUsesRemaining;
         Require(scroll.TryCollect() && cleric.HealingUsesRemaining == 2
-            && cleric.GetSpellUsesRemaining(BrawlerBalance.HealingSpellLevel) == 2
+            && cleric.Inventory.GetCount(BrawlerDefines.UsableAction.Healing) == 2
             && cleric.Health == cleric.MaxHealth && cleric.ProtectionUsesRemaining == protectionBefore,
             "HP満タン・発動後の隙でも対応レベルだけ1回補充する");
         Require(!scroll.TryCollect() && cleric.HealingUsesRemaining == 2, "同じスクロールは二重取得しない");
         UnityEngine.Object.DestroyImmediate(scrollObject);
 
-        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.SpellLevel.None, 1)
-            && !cleric.TryRestoreSpellUses((BrawlerDefines.SpellLevel)99, 1), "未対応レベルは補充しない");
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.None, 1)
+            && !cleric.TryRestoreSpellUses((BrawlerDefines.UsableAction)99, 1), "未対応レベルは補充しない");
         var enemy = (Fighter)createFighter.Invoke(game,
             new object[] { "Test nonmagic scroll target", Vector3.zero, false, false, false, false });
         scrollObject = new GameObject("Test protection scroll");
         scroll = scrollObject.AddComponent<MagicScrollPickup>();
-        scroll.Initialize(enemy, audio, BrawlerBalance.ProtectionSpellLevel);
+        scroll.Initialize(enemy, audio, BrawlerDefines.UsableAction.Protection);
         Require(!scroll.TryCollect(), "魔法に未対応のキャラクターはスクロールを取得しない");
-        scroll.Initialize(cleric, audio, BrawlerBalance.ProtectionSpellLevel);
+        scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Protection);
         SetPrivateField(cleric, "_recoveryRemaining", 0f);
         Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == protectionBefore - 1,
             "魔法使用はレベル共通枠を消費する");
@@ -1242,7 +1355,7 @@ public static class CombatValidation
 
         // 撃破時の生成経路も確認し、試験用キャラ・通算撃破数を後続の検証へ持ち越しません。
         SetPrivateField(game, "_player", cleric);
-        for (int dropNumber = 1; dropNumber <= BrawlerBalance.ScrollLevelCycleLength; dropNumber++)
+        for (int dropNumber = 1; dropNumber <= BrawlerBalance.ScrollActionCycleLength; dropNumber++)
         {
             SetPrivateField(game, "_defeatedEnemyCount", dropNumber * BrawlerBalance.ScrollDropInterval - 1);
             var victim = (Fighter)createFighter.Invoke(game,
@@ -1251,12 +1364,16 @@ public static class CombatValidation
             victim.TakeDamage(victim.MaxHealth, 1);
             MagicScrollPickup[] drops = UnityEngine.Object.FindObjectsByType<MagicScrollPickup>();
             Require(drops.Length == scrollsBefore + 1, "指定撃破数でスクロールを生成する");
-            BrawlerDefines.SpellLevel expectedLevel = dropNumber == 1
-                ? BrawlerBalance.HealingSpellLevel : BrawlerBalance.ProtectionSpellLevel;
+            BrawlerDefines.UsableAction expectedAction = dropNumber switch
+            {
+                1 => BrawlerDefines.UsableAction.Healing,
+                2 => BrawlerDefines.UsableAction.Protection,
+                _ => BrawlerDefines.UsableAction.AttackBoost
+            };
             bool foundLevel = false;
             foreach (MagicScrollPickup drop in drops)
             {
-                foundLevel |= drop.Level == expectedLevel;
+                foundLevel |= drop.TargetAction == expectedAction;
             }
             Require(foundLevel, "回復・補助スクロールを交互に生成する");
             victim.TakeDamage(victim.MaxHealth, 1);
@@ -1266,10 +1383,10 @@ public static class CombatValidation
         }
         typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
         typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, true);
-        Require(!cleric.TryRestoreSpellUses(BrawlerBalance.HealingSpellLevel, 1), "ゲーム終了後は補充しない");
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "ゲーム終了後は補充しない");
         typeof(BeltBrawler).GetProperty("IsStageCleared").SetValue(game, false);
         cleric.TakeDamage(cleric.MaxHealth * 2, 1);
-        Require(!cleric.TryRestoreSpellUses(BrawlerBalance.HealingSpellLevel, 1), "死亡中は補充しない");
+        Require(!cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Healing, 1), "死亡中は補充しない");
         typeof(BeltBrawler).GetProperty("IsDefeated").SetValue(game, false);
         SetPrivateField(game, "_player", previousPlayer);
         SetPrivateField(game, "_defeatedEnemyCount", previousKills);
@@ -1345,10 +1462,10 @@ public static class CombatValidation
             "管理役の直接呼び出しも職業制限を守る");
         BrawlerDefines.UsableAction selectedBefore = cleric.SelectedAction;
         typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
-        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable && !cleric.TryUseSelectedAction(),
-            "不正な選択状態でもクレリックはナイフを使用しない");
+        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Empty && !cleric.TryUseSelectedAction(),
+            "未所持のナイフを指定しても空き枠として扱い使用しない");
         typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, selectedBefore);
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < BrawlerBalance.InventorySlotCount; i++)
         {
             cleric.SelectNextAction();
             Require(cleric.SelectedAction != BrawlerDefines.UsableAction.ThrowingKnife, "クレリックの選択順にナイフを含めない");

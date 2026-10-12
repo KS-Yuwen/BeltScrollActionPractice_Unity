@@ -28,6 +28,7 @@ public static class BrawlerDefines
         Empty,
         HealthFull,
         ProtectionActive,
+        AttackBoostActive,
         Busy,
         Airborne,
         Defeated,
@@ -40,15 +41,8 @@ public static class BrawlerDefines
         ThrowingHammer,
         ThrowingKnife,
         HealingScroll,
-        ProtectionScroll
-    }
-
-    // 使用回数を共有する単位。魔法そのものとは分け、新しい同レベル魔法も同じ枠を使います。
-    public enum SpellLevel
-    {
-        None,
-        Second = 2,
-        Fourth = 4
+        ProtectionScroll,
+        AttackBoostScroll
     }
 
     public enum DamageKind
@@ -69,11 +63,13 @@ public static class BrawlerDefines
     // 魔法と所持品を名前で扱い、選択・使用・表示で共用します。
     public enum UsableAction
     {
+        None,
         Healing,
         Protection,
         HealingPotion,
         ThrowingHammer,
-        ThrowingKnife
+        ThrowingKnife,
+        AttackBoost
     }
 
     public enum CommandDirection

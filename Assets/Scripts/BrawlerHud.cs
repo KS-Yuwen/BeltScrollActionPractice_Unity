@@ -87,12 +87,16 @@ public sealed class BrawlerHud
                 : $"TURN UNDEAD READY — {turnButton}", style);
             string healButton = BrawlerInput.IsGamepadConnected ? "Y / Triangle" : "L";
             GUI.Label(new Rect(24, 212, 900, 40),
-                $"HEAL {cleric.HealingUsesRemaining}/{BrawlerBalance.HealingUses} — {healButton}: +{BrawlerBalance.HealingAmount} HP"
+                $"HEAL {cleric.HealingUsesRemaining}/{BrawlerBalance.InventoryStackLimit} — {healButton}: +{BrawlerBalance.HealingAmount} HP"
                 + (cleric.IsRecoveringFromHeal ? "  RECOVERING" : ""), style);
             string protectionButton = BrawlerInput.IsGamepadConnected ? "B / Circle" : "I";
             GUI.Label(new Rect(24, 249, 1000, 40),
-                $"PROTECTION {cleric.ProtectionUsesRemaining}/{BrawlerBalance.ProtectionUses} — {protectionButton}"
+                $"PROTECTION {cleric.ProtectionUsesRemaining}/{BrawlerBalance.InventoryStackLimit} — {protectionButton}"
                 + (cleric.IsProtected ? $"  ACTIVE {cleric.ProtectionSecondsRemaining:F1}s" : $"  {BrawlerBalance.ProtectionSeconds}s: Damage ×{BrawlerBalance.ProtectionDamageMultiplier}"), style);
+            GUI.Label(new Rect(24, 286, 1000, 40),
+                $"ATTACK BOOST {cleric.AttackBoostUsesRemaining}/{BrawlerBalance.InventoryStackLimit} — Select + Use"
+                + (cleric.IsAttackBoosted ? $"  ACTIVE {cleric.AttackBoostSecondsRemaining:F1}s"
+                    : $"  {BrawlerBalance.AttackBoostSeconds}s: Melee ×{BrawlerBalance.AttackBoostDamageMultiplier}"), style);
         }
         // 敵の頭上に HP と攻撃予告を表示。ワールド座標を画面座標に変換します。
         // GUI の Y 軸は上から下、WorldToScreenPoint は下から上なので反転が必要です。

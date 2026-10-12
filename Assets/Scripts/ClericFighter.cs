@@ -1,36 +1,51 @@
-using System.Collections.Generic;
 using UnityEngine;
 
 // クレリック固有の魔法を担当します。移動・攻撃・被ダメージは Fighter の共通処理を使います。
 public sealed class ClericFighter : Fighter
 {
-    // 回復と補助は別レベルに割り当て、既存の独立した回数を維持します。
-    // 今後同レベルの魔法を追加するときは、新しい回数フィールドを作らず同じ枠を参照します。
-    private readonly Dictionary<BrawlerDefines.SpellLevel, SpellUsePool> _spellUses
-        = new Dictionary<BrawlerDefines.SpellLevel, SpellUsePool>
-        {
-            { BrawlerBalance.HealingSpellLevel, new SpellUsePool(BrawlerBalance.HealingUses) },
-            { BrawlerBalance.ProtectionSpellLevel, new SpellUsePool(BrawlerBalance.ProtectionUses) }
-        };
-
-    public override bool SupportsSpellLevel(BrawlerDefines.SpellLevel level) => _spellUses.ContainsKey(level);
-
-    public override bool TryRestoreSpellUses(BrawlerDefines.SpellLevel level, int amount)
+    // 補充先はレベルではなく魔法そのものです。所持枠・上限はアイテムと共用します。
+    public override bool TryRestoreSpellUses(BrawlerDefines.UsableAction action, int amount)
     {
-        // 回数だけの補充なので、HP満タン・発動後の隙でも取得可能です。死亡・終了後は拒否します。
-        return IsPlayer && Health > 0 && !Game.IsRunFinished
-            && _spellUses.TryGetValue(level, out SpellUsePool pool) && pool.TryRestore(amount);
+        bool isSpell = action == BrawlerDefines.UsableAction.Healing
+            || action == BrawlerDefines.UsableAction.Protection || action == BrawlerDefines.UsableAction.AttackBoost;
+        return isSpell && CanUseAction(action) && IsPlayer && Health > 0 && !Game.IsRunFinished
+            && Inventory.TryAdd(action, amount);
     }
 
-    public int GetSpellUsesRemaining(BrawlerDefines.SpellLevel level)
+    protected override void InitializeInventory()
     {
-        return _spellUses.TryGetValue(level, out SpellUsePool pool) ? pool.Remaining : 0;
+        base.InitializeInventory();
+        if (IsPlayer)
+        {
+            Inventory.TryAdd(BrawlerDefines.UsableAction.Healing, BrawlerBalance.HealingUses);
+            Inventory.TryAdd(BrawlerDefines.UsableAction.Protection, BrawlerBalance.ProtectionUses);
+            Inventory.TryAdd(BrawlerDefines.UsableAction.AttackBoost, BrawlerBalance.AttackBoostUses);
+        }
+        SelectedSlot = 0;
     }
     private const int HealingAmount = BrawlerBalance.HealingAmount;
     private const float RecoveryDuration = BrawlerBalance.SpellRecoverySeconds;
     private float _recoveryRemaining;
     private const float ProtectionDuration = BrawlerBalance.ProtectionSeconds;
     private float _protectionRemaining;
+    private float _attackBoostRemaining;
+
+    public float AttackBoostSecondsRemaining => _attackBoostRemaining;
+    public bool IsAttackBoosted => Health > 0 && _attackBoostRemaining > 0;
+    public bool IsAttackBoostExpiring => IsAttackBoosted
+        && _attackBoostRemaining <= BrawlerBalance.AttackBoostWarningSeconds;
+    public int AttackBoostUsesRemaining
+    {
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.AttackBoost);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.AttackBoost, value);
+    }
+
+    public override int CalculateMeleeDamage(int amount)
+    {
+        // 端数は切り上げます。HP回復や投擲の処理からは呼ばれません。
+        return IsAttackBoosted
+            ? Mathf.CeilToInt(Mathf.Max(0, amount) * BrawlerBalance.AttackBoostDamageMultiplier) : amount;
+    }
     private float _turnUndeadCooldownRemaining;
     private float _turnUndeadRecoveryRemaining;
 
@@ -38,8 +53,21 @@ public sealed class ClericFighter : Fighter
 
     public bool IsTurningUndead => _turnUndeadRecoveryRemaining > 0;
 
-    // 初期選択は回復。残り回数がゼロでも選択は維持し、意図しない別魔法の発動を防ぎます。
-    public BrawlerDefines.UsableAction SelectedAction { get; private set; } = BrawlerDefines.UsableAction.Healing;
+    // 選択は種類ではなくスロットの位置を保持します。消費で空になっても勝手に別の魔法へ移りません。
+    public int SelectedSlot { get; private set; }
+    public BrawlerDefines.UsableAction SelectedAction
+    {
+        get => Inventory.GetAction(SelectedSlot);
+        private set
+        {
+            int slot = Inventory.FindSlot(value);
+            SelectedSlot = slot >= 0 ? slot : Inventory.FindSlot(BrawlerDefines.UsableAction.None);
+            if (SelectedSlot < 0)
+            {
+                SelectedSlot = 0;
+            }
+        }
+    }
 
     public BrawlerDefines.ActionUseStatus SelectedActionUseStatus => GetActionUseStatus(SelectedAction);
 
@@ -49,11 +77,16 @@ public sealed class ClericFighter : Fighter
         return action == BrawlerDefines.UsableAction.Healing
             || action == BrawlerDefines.UsableAction.Protection
             || action == BrawlerDefines.UsableAction.HealingPotion
-            || action == BrawlerDefines.UsableAction.ThrowingHammer;
+            || action == BrawlerDefines.UsableAction.ThrowingHammer
+            || action == BrawlerDefines.UsableAction.AttackBoost;
     }
 
     public BrawlerDefines.ActionUseStatus GetActionUseStatus(BrawlerDefines.UsableAction action)
     {
+        if (action == BrawlerDefines.UsableAction.None)
+        {
+            return BrawlerDefines.ActionUseStatus.Empty;
+        }
         if (!CanUseAction(action))
         {
             return BrawlerDefines.ActionUseStatus.Unavailable;
@@ -70,6 +103,8 @@ public sealed class ClericFighter : Fighter
                 : Health >= MaxHealth ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready,
             BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining <= 0 ? BrawlerDefines.ActionUseStatus.Empty
                 : IsProtected ? BrawlerDefines.ActionUseStatus.ProtectionActive : BrawlerDefines.ActionUseStatus.Ready,
+            BrawlerDefines.UsableAction.AttackBoost => AttackBoostUsesRemaining <= 0 ? BrawlerDefines.ActionUseStatus.Empty
+                : IsAttackBoosted ? BrawlerDefines.ActionUseStatus.AttackBoostActive : BrawlerDefines.ActionUseStatus.Ready,
             BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty
                 : Health >= MaxHealth ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready,
             BrawlerDefines.UsableAction.ThrowingHammer => ThrowingHammersHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty : BrawlerDefines.ActionUseStatus.Ready,
@@ -77,14 +112,7 @@ public sealed class ClericFighter : Fighter
         };
     }
 
-    public int SelectedActionUsesRemaining => SelectedAction switch
-    {
-        BrawlerDefines.UsableAction.Healing => HealingUsesRemaining,
-        BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining,
-        BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld,
-        BrawlerDefines.UsableAction.ThrowingHammer => ThrowingHammersHeld,
-        _ => 0
-    };
+    public int SelectedActionUsesRemaining => Inventory.GetSlotCount(SelectedSlot);
 
     public void SelectNextAction()
     {
@@ -92,14 +120,8 @@ public sealed class ClericFighter : Fighter
         {
             return;
         }
-        // 所持数ゼロの項目も表示し、取得後に選択順が変わらないようにします。
-        SelectedAction = SelectedAction switch
-        {
-            BrawlerDefines.UsableAction.Healing => BrawlerDefines.UsableAction.Protection,
-            BrawlerDefines.UsableAction.Protection => BrawlerDefines.UsableAction.HealingPotion,
-            BrawlerDefines.UsableAction.HealingPotion => BrawlerDefines.UsableAction.ThrowingHammer,
-            _ => BrawlerDefines.UsableAction.Healing
-        };
+        // 空き枠も含めて6枠を循環します。NOTHINGの使用は何も消費しません。
+        SelectedSlot = (SelectedSlot + 1) % Inventory.SlotCount;
     }
 
     public bool TryUseSelectedAction()
@@ -109,6 +131,7 @@ public sealed class ClericFighter : Fighter
         {
             BrawlerDefines.UsableAction.Healing => TryHeal(),
             BrawlerDefines.UsableAction.Protection => TryProtection(),
+            BrawlerDefines.UsableAction.AttackBoost => TryAttackBoost(),
             BrawlerDefines.UsableAction.HealingPotion => TryUseHealingPotion(),
             BrawlerDefines.UsableAction.ThrowingHammer => TryThrowHammer(),
             _ => false
@@ -139,11 +162,11 @@ public sealed class ClericFighter : Fighter
         return true;
     }
 
-    // HUDや入力判定も、魔法固有の複製ではなくレベルの共通枠を参照します。
+    // HUDと入力判定は6スロットの所持数を参照し、別の回数状態を持ちません。
     public int ProtectionUsesRemaining
     {
-        get => GetSpellUsesRemaining(BrawlerBalance.ProtectionSpellLevel);
-        private set => _spellUses[BrawlerBalance.ProtectionSpellLevel].SetRemaining(value);
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.Protection);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.Protection, value);
     }
 
     public float ProtectionSecondsRemaining => _protectionRemaining;
@@ -157,8 +180,8 @@ public sealed class ClericFighter : Fighter
     // ウェーブ進行だけでは補充せず、スクロール取得またはリスタートで回数を戻します。
     public int HealingUsesRemaining
     {
-        get => GetSpellUsesRemaining(BrawlerBalance.HealingSpellLevel);
-        private set => _spellUses[BrawlerBalance.HealingSpellLevel].SetRemaining(value);
+        get => Inventory.GetCount(BrawlerDefines.UsableAction.Healing);
+        private set => Inventory.SetCount(BrawlerDefines.UsableAction.Healing, value);
     }
 
     public bool IsRecoveringFromHeal => _recoveryRemaining > 0;
@@ -166,12 +189,14 @@ public sealed class ClericFighter : Fighter
     protected override bool IsUsingSpecialAction => base.IsUsingSpecialAction || IsRecoveringFromHeal || IsTurningUndead;
 
     protected override Color? SpecialFeedbackColor => IsTurningUndead ? new Color(1, 1, 0.65f) : IsRecoveringFromHeal
-        ? new Color(0.4f, 1, 0.6f) : IsProtected ? new Color(1, 0.8f, 0.3f) : (Color?)null;
+        ? new Color(0.4f, 1, 0.6f) : IsProtected ? new Color(1, 0.8f, 0.3f)
+        : IsAttackBoosted ? new Color(1, 0.45f, 0.2f) : (Color?)null;
 
     protected override void Update()
     {
         // 硬直中や回復中も効果時間が経過します。共通の戦闘更新より先に終了を判定します。
         UpdateProtection(Time.deltaTime);
+        UpdateAttackBoost(Time.deltaTime);
         _turnUndeadCooldownRemaining = Mathf.Max(0, _turnUndeadCooldownRemaining - Time.deltaTime);
         base.Update();
     }
@@ -219,13 +244,34 @@ public sealed class ClericFighter : Fighter
             || (BrawlerInput.WasActionUsePressed() && TryUseSelectedAction());
     }
 
+    private void UpdateAttackBoost(float deltaTime)
+    {
+        // 発動後の隙や被弾中も経過し、ヒットストップ中はdeltaTime=0で停止します。
+        _attackBoostRemaining = Mathf.Max(0, _attackBoostRemaining - Mathf.Max(0, deltaTime));
+    }
+
+    public bool TryAttackBoost()
+    {
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.AttackBoost) != BrawlerDefines.ActionUseStatus.Ready)
+        {
+            return false;
+        }
+        // この魔法だけを消費します。防御魔法とは独立し、効果は両方同時に持てます。
+        Inventory.TryConsume(BrawlerDefines.UsableAction.AttackBoost);
+        _attackBoostRemaining = BrawlerBalance.AttackBoostSeconds;
+        _recoveryRemaining = RecoveryDuration;
+        Game.PlaySound(BrawlerSound.Protection);
+        ReleaseDefenseForSpecialAction();
+        return true;
+    }
+
     public bool TryProtection()
     {
         if (GetActionUseStatus(BrawlerDefines.UsableAction.Protection) != BrawlerDefines.ActionUseStatus.Ready)
         {
             return false;
         }
-        _spellUses[BrawlerBalance.ProtectionSpellLevel].TryConsume();
+        Inventory.TryConsume(BrawlerDefines.UsableAction.Protection);
         Game.PlaySound(BrawlerSound.Protection);
         _protectionRemaining = ProtectionDuration;
         // 発動直後は回復と同じ 0.6 秒の隙。効果自体はその場で発生します。
@@ -257,7 +303,7 @@ public sealed class ClericFighter : Fighter
             return false;
         }
         RestoreHealth(HealingAmount);
-        _spellUses[BrawlerBalance.HealingSpellLevel].TryConsume();
+        Inventory.TryConsume(BrawlerDefines.UsableAction.Healing);
         Game.PlaySound(BrawlerSound.Heal);
         _recoveryRemaining = RecoveryDuration;
         ReleaseDefenseForSpecialAction();
