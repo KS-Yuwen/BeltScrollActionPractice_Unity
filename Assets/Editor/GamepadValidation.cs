@@ -660,8 +660,8 @@ public static class GamepadValidation
             read.Invoke(player, null);
             Require(ReadPlayerTimer(player, "_attackBufferRemaining") == 0, "パッドの命中前の連打は予約しない");
             // 実ダメージによる通知はCombatValidationで確認し、ここでは入力後の分岐を確認します。
-            player.NotifyMeleeHit();
             SendState(pad, new GamepadState());
+            player.NotifyMeleeHit();
             read.Invoke(player, null);
             SendState(pad, new GamepadState().WithButton(GamepadButton.West));
             read.Invoke(player, null);
@@ -687,6 +687,17 @@ public static class GamepadValidation
             read.Invoke(player, null);
             Require(player.IsUppercutAttacking && !player.IsDashSpecialAttacking,
                 "パッドでも対空からダッシュ必殺技への逆方向キャンセルは成立しない");
+            SendState(pad, new GamepadState());
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            attack.Invoke(player, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.West));
+            player.NotifyMeleeHit();
+            Require(player.IsPushAttacking, "パッドの攻撃保持中の実命中通知で押し攻撃へ移行");
+            float pushRemaining = ReadPlayerTimer(player, "_attackRemaining");
+            player.NotifyMeleeHit();
+            Require(ReadPlayerTimer(player, "_attackRemaining") == pushRemaining,
+                "押し攻撃の命中で保持を再発動しない");
         }
         finally
         {

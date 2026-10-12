@@ -740,6 +740,7 @@ public sealed class BeltBrawler : MonoBehaviour
         damage = attacker.CalculateMeleeDamage(damage);
         if (attacker.IsPlayer)
         {
+            bool didHit = false;
             foreach (var enemy in _enemies)
             {
                 if (enemy != null && IsInAttackRange(attacker, enemy))
@@ -747,7 +748,11 @@ public sealed class BeltBrawler : MonoBehaviour
                     int healthBeforeHit = enemy.Health;
                     if (attacker.IsPushAttacking)
                     {
-                        enemy.TakePushDamage(damage, attacker.Facing);
+                        enemy.TakeMeleeDamage(damage, attacker, BrawlerDefines.DamageKind.Normal);
+                        if (enemy.Health < healthBeforeHit)
+                        {
+                            enemy.ApplyPushKnockback(attacker.Facing);
+                        }
                     }
                     else
                     {
@@ -757,7 +762,7 @@ public sealed class BeltBrawler : MonoBehaviour
                     }
                     if (enemy.Health < healthBeforeHit)
                     {
-                        attacker.NotifyMeleeHit();
+                        didHit = true;
                     }
                     // 無敵・硬直・撃破済みで拒否された命中や空振りでは、反撃専用の演出を出しません。
                     if (attacker.IsCounterAttacking && enemy.Health < healthBeforeHit)
@@ -766,6 +771,11 @@ public sealed class BeltBrawler : MonoBehaviour
                             BrawlerDefines.ImpactKind.Counter);
                     }
                 }
+            }
+            // 全対象へ同じ技・範囲を適用してから通知し、途中の技変更で判定が変わることを防ぎます。
+            if (didHit)
+            {
+                attacker.NotifyMeleeHit();
             }
         }
         else if (IsInAttackRange(attacker, _player))

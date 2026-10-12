@@ -67,8 +67,6 @@ public class Fighter : Combatant
     private float _attackBufferFacing = 1;
     private bool _attackBufferForward;
     private bool _canPushFromHold;
-    private float _attackHoldSeconds;
-    private float _attackHoldFacing = 1;
 
     public bool IsHeavyStriking => _attackKind == BrawlerDefines.AttackKind.HeavyStrike && _attackRemaining > 0;
     public bool IsPushAttacking => _attackKind == BrawlerDefines.AttackKind.Push && _attackRemaining > 0;
@@ -546,7 +544,7 @@ public class Fighter : Combatant
                 ClearAttackHold();
                 _isRunning = false;
             }
-            if (UpdateAttackHold(Time.deltaTime, BrawlerInput.IsAttackHeld()))
+            if (UpdateAttackHold(BrawlerInput.IsAttackHeld()))
             {
                 return Vector3.zero;
             }
@@ -574,8 +572,6 @@ public class Fighter : Combatant
                 // 先行入力はボタンを押した時点の向きも記憶します。方向を離しても失いません。
                 _attackBufferFacing = GetInputFacing(input);
                 _attackBufferForward = heavyStrikeRequested;
-                _attackHoldFacing = _attackBufferFacing;
-                _attackHoldSeconds = 0;
             }
             // 攻撃の後隙からも回避できますが、被ダメージ硬直中は回避できません。
             if (BrawlerInput.WasDashPressed() && DashReady && _stunRemaining <= 0)
@@ -666,6 +662,7 @@ public class Fighter : Combatant
             _canContinueCombo = _comboStep < BrawlerBalance.ComboSteps;
             _comboHitAt = Time.time;
             _comboHitFacing = Facing;
+            TryStartPushFromHit(BrawlerInput.IsAttackHeld());
         }
     }
 
@@ -1084,26 +1081,26 @@ public class Fighter : Combatant
     private void ClearAttackHold()
     {
         _canPushFromHold = false;
-        _attackHoldSeconds = 0;
     }
 
-    private bool UpdateAttackHold(float deltaTime, bool held)
+    private bool UpdateAttackHold(bool held)
     {
+        // 保持を途中で離したら、その一撃では押し攻撃へ移りません。時間による自動発動は行いません。
         if (!held || IsGuarding || _stunRemaining > 0 || _dashRemaining > 0 || _isCrouching)
         {
             ClearAttackHold();
-            return false;
         }
-        if (!_canPushFromHold)
+        return false;
+    }
+
+    private bool TryStartPushFromHit(bool held)
+    {
+        if (!IsPlayer || _attackKind != BrawlerDefines.AttackKind.Normal || !_canPushFromHold || !held)
         {
             return false;
         }
-        _attackHoldSeconds += deltaTime;
-        if (_attackHoldSeconds < BrawlerBalance.PushHoldSeconds || _attackRemaining > 0 || _attackCooldown > 0)
-        {
-            return false;
-        }
-        Facing = _attackHoldFacing;
+        // 通常攻撃の実命中通知からだけ呼びます。空振りや大斬りの保持では発動しません。
+        // 次段の予約も消費し、1回の保持につき一度だけ押し攻撃へ移ります。
         StartCounterAttack();
         _attackKind = BrawlerDefines.AttackKind.Push;
         _attackRemaining = BrawlerBalance.PushAttackSeconds;
@@ -1115,7 +1112,6 @@ public class Fighter : Combatant
     {
         StartCounterAttack();
         _attackKind = BrawlerDefines.AttackKind.HeavyStrike;
-        _canPushFromHold = true;
         _attackRemaining = BrawlerBalance.HeavyStrikeAttackSeconds;
         _attackCooldown = BrawlerBalance.HeavyStrikeCooldownSeconds;
     }
@@ -1155,6 +1151,11 @@ public class Fighter : Combatant
             _attackCooldown = Mathf.Max(_attackCooldown, BrawlerBalance.HammerStunSeconds);
         }
     }
+    public void ApplyPushKnockback(float direction)
+    {
+        _knockbackVelocity = new Vector3(direction * BrawlerBalance.PushKnockbackSpeed, 0, 0);
+    }
+
     public void TakePushDamage(int amount, float direction)
     {
         int previousHealth = Health;
