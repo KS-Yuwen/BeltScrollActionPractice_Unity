@@ -24,6 +24,9 @@ public class Fighter : Combatant
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
     public float EnemyHealthTrail => _enemyHealthBarFeedback.TrailHealth;
+    // 身長と通常攻撃の振り角だけを職業で変更できます。判定用の親Transformは拡縮しません。
+    protected virtual float ModelHeightScale => 1f;
+    protected virtual float NormalAttackArmAngle => BrawlerBalance.NormalAttackArmAngle;
     private Transform _visual;
     private Transform _attackArm;
     private Transform _rightLeg;
@@ -915,7 +918,7 @@ public class Fighter : Combatant
         _rightLeg.localRotation = Quaternion.Euler(0, 0, Mathf.Sin(_walkPhase) * movement.magnitude * 20);
         _leftLeg.localRotation = Quaternion.Euler(0, 0, -Mathf.Sin(_walkPhase) * movement.magnitude * 20);
         // X を負にすると Model が左右反転します。
-        _visual.localScale = new Vector3(Facing, 1, 1);
+        _visual.localScale = new Vector3(Facing, ModelHeightScale, 1);
     }
 
     // 腕の演出に合わせて命中判定を一度だけ発生させます。
@@ -1001,6 +1004,7 @@ public class Fighter : Combatant
     {
         return _attackKind switch
         {
+            BrawlerDefines.AttackKind.Normal => NormalAttackArmAngle,
             BrawlerDefines.AttackKind.Push => 35,
             BrawlerDefines.AttackKind.HeavyStrike => 135,
             BrawlerDefines.AttackKind.Uppercut => -30,
@@ -1018,7 +1022,7 @@ public class Fighter : Combatant
         _visual.localRotation = IsDowned ? Quaternion.Euler(0, 0, 80) : Quaternion.identity;
         // モデルだけ縦に縮めます。HPや通常の攻撃判定には影響しません。
         Vector3 visualScale = _visual.localScale;
-        visualScale.y = IsSliding ? 0.4f : _isCrouching || IsCrouchAttacking ? 0.6f : 1;
+        visualScale.y = ModelHeightScale * (IsSliding ? 0.4f : _isCrouching || IsCrouchAttacking ? 0.6f : 1);
         _visual.localScale = visualScale;
         // 被ダメージ中は見た目だけ少し浮かせます。攻撃距離を測る親の座標は変わりません。
         _visual.localPosition = new Vector3(0, _jumpHeight + (_stunRemaining > 0 ? 0.08f : 0), 0);

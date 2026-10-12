@@ -5,7 +5,8 @@ public static class BrawlerDefines
     public enum PlayerClass
     {
         Cleric,
-        Fighter
+        Fighter,
+        Dwarf
     }
 
     public const float UnsetTime = -10;

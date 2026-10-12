@@ -232,6 +232,19 @@ public static class BrawlerBalance
     public const float PlayerFacingInputThreshold = 0.2f;
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
+    // ドワーフの初期調整値。職業差はここから調整し、既存職の性能を変えません。
+    public const float DwarfWalkSpeed = 4.5f;
+    public const float DwarfRunSpeed = 7f;
+    public const float DwarfNormalAttackReach = 2.2f;
+    public const float DwarfWeaponReachMultiplier = 0.9f;
+    public const float DwarfModelHeightScale = 0.8f;
+    public const float DwarfNormalAttackArmAngle = 120f;
+    public const float NormalAttackArmAngle = 90f;
+    public const float AxeHandleWidth = 0.12f;
+    public const float AxeHandleLength = 0.75f;
+    public const float AxeBladeWidth = 0.5f;
+    public const float AxeBladeHeight = 0.35f;
+    public const float AxeBladeOffset = 0.2f;
     public const float SwordWidth = 0.12f;
     public const float SwordLength = 0.9f;
     public const float ClassButtonWidth = 170f;

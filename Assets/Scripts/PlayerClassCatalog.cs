@@ -18,6 +18,13 @@ public static class PlayerClassCatalog
         BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
         BrawlerDefines.UsableAction.ThrowingHammer);
 
+    // 小柄な近接職。魔法は使わず、ファイターと同じアイテムを使用します。
+    public static PlayerClassSettings Dwarf { get; } = new PlayerClassSettings(
+        BrawlerBalance.DwarfWalkSpeed, BrawlerBalance.DwarfRunSpeed, BrawlerBalance.DwarfNormalAttackReach,
+        BrawlerBalance.DwarfWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
+        BrawlerDefines.UsableAction.ThrowingHammer);
+
     // 刃物を禁止し、回復・補助魔法とポーション・ハンマーを使用できます。
     public static PlayerClassSettings Cleric { get; } = new PlayerClassSettings(
         BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,

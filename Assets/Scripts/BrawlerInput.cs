@@ -11,6 +11,9 @@ public static class BrawlerInput
     public static bool WasFighterSelected() => (Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame)
         || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.right.wasPressedThisFrame);
 
+    public static bool WasDwarfSelected() => (Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.up.wasPressedThisFrame);
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ConfigureInputUpdates()
     {

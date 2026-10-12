@@ -473,6 +473,7 @@ public static class GamepadValidation
             ValidateBackstepInput(player, keyboard);
             ValidateGuardReleaseInput(player);
             ValidateFighterClassInput(player, keyboard);
+            ValidateDwarfClassInput(player, keyboard);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -486,6 +487,83 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateDwarfClassInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var player = (DwarfFighter)factory.CreateFighter("Test dwarf player", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Dwarf);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            Require(player.ClassSettings == PlayerClassCatalog.Dwarf
+                && Array.Exists(player.GetComponentsInChildren<Transform>(), part => part.name == "Axe blade"),
+                "ドワーフの派生クラス・職業設定・斧を生成");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.F3));
+            InputSystem.Update();
+            Require(BrawlerInput.WasDwarfSelected(), "F3でドワーフを選択");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadUp));
+            Require(!BrawlerInput.WasDwarfSelected(), "通常の上移動で職業を変えない");
+            SendState(pad, new GamepadState());
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select).WithButton(GamepadButton.DpadUp));
+            Require(BrawlerInput.WasDwarfSelected(), "View・Shareと上でドワーフを選択");
+            SendState(pad, new GamepadState());
+            MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x, BrawlerBalance.DwarfWalkSpeed * 0.1f),
+                "実移動にドワーフの歩行速度を適用");
+            SetPlayerTimer(player, "_runDirection", 1f);
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, true);
+            float beforeRun = player.transform.position.x;
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x - beforeRun, BrawlerBalance.DwarfRunSpeed * 0.1f),
+                "実移動にドワーフの走行速度を適用");
+            Require(player.AttackReach == BrawlerBalance.DwarfNormalAttackReach, "通常リーチを職業設定から取得");
+            typeof(Fighter).GetField("_attackKind", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(player, BrawlerDefines.AttackKind.Uppercut);
+            Require(Mathf.Approximately(player.AttackReach, BrawlerBalance.UppercutReach * BrawlerBalance.DwarfWeaponReachMultiplier),
+                "特殊技はCSVリーチと職業倍率を組み合わせる");
+            typeof(Fighter).GetMethod("Attack", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+            typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(player, new object[] { 0.01f });
+            Transform arm = (Transform)typeof(Fighter).GetField("_attackArm", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+            Require(Quaternion.Angle(arm.localRotation, Quaternion.Euler(0, 0, BrawlerBalance.DwarfNormalAttackArmAngle)) < 0.01f,
+                "通常攻撃の実モーションにドワーフの振り角を適用");
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                typeof(Fighter).GetMethod("UpdateWalkAnimation", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(player, new object[] { Vector3.zero, 0.01f });
+                Transform model = player.transform.Find("Model");
+                Require(model.localScale.x == facing && model.localScale.y == BrawlerBalance.DwarfModelHeightScale
+                    && player.transform.localScale == Vector3.one, "左右反転でも小柄なモデルを維持し、判定用の親は拡縮しない");
+            }
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_attackCooldown", 0);
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, false);
+            Require(player.TryStoreThrowingKnife() && player.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0,
+                "ドワーフも共通所持品処理でナイフを消費");
+            Require(!player.CanUseAction(BrawlerDefines.UsableAction.Healing), "ドワーフは魔法を使用しない");
+        }
+        finally
+        {
+            foreach (PlayerThrownProjectile projectile in UnityEngine.Object.FindObjectsByType<PlayerThrownProjectile>())
+            {
+                if ((Fighter)typeof(PlayerThrownProjectile).GetField("_owner", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(projectile) == player)
+                {
+                    UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+                }
+            }
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
     }
 
