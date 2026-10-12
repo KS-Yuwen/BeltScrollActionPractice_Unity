@@ -48,9 +48,7 @@ public class Fighter : Combatant
     private bool _canContinueCombo;
     private float _comboHitAt = BrawlerDefines.UnsetTime;
     private float _comboHitFacing;
-    private Fighter _lastMeleeAttacker;
-    // 一連の被弾硬直中に受けた技を保持します。直前だけではA→B→Aの再命中を防げません。
-    private readonly System.Collections.Generic.HashSet<(BrawlerDefines.AttackKind Kind, int ComboStep)> _receivedMeleeAttacks = new();
+    private readonly MeleeHitHistory _meleeHitHistory = new MeleeHitHistory();
     // 同時に複数の技が有効にならないよう、種類は一つの値で保持します。
     private BrawlerDefines.AttackKind _attackKind;
     // 被ダメージ時に押し戻される速度。
@@ -80,7 +78,7 @@ public class Fighter : Combatant
     // 防御成功から反撃できる残り時間。攻撃を一度出したら消費します。
     private float _counterWindowRemaining;
     // 後ろ＋攻撃で構えた盾は、攻撃ボタンを離すまで維持します。
-    // 前に入れ直しても向きを変えず、次の防御成功時の自動反撃を予約できます。
+    // 前に入れ直すと向きを維持したまま対空攻撃へ移ります。
     private bool _commandGuardHeld;
     // ガードを解除した直後の保護時間。ゲーム時間なのでヒットストップ中は減りません。
     private float _guardReleaseRemaining;
@@ -93,7 +91,7 @@ public class Fighter : Combatant
     private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
     private bool _canBackstepFromJump;
     // 攻撃・選択・使用の押下履歴。ジャンプと同じ入力更新で押した場合は成立させません。
-    private float _lastBackstepButtonAt = BrawlerDefines.UnsetTime;
+    private readonly ButtonSequenceBuffer _backstepButtons = new ButtonSequenceBuffer();
     private bool _isBackstep;
     private bool _isRunning;
     private float _runDirection;
@@ -442,8 +440,7 @@ public class Fighter : Combatant
         if (_stunRemaining <= 0)
         {
             // 起き上がり・通常硬直が終われば、次の攻撃では同じ技も再び命中できます。
-            _lastMeleeAttacker = null;
-            _receivedMeleeAttacks.Clear();
+            _meleeHitHistory.Reset();
         }
         _hammerStunRemaining = Mathf.Max(0, _hammerStunRemaining - deltaTime);
         _dashCooldown -= deltaTime;
@@ -464,13 +461,8 @@ public class Fighter : Combatant
             bool jumpPressed = BrawlerInput.WasJumpPressed();
             bool backstepButtonPressed = attackPressed || BrawlerInput.WasActionSelectPressed()
                 || BrawlerInput.WasActionUsePressed();
-            bool backstepRequested = jumpPressed && !backstepButtonPressed
-                && _lastBackstepButtonAt != BrawlerDefines.UnsetTime
-                && Time.time - _lastBackstepButtonAt <= BrawlerBalance.BackstepInputWindowSeconds;
-            if (backstepButtonPressed)
-            {
-                _lastBackstepButtonAt = Time.time;
-            }
+            bool backstepRequested = _backstepButtons.Record(backstepButtonPressed, jumpPressed,
+                Time.time, BrawlerBalance.BackstepInputWindowSeconds);
             // 固有行動が成立したフレームは、同時押しの攻撃・回避より優先します。
             if (UpdateSpecialAction())
             {
@@ -1175,16 +1167,6 @@ public class Fighter : Combatant
         _knockbackVelocity = new Vector3(direction * BrawlerBalance.PushKnockbackSpeed, 0, 0);
     }
 
-    public void TakePushDamage(int amount, float direction)
-    {
-        int previousHealth = Health;
-        TakeDamage(amount, direction);
-        if (Health < previousHealth)
-        {
-            _knockbackVelocity = new Vector3(direction * BrawlerBalance.PushKnockbackSpeed, 0, 0);
-        }
-    }
-
     private void StartUppercut()
     {
         // 共通の単発攻撃初期化を使い、対空技の威力・時間・振り上げ演出を適用します。
@@ -1388,7 +1370,7 @@ public class Fighter : Combatant
         _attackCooldown = 0;
         _attackBufferRemaining = 0;
         _dashAttackMovementRemaining = 0;
-        _lastBackstepButtonAt = BrawlerDefines.UnsetTime;
+        _backstepButtons.Reset();
         // 向きを変えず、共通の回避無敵・ステージ端制限を使います。
         _canBackstepFromJump = false;
         _jumpHeight = 0;
@@ -1463,13 +1445,10 @@ public class Fighter : Combatant
         {
             return;
         }
-        var attackIdentity = (attacker._attackKind, attacker._attackKind == BrawlerDefines.AttackKind.Normal
-            ? attacker.ComboStep : BrawlerDefines.NoComboStep);
-        bool isDifferentAttack = !_receivedMeleeAttacks.Contains(attackIdentity);
         // 同じ相手から異なる技をつないだ場合だけ、通常の被弾硬直中にも追加入力の成果を反映します。
         // 転倒・ハンマー気絶・回避・空中の無敵や、別の攻撃者の攻撃にはこの例外を適用しません。
         bool canReceiveChain = !IsPlayer && !IsGuarding && Health > 0 && !Game.IsRunFinished
-            && _lastMeleeAttacker == attacker && isDifferentAttack && _stunRemaining > 0
+            && _meleeHitHistory.CanReceiveDifferentAttack(attacker, attacker._attackKind, attacker.ComboStep) && _stunRemaining > 0
             && _downRemaining <= 0 && _hammerStunRemaining <= 0 && _dashRemaining <= 0
             && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
         if (canReceiveChain && amount > 0)
@@ -1482,8 +1461,7 @@ public class Fighter : Combatant
         }
         if (Health < healthBefore)
         {
-            _lastMeleeAttacker = attacker;
-            _receivedMeleeAttacks.Add(attackIdentity);
+            _meleeHitHistory.Record(attacker, attacker._attackKind, attacker.ComboStep);
         }
     }
 
@@ -1493,8 +1471,7 @@ public class Fighter : Combatant
         // 別のダメージや硬直終了後の新しい攻撃では履歴を消し、近接連携だけ履歴を引き継ぎます。
         if (!preserveMeleeChain)
         {
-            _lastMeleeAttacker = null;
-            _receivedMeleeAttacks.Clear();
+            _meleeHitHistory.Reset();
         }
         ResetAttackKind();
         ClearAttackHold();

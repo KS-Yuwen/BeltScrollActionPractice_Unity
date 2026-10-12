@@ -225,7 +225,7 @@ public static class GamepadValidation
             UpdatePlayer(player);
             Require(!player.IsCrouching, "保持を離すとしゃがみ解除");
             // 直前のしゃがみ攻撃を別ボタン→ジャンプとして扱わず、ジャンプ2回を単独で検証します。
-            SetPlayerTimer(player, "_lastBackstepButtonAt", BrawlerDefines.UnsetTime);
+            GetBackstepButtons(player).Reset();
             SetPlayerTimer(player, "_attackRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
             UpdatePlayer(player);
@@ -555,6 +555,16 @@ public static class GamepadValidation
         Gamepad pad = InputSystem.AddDevice<Gamepad>();
         try
         {
+            // 独立した履歴でも、停止中の順番入力と受付時間の境界を維持します。
+            var buttons = new ButtonSequenceBuffer();
+            float window = BrawlerBalance.BackstepInputWindowSeconds;
+            Require(!buttons.Record(false, true, 0f, window), "先行入力なしでは順番入力が成立しない");
+            Require(!buttons.Record(true, true, 0f, window), "同時押しは順番入力にしない");
+            Require(buttons.Record(false, true, 0f, window), "同じゲーム時刻でも次の入力更新なら順番入力が成立");
+            Require(buttons.Record(false, true, window, window), "受付時間ちょうどの入力は受理");
+            Require(!buttons.Record(false, true, window * 2, window), "受付時間を過ぎると拒否");
+            buttons.Reset();
+            Require(!buttons.Record(false, true, 0f, window), "消費後の履歴では再発動しない");
             // 毎回新しいキャラクターを作り、直前の回避・魔法の履歴を混ぜません。
             foreach (Key firstButton in new[] { Key.J, Key.Q, Key.E })
             {
@@ -612,13 +622,13 @@ public static class GamepadValidation
             Fighter blocked = factory.CreateFighter("Test blocked backstep", Vector3.zero, true, 1);
             try
             {
-                SetPlayerTimer(blocked, "_lastBackstepButtonAt", Time.time - BrawlerBalance.BackstepInputWindowSeconds - 1f);
+                GetBackstepButtons(blocked).Record(true, false, Time.time - BrawlerBalance.BackstepInputWindowSeconds - 1f, BrawlerBalance.BackstepInputWindowSeconds);
                 SendState(pad, new GamepadState().WithButton(GamepadButton.South));
                 read.Invoke(blocked, null);
                 Require(!blocked.IsBackstepping && blocked.IsAirborne, "受付時間を過ぎた入力は通常ジャンプ");
                 SetPlayerTimer(blocked, "_jumpHeight", 0);
                 SetPlayerTimer(blocked, "_jumpVelocity", 0);
-                SetPlayerTimer(blocked, "_lastBackstepButtonAt", Time.time);
+                GetBackstepButtons(blocked).Record(true, false, Time.time, BrawlerBalance.BackstepInputWindowSeconds);
                 SetPlayerTimer(blocked, "_itemRecoveryRemaining", BrawlerBalance.BackstepInputWindowSeconds);
                 SendState(pad, new GamepadState());
                 SendState(pad, new GamepadState().WithButton(GamepadButton.South));
@@ -719,6 +729,12 @@ public static class GamepadValidation
     private static void UpdatePlayer(Fighter player)
     {
         player.GetType().GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(player, null);
+    }
+
+    private static ButtonSequenceBuffer GetBackstepButtons(Fighter player)
+    {
+        return (ButtonSequenceBuffer)typeof(Fighter).GetField("_backstepButtons", BindingFlags.Instance | BindingFlags.NonPublic)
+            .GetValue(player);
     }
 
     private static float ReadPlayerTimer(Fighter player, string fieldName)
