@@ -15,7 +15,13 @@ public enum BrawlerSound
     EnemyMiss,
     BossWarning,
     BossSwing,
-    BossMiss
+    BossMiss,
+    SpellCast,
+    SpellInterrupted,
+    SpellHeal,
+    SpellProtection,
+    SpellAttackBoost,
+    SpellMissile
 }
 
 // 試作用の短い効果音を起動時に生成し、同じ AudioClip を繰り返し再生します。
@@ -40,6 +46,27 @@ public sealed class BrawlerAudio : MonoBehaviour
     private const float BossMissEndFrequency = 40f;
     private const float WhooshToneWeight = 0.3f;
     private const float WhooshNoiseWeight = 0.7f;
+    // 魔法の合図は短い単発音です。詠唱中ずっと鳴らさず、中断時にも開始音が残り続けません。
+    private const float SpellCastDuration = 0.16f;
+    private const float SpellInterruptedDuration = 0.12f;
+    private const float SpellHealDuration = 0.3f;
+    private const float SpellProtectionDuration = 0.25f;
+    private const float SpellAttackBoostDuration = 0.25f;
+    private const float SpellMissileDuration = 0.18f;
+    private const float SpellCastStartFrequency = 330f;
+    private const float SpellCastEndFrequency = 520f;
+    private const float SpellInterruptedStartFrequency = 260f;
+    private const float SpellInterruptedEndFrequency = 100f;
+    private const float SpellHealStartFrequency = 520f;
+    private const float SpellHealEndFrequency = 1040f;
+    private const float SpellProtectionStartFrequency = 720f;
+    private const float SpellProtectionEndFrequency = 480f;
+    private const float SpellAttackBoostStartFrequency = 440f;
+    private const float SpellAttackBoostEndFrequency = 880f;
+    private const float SpellMissileStartFrequency = 900f;
+    private const float SpellMissileEndFrequency = 1350f;
+    private const float SpellHarmonicWeight = 0.35f;
+    private const float SpellHarmonicRatio = 2f;
     private readonly Dictionary<BrawlerSound, AudioClip> _clips = new Dictionary<BrawlerSound, AudioClip>();
     private readonly Dictionary<BrawlerSound, float> _lastPlayedAt = new Dictionary<BrawlerSound, float>();
     private AudioSource _source;
@@ -77,6 +104,12 @@ public sealed class BrawlerAudio : MonoBehaviour
             || sound == BrawlerSound.EnemyMiss || sound == BrawlerSound.BossMiss;
         float duration = sound switch
         {
+            BrawlerSound.SpellCast => SpellCastDuration,
+            BrawlerSound.SpellInterrupted => SpellInterruptedDuration,
+            BrawlerSound.SpellHeal => SpellHealDuration,
+            BrawlerSound.SpellProtection => SpellProtectionDuration,
+            BrawlerSound.SpellAttackBoost => SpellAttackBoostDuration,
+            BrawlerSound.SpellMissile => SpellMissileDuration,
             BrawlerSound.EnemyWarning or BrawlerSound.BossWarning => WarningDuration,
             BrawlerSound.EnemySwing or BrawlerSound.BossSwing => SwingDuration,
             BrawlerSound.EnemyMiss or BrawlerSound.BossMiss => MissDuration,
@@ -100,6 +133,12 @@ public sealed class BrawlerAudio : MonoBehaviour
             // 予兆は上昇する合図、振りと空振りは短い風切り音として作ります。
             frequency = sound switch
             {
+                BrawlerSound.SpellCast => Mathf.Lerp(SpellCastStartFrequency, SpellCastEndFrequency, progress),
+                BrawlerSound.SpellInterrupted => Mathf.Lerp(SpellInterruptedStartFrequency, SpellInterruptedEndFrequency, progress),
+                BrawlerSound.SpellHeal => Mathf.Lerp(SpellHealStartFrequency, SpellHealEndFrequency, progress),
+                BrawlerSound.SpellProtection => Mathf.Lerp(SpellProtectionStartFrequency, SpellProtectionEndFrequency, progress),
+                BrawlerSound.SpellAttackBoost => Mathf.Lerp(SpellAttackBoostStartFrequency, SpellAttackBoostEndFrequency, progress),
+                BrawlerSound.SpellMissile => Mathf.Lerp(SpellMissileStartFrequency, SpellMissileEndFrequency, progress),
                 BrawlerSound.EnemyWarning => Mathf.Lerp(EnemyWarningStartFrequency, EnemyWarningEndFrequency, progress),
                 BrawlerSound.BossWarning => Mathf.Lerp(BossWarningStartFrequency, BossWarningEndFrequency, progress),
                 BrawlerSound.EnemySwing => Mathf.Lerp(EnemySwingStartFrequency, EnemySwingEndFrequency, progress),
@@ -121,6 +160,12 @@ public sealed class BrawlerAudio : MonoBehaviour
             else if (sound == BrawlerSound.Guard)
             {
                 tone = (tone + Mathf.Sin(phase * 1.7f) * 0.5f) / 1.5f;
+            }
+            else if (sound == BrawlerSound.SpellHeal || sound == BrawlerSound.SpellProtection
+                || sound == BrawlerSound.SpellAttackBoost || sound == BrawlerSound.SpellMissile)
+            {
+                // 発動音に倍音を加え、詠唱開始の素朴な合図と区別します。振幅は正規化します。
+                tone = (tone + Mathf.Sin(phase * SpellHarmonicRatio) * SpellHarmonicWeight) / (1 + SpellHarmonicWeight);
             }
             // 最初と最後の振幅を0に近づけ、急な波形の切り替えによるクリック音を抑えます。
             float envelope = Mathf.Min(1, time / 0.005f) * Mathf.Pow(1 - progress, 2);

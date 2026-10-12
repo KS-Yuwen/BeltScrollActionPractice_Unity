@@ -29,6 +29,8 @@ public abstract class SpellFighter : ItemFighter
         _spellRecoveryDuration = Mathf.Max(0, recoverySeconds);
         _spellCastRemaining = _spellCastDuration;
         ReleaseDefenseForSpecialAction();
+        // 使用条件と消費に成功したときだけ鳴らします。ボタン保持や不成立の入力では鳴らしません。
+        Game.PlaySound(BrawlerSound.SpellCast);
         return true;
     }
 
@@ -118,6 +120,14 @@ public abstract class SpellFighter : ItemFighter
             // 先に発動状態へ移り、回復・攻撃のどちらでも同じ敵停止を使用します。
             _spellEffectRemaining = _spellEffectDuration;
             Game.BeginSpellEffect(this);
+            // 発動音もここで一度だけ再生し、派生クラスの効果・表示と同じタイミングにそろえます。
+            Game.PlaySound(action switch
+            {
+                BrawlerDefines.UsableAction.Healing => BrawlerSound.SpellHeal,
+                BrawlerDefines.UsableAction.Protection => BrawlerSound.SpellProtection,
+                BrawlerDefines.UsableAction.AttackBoost => BrawlerSound.SpellAttackBoost,
+                _ => BrawlerSound.SpellMissile
+            });
             ApplySpell(action);
             if (!IsReleasingSpell)
             {
@@ -142,6 +152,11 @@ public abstract class SpellFighter : ItemFighter
     protected override void OnDamageReceived(int actualAmount)
     {
         base.OnDamageReceived(actualAmount);
+        // 実際の被弾で詠唱が取り消された場合だけ鳴らし、発動後の被弾とは区別します。
+        if (IsCastingSpell)
+        {
+            Game.PlaySound(BrawlerSound.SpellInterrupted);
+        }
         // 詠唱中の被弾で予約を取り消します。消費済みの回数は返却せず、被弾後に遅れて発動させません。
         CancelSpellCast();
         // 発動後の被弾でも腕の演出を解除し、被弾中に魔法を放つ構えだけ残さないようにします。

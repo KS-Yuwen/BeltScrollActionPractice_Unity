@@ -261,15 +261,12 @@ public sealed class ClericFighter : SpellFighter
         {
             case BrawlerDefines.UsableAction.Healing:
                 RestoreHealth(HealingAmount);
-                Game.PlaySound(BrawlerSound.Heal);
                 break;
             case BrawlerDefines.UsableAction.Protection:
                 _protectionRemaining = ProtectionDuration;
-                Game.PlaySound(BrawlerSound.Protection);
                 break;
             case BrawlerDefines.UsableAction.AttackBoost:
                 _attackBoostRemaining = BrawlerBalance.AttackBoostSeconds;
-                Game.PlaySound(BrawlerSound.Protection);
                 break;
         }
     }

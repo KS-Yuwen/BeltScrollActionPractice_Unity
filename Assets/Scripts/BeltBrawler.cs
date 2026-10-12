@@ -687,7 +687,6 @@ public sealed class BeltBrawler : MonoBehaviour
         line.SetPosition(0, start);
         line.SetPosition(1, end);
         trail.AddComponent<MagicMissileEffect>().Initialize(caster as SpellFighter, line);
-        PlaySound(BrawlerSound.Protection);
         if (target != null)
         {
             target.TakeDamage(BrawlerBalance.MagicMissileDamage, caster.Facing, BrawlerDefines.DamageKind.Spell);
