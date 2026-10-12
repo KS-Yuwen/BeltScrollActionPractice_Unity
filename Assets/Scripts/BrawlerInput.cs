@@ -18,6 +18,9 @@ public static class BrawlerInput
     public static bool WasThiefSelected() => (Keyboard.current != null && Keyboard.current.f4Key.wasPressedThisFrame)
         || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.down.wasPressedThisFrame);
 
+    public static bool WasElfSelected() => (Keyboard.current != null && Keyboard.current.f5Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.buttonNorth.wasPressedThisFrame);
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ConfigureInputUpdates()
     {

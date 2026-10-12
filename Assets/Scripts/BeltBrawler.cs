@@ -203,6 +203,11 @@ public sealed class BeltBrawler : MonoBehaviour
             StartAs(BrawlerDefines.PlayerClass.Thief);
             return;
         }
+        if (BrawlerInput.WasElfSelected())
+        {
+            StartAs(BrawlerDefines.PlayerClass.Elf);
+            return;
+        }
         bool wasPreparingBoss = IsPreparingBoss;
         UpdateWaveProgress(Time.deltaTime);
         // シーンを読み直すと Start から初期化されます。シーンのビルド設定への登録が必要です。
@@ -951,23 +956,29 @@ public sealed class BeltBrawler : MonoBehaviour
     private void OnGUI()
     {
         float margin = BrawlerBalance.ClassPanelMargin;
-        float width = BrawlerBalance.ClassButtonWidth;
+        // 職業ボタンは狭い画面でも収まる幅にそろえます。
+        float width = Mathf.Min(BrawlerBalance.ClassButtonWidth,
+            Mathf.Max(0, Screen.width - margin * 2) / BrawlerBalance.ClassSelectionCount);
         float height = BrawlerBalance.ClassButtonHeight;
-        if (GUI.Button(new Rect(Screen.width - width * 4 - margin, margin, width, height), "CLERIC / F1"))
+        if (GUI.Button(new Rect(Screen.width - width * 5 - margin, margin, width, height), "CLERIC / F1"))
         {
             StartAs(BrawlerDefines.PlayerClass.Cleric);
         }
-        if (GUI.Button(new Rect(Screen.width - width * 3 - margin, margin, width, height), "FIGHTER / F2"))
+        if (GUI.Button(new Rect(Screen.width - width * 4 - margin, margin, width, height), "FIGHTER / F2"))
         {
             StartAs(BrawlerDefines.PlayerClass.Fighter);
         }
-        if (GUI.Button(new Rect(Screen.width - width * 2 - margin, margin, width, height), "DWARF / F3"))
+        if (GUI.Button(new Rect(Screen.width - width * 3 - margin, margin, width, height), "DWARF / F3"))
         {
             StartAs(BrawlerDefines.PlayerClass.Dwarf);
         }
-        if (GUI.Button(new Rect(Screen.width - width - margin, margin, width, height), "THIEF / F4"))
+        if (GUI.Button(new Rect(Screen.width - width * 2 - margin, margin, width, height), "THIEF / F4"))
         {
             StartAs(BrawlerDefines.PlayerClass.Thief);
+        }
+        if (GUI.Button(new Rect(Screen.width - width - margin, margin, width, height), "ELF / F5"))
+        {
+            StartAs(BrawlerDefines.PlayerClass.Elf);
         }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
             _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);

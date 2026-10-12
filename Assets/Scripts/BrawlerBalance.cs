@@ -250,6 +250,19 @@ public static class BrawlerBalance
     public const float ThiefWallJumpDriftSpeed = 8f;
     public const int ThiefExtraAirJumps = 1;
     public const float ThiefAirJumpVelocity = 7f;
+    // エルフの近接性能・外見の試作設定。既存職の共通値とは独立して調整します。
+    public const float ElfWalkSpeed = 5.5f;
+    public const float ElfRunSpeed = 8.5f;
+    public const float ElfNormalAttackReach = 2.3f;
+    public const float ElfWeaponReachMultiplier = 0.95f;
+    public const float ElfEarWidth = 0.24f;
+    public const float ElfEarHeight = 0.12f;
+    public const float ElfEarDepth = 0.12f;
+    public const float ElfEarOffset = 0.27f;
+    public const float ElfEarPositionY = 1.8f;
+    public const float ElfOutfitRed = 0.2f;
+    public const float ElfOutfitGreen = 0.65f;
+    public const float ElfOutfitBlue = 0.35f;
     public const float ThiefWalkSpeed = 6f;
     public const float ThiefRunSpeed = 9.5f;
     public const float ThiefNormalAttackReach = 1.8f;
@@ -272,6 +285,7 @@ public static class BrawlerBalance
     public const float AxeBladeOffset = 0.2f;
     public const float SwordWidth = 0.12f;
     public const float SwordLength = 0.9f;
+    public const int ClassSelectionCount = 5;
     public const float ClassButtonWidth = 170f;
     public const float ClassButtonHeight = 28f;
     public const float ClassPanelMargin = 12f;

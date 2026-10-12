@@ -7,7 +7,8 @@ public static class BrawlerDefines
         Cleric,
         Fighter,
         Dwarf,
-        Thief
+        Thief,
+        Elf
     }
 
     public const float UnsetTime = -10;

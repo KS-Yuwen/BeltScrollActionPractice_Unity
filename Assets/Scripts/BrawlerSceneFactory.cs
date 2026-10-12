@@ -10,6 +10,7 @@ public sealed class BrawlerSceneFactory
     private Camera _camera;
     private Material _floorMaterial;
     private Material _playerMaterial;
+    private Material _elfMaterial;
     private Material _enemyMaterial;
     private Material _skinMaterial;
     private Material _rangedEnemyMaterial;
@@ -53,6 +54,8 @@ public sealed class BrawlerSceneFactory
         _heavyEnemyMaterial = CreateMaterial(new Color(1, 0.55f, 0.15f));
         _bossMaterial = CreateMaterial(new Color(0.65f, 0.2f, 0.65f));
         _undeadEnemyMaterial = CreateMaterial(new Color(0.8f, 0.9f, 0.7f));
+        _elfMaterial = CreateMaterial(new Color(BrawlerBalance.ElfOutfitRed, BrawlerBalance.ElfOutfitGreen,
+            BrawlerBalance.ElfOutfitBlue));
         _potionMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         _healingScrollMaterial = CreateMaterial(new Color(0.2f, 1, 0.4f));
         _protectionScrollMaterial = CreateMaterial(new Color(1, 0.8f, 0.3f));
@@ -152,7 +155,7 @@ public sealed class BrawlerSceneFactory
         // Model だけ反転・回転させれば、キャラクターの基準位置に影響しません。
         var visual = new GameObject("Model").transform;
         visual.SetParent(root.transform, false);
-        var bodyMaterial = isPlayer ? _playerMaterial : isBoss ? _bossMaterial : isHeavy ? _heavyEnemyMaterial
+        var bodyMaterial = isPlayer ? (playerClass == BrawlerDefines.PlayerClass.Elf ? _elfMaterial : _playerMaterial) : isBoss ? _bossMaterial : isHeavy ? _heavyEnemyMaterial
             : isRanged ? _rangedEnemyMaterial : isUndead ? _undeadEnemyMaterial : _enemyMaterial;
         CreateBodyPart("Body", new Vector3(0, 1.15f, 0), new Vector3(0.55f, 0.75f, 0.4f), bodyMaterial, visual);
         CreateBodyPart("Head", new Vector3(0, 1.78f, 0), new Vector3(0.4f, 0.4f, 0.4f), _skinMaterial, visual);
@@ -160,6 +163,17 @@ public sealed class BrawlerSceneFactory
         CreateBodyPart("Left arm", new Vector3(-0.4f, 1.2f, -0.1f), new Vector3(0.22f, 0.65f, 0.22f), _skinMaterial, visual);
         var rightLeg = CreateBodyPart("Right leg", new Vector3(0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
         var leftLeg = CreateBodyPart("Left leg", new Vector3(-0.17f, 0.4f, 0), new Vector3(0.23f, 0.8f, 0.28f), bodyMaterial, visual);
+        if (isPlayer && playerClass == BrawlerDefines.PlayerClass.Elf)
+        {
+            // 耳は見た目だけの子パーツです。親のサイズや命中判定には影響させません。
+            foreach (float side in new[] { -1f, 1f })
+            {
+                CreateBodyPart(side < 0 ? "Left elf ear" : "Right elf ear",
+                    new Vector3(side * BrawlerBalance.ElfEarOffset, BrawlerBalance.ElfEarPositionY, 0),
+                    new Vector3(BrawlerBalance.ElfEarWidth, BrawlerBalance.ElfEarHeight, BrawlerBalance.ElfEarDepth),
+                    _skinMaterial, visual);
+            }
+        }
         if (isUndead)
         {
             // 胸の骨と頭の色で区別し、通常敵と同じ判定サイズを維持します。
@@ -196,7 +210,7 @@ public sealed class BrawlerSceneFactory
             }
             else
             {
-                bool swordUser = playerClass == BrawlerDefines.PlayerClass.Fighter;
+                bool swordUser = playerClass == BrawlerDefines.PlayerClass.Fighter || playerClass == BrawlerDefines.PlayerClass.Elf;
                 bool daggerUser = playerClass == BrawlerDefines.PlayerClass.Thief;
                 string weaponName = daggerUser ? "Dagger" : swordUser ? "Sword" : "Mace";
                 Vector3 weaponSize = daggerUser
@@ -224,6 +238,7 @@ public sealed class BrawlerSceneFactory
             BrawlerDefines.PlayerClass.Fighter => root.AddComponent<SwordFighter>(),
             BrawlerDefines.PlayerClass.Dwarf => root.AddComponent<DwarfFighter>(),
             BrawlerDefines.PlayerClass.Thief => root.AddComponent<ThiefFighter>(),
+            BrawlerDefines.PlayerClass.Elf => root.AddComponent<ElfFighter>(),
             _ => root.AddComponent<ClericFighter>()
         };
     }

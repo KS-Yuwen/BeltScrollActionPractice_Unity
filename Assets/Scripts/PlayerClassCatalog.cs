@@ -32,6 +32,13 @@ public static class PlayerClassCatalog
         BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
         BrawlerDefines.UsableAction.ThrowingHammer);
 
+    // エルフの基本部分。魔法の使用許可は攻撃魔法の実装時に追加します。
+    public static PlayerClassSettings Elf { get; } = new PlayerClassSettings(
+        BrawlerBalance.ElfWalkSpeed, BrawlerBalance.ElfRunSpeed, BrawlerBalance.ElfNormalAttackReach,
+        BrawlerBalance.ElfWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
+        BrawlerDefines.UsableAction.ThrowingHammer);
+
     // 刃物を禁止し、回復・補助魔法とポーション・ハンマーを使用できます。
     public static PlayerClassSettings Cleric { get; } = new PlayerClassSettings(
         BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,

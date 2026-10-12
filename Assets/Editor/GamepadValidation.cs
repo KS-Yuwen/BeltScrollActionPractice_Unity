@@ -475,6 +475,7 @@ public static class GamepadValidation
             ValidateFighterClassInput(player, keyboard);
             ValidateDwarfClassInput(player, keyboard);
             ValidateThiefClassInput(player, keyboard);
+            ValidateElfClassInput(player, keyboard);
             ValidateThiefAirJumpInput(player, keyboard);
             ValidateThiefWallJumpInput(player);
             ValidateBackstabInput(player);
@@ -687,6 +688,78 @@ public static class GamepadValidation
             InputSystem.RemoveDevice(pad);
             InputSystem.Update();
             UnityEngine.Object.DestroyImmediate(player.gameObject);
+        }
+    }
+
+    private static void ValidateElfClassInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var player = (ElfFighter)factory.CreateFighter("Test elf player", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Elf);
+        Fighter target = factory.CreateFighter("Test elf reach", Vector3.right, false, 1);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            Require(player.ClassSettings == PlayerClassCatalog.Elf
+                && Array.Exists(player.GetComponentsInChildren<Transform>(), part => part.name == "Sword")
+                && Array.Exists(player.GetComponentsInChildren<Transform>(), part => part.name == "Left elf ear"),
+                "エルフの派生クラス・職業設定・剣を生成");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.F5));
+            InputSystem.Update();
+            Require(BrawlerInput.WasElfSelected(), "F5でエルフを選択");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState().WithButton(GamepadButton.North));
+            Require(!BrawlerInput.WasElfSelected(), "通常のY・△入力では職業を変えない");
+            SendState(pad, new GamepadState());
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select).WithButton(GamepadButton.North));
+            Require(BrawlerInput.WasElfSelected(), "View・ShareとY・△でエルフを選択");
+            SendState(pad, new GamepadState());
+            MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x, BrawlerBalance.ElfWalkSpeed * 0.1f),
+                "実移動にエルフの歩行速度を適用");
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, true);
+            float beforeRun = player.transform.position.x;
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x - beforeRun, BrawlerBalance.ElfRunSpeed * 0.1f),
+                "実移動にエルフの走行速度を適用");
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, false);
+            player.transform.position = Vector3.zero;
+            MethodInfo range = typeof(BeltBrawler).GetMethod("IsInAttackRange", BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                target.transform.position = Vector3.right * facing * (BrawlerBalance.ElfNormalAttackReach * 0.9f);
+                Require((bool)range.Invoke(game, new object[] { player, target }), "左右の剣リーチ内に命中");
+                target.transform.position = Vector3.right * facing
+                    * ((BrawlerBalance.ElfNormalAttackReach + BrawlerBalance.PlayerAttackReach) / 2);
+                Require(!(bool)range.Invoke(game, new object[] { player, target }), "ファイターの間合いでも剣リーチ外には命中しない");
+            }
+            typeof(Fighter).GetField("_attackKind", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(player, BrawlerDefines.AttackKind.Uppercut);
+            Require(Mathf.Approximately(player.AttackReach, BrawlerBalance.UppercutReach * BrawlerBalance.ElfWeaponReachMultiplier),
+                "エルフの特殊技にも職業のリーチ倍率を適用");
+            Require(player.TryStoreThrowingKnife() && player.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0,
+                "エルフも共通所持品処理でナイフを消費");
+            Require(!player.CanUseAction(BrawlerDefines.UsableAction.Healing), "攻撃魔法の実装前はエルフの魔法を使用不可");
+        }
+        finally
+        {
+            foreach (PlayerThrownProjectile projectile in UnityEngine.Object.FindObjectsByType<PlayerThrownProjectile>())
+            {
+                if ((Fighter)typeof(PlayerThrownProjectile).GetField("_owner", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(projectile) == player)
+                {
+                    UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+                }
+            }
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
+            UnityEngine.Object.DestroyImmediate(target.gameObject);
         }
     }
 
