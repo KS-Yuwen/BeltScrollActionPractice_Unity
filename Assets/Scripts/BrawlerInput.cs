@@ -14,6 +14,10 @@ public static class BrawlerInput
     public static bool WasDwarfSelected() => (Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame)
         || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.up.wasPressedThisFrame);
 
+    // 職業選択にはView・Shareとの組み合わせを要求し、通常移動と区別します。
+    public static bool WasThiefSelected() => (Keyboard.current != null && Keyboard.current.f4Key.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.selectButton.isPressed && Gamepad.current.dpad.down.wasPressedThisFrame);
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void ConfigureInputUpdates()
     {

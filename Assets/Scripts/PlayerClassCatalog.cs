@@ -25,6 +25,13 @@ public static class PlayerClassCatalog
         BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
         BrawlerDefines.UsableAction.ThrowingHammer);
 
+    // シーフは速い移動と短いリーチを持ち、魔法を使わずアイテムを使用します。
+    public static PlayerClassSettings Thief { get; } = new PlayerClassSettings(
+        BrawlerBalance.ThiefWalkSpeed, BrawlerBalance.ThiefRunSpeed, BrawlerBalance.ThiefNormalAttackReach,
+        BrawlerBalance.ThiefWeaponReachMultiplier,
+        BrawlerDefines.UsableAction.HealingPotion, BrawlerDefines.UsableAction.ThrowingKnife,
+        BrawlerDefines.UsableAction.ThrowingHammer);
+
     // 刃物を禁止し、回復・補助魔法とポーション・ハンマーを使用できます。
     public static PlayerClassSettings Cleric { get; } = new PlayerClassSettings(
         BrawlerBalance.WalkSpeed, BrawlerBalance.RunSpeed, BrawlerBalance.PlayerAttackReach,

@@ -6,7 +6,8 @@ public static class BrawlerDefines
     {
         Cleric,
         Fighter,
-        Dwarf
+        Dwarf,
+        Thief
     }
 
     public const float UnsetTime = -10;

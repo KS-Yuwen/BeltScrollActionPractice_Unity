@@ -232,6 +232,14 @@ public static class BrawlerBalance
     public const float PlayerFacingInputThreshold = 0.2f;
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
+    // シーフの基本性能（試作用）。専用アクションの性能とは分けて管理します。
+    public const float ThiefWalkSpeed = 6f;
+    public const float ThiefRunSpeed = 9.5f;
+    public const float ThiefNormalAttackReach = 1.8f;
+    public const float ThiefWeaponReachMultiplier = 0.75f;
+    public const float DaggerWidth = 0.1f;
+    public const float DaggerLength = 0.45f;
+
     // ドワーフの初期調整値。職業差はここから調整し、既存職の性能を変えません。
     public const float DwarfWalkSpeed = 4.5f;
     public const float DwarfRunSpeed = 7f;

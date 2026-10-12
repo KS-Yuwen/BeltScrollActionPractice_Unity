@@ -474,6 +474,7 @@ public static class GamepadValidation
             ValidateGuardReleaseInput(player);
             ValidateFighterClassInput(player, keyboard);
             ValidateDwarfClassInput(player, keyboard);
+            ValidateThiefClassInput(player, keyboard);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -487,6 +488,77 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateThiefClassInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var player = (ThiefFighter)factory.CreateFighter("Test thief player", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Thief);
+        Fighter target = factory.CreateFighter("Test thief reach", Vector3.right, false, 1);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            Require(player.ClassSettings == PlayerClassCatalog.Thief
+                && Array.Exists(player.GetComponentsInChildren<Transform>(), part => part.name == "Dagger"),
+                "シーフの派生クラス・職業設定・短剣を生成");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.F4));
+            InputSystem.Update();
+            Require(BrawlerInput.WasThiefSelected(), "F4でシーフを選択");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            Require(!BrawlerInput.WasThiefSelected(), "通常の下移動では職業を変えない");
+            SendState(pad, new GamepadState());
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Select).WithButton(GamepadButton.DpadDown));
+            Require(BrawlerInput.WasThiefSelected(), "View・Shareと下でシーフを選択");
+            SendState(pad, new GamepadState());
+            MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x, BrawlerBalance.ThiefWalkSpeed * 0.1f),
+                "実移動にシーフの歩行速度を適用");
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, true);
+            float beforeRun = player.transform.position.x;
+            move.Invoke(player, new object[] { Vector3.right, 0.1f });
+            Require(Mathf.Approximately(player.transform.position.x - beforeRun, BrawlerBalance.ThiefRunSpeed * 0.1f),
+                "実移動にシーフの走行速度を適用");
+            typeof(Fighter).GetField("_isRunning", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, false);
+            player.transform.position = Vector3.zero;
+            MethodInfo range = typeof(BeltBrawler).GetMethod("IsInAttackRange", BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                target.transform.position = Vector3.right * facing * (BrawlerBalance.ThiefNormalAttackReach * 0.9f);
+                Require((bool)range.Invoke(game, new object[] { player, target }), "左右の短剣リーチ内に命中");
+                target.transform.position = Vector3.right * facing
+                    * ((BrawlerBalance.ThiefNormalAttackReach + BrawlerBalance.PlayerAttackReach) / 2);
+                Require(!(bool)range.Invoke(game, new object[] { player, target }), "ファイターの間合いでも短剣リーチ外には命中しない");
+            }
+            typeof(Fighter).GetField("_attackKind", BindingFlags.Instance | BindingFlags.NonPublic)
+                .SetValue(player, BrawlerDefines.AttackKind.Uppercut);
+            Require(Mathf.Approximately(player.AttackReach, BrawlerBalance.UppercutReach * BrawlerBalance.ThiefWeaponReachMultiplier),
+                "シーフの特殊技にも職業のリーチ倍率を適用");
+            Require(player.TryStoreThrowingKnife() && player.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0,
+                "シーフも共通所持品処理でナイフを消費");
+            Require(!player.CanUseAction(BrawlerDefines.UsableAction.Healing), "シーフは魔法を使用しない");
+        }
+        finally
+        {
+            foreach (PlayerThrownProjectile projectile in UnityEngine.Object.FindObjectsByType<PlayerThrownProjectile>())
+            {
+                if ((Fighter)typeof(PlayerThrownProjectile).GetField("_owner", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .GetValue(projectile) == player)
+                {
+                    UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+                }
+            }
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
+            UnityEngine.Object.DestroyImmediate(target.gameObject);
         }
     }
 

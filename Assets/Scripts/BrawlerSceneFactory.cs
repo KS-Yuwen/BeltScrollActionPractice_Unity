@@ -182,7 +182,7 @@ public sealed class BrawlerSceneFactory
         }
         if (isPlayer)
         {
-            // 仮の鈍器は腕の子にして、攻撃時に腕と一緒に振られるようにします。
+            // 武器は腕の子にし、職業ごとの見た目を共通の攻撃動作へ追従させます。
             if (playerClass == BrawlerDefines.PlayerClass.Dwarf)
             {
                 Transform axe = CreateBodyPart("Axe", new Vector3(0.4f, 1.65f, -0.1f),
@@ -197,9 +197,13 @@ public sealed class BrawlerSceneFactory
             else
             {
                 bool swordUser = playerClass == BrawlerDefines.PlayerClass.Fighter;
-                Transform weapon = CreateBodyPart(swordUser ? "Sword" : "Mace", new Vector3(0.4f, 1.65f, -0.1f),
-                    swordUser ? new Vector3(BrawlerBalance.SwordWidth, BrawlerBalance.SwordLength, BrawlerBalance.SwordWidth)
-                        : new Vector3(0.38f, 0.38f, 0.38f), _skinMaterial, visual);
+                bool daggerUser = playerClass == BrawlerDefines.PlayerClass.Thief;
+                string weaponName = daggerUser ? "Dagger" : swordUser ? "Sword" : "Mace";
+                Vector3 weaponSize = daggerUser
+                    ? new Vector3(BrawlerBalance.DaggerWidth, BrawlerBalance.DaggerLength, BrawlerBalance.DaggerWidth)
+                    : swordUser ? new Vector3(BrawlerBalance.SwordWidth, BrawlerBalance.SwordLength, BrawlerBalance.SwordWidth)
+                        : new Vector3(0.38f, 0.38f, 0.38f);
+                Transform weapon = CreateBodyPart(weaponName, new Vector3(0.4f, 1.65f, -0.1f), weaponSize, _skinMaterial, visual);
                 weapon.SetParent(attackArm, true);
             }
             CreateBodyPart("Shield", new Vector3(0.35f, 1.1f, -0.38f), new Vector3(0.16f, 0.65f, 0.5f), _floorMaterial, visual);
@@ -219,6 +223,7 @@ public sealed class BrawlerSceneFactory
         {
             BrawlerDefines.PlayerClass.Fighter => root.AddComponent<SwordFighter>(),
             BrawlerDefines.PlayerClass.Dwarf => root.AddComponent<DwarfFighter>(),
+            BrawlerDefines.PlayerClass.Thief => root.AddComponent<ThiefFighter>(),
             _ => root.AddComponent<ClericFighter>()
         };
     }
