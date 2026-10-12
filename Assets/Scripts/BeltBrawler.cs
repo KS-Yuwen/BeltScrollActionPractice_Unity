@@ -768,6 +768,12 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _player.TakeDamage(damage, attacker.Facing);
         }
+        else if (!IsRunFinished && _player.Health > 0 && attacker.Health > 0)
+        {
+            // 範囲外へ避けたときだけ空振り音を出します。
+            // ガード・無敵・硬直でダメージが拒否された接触を空振りとして扱いません。
+            PlaySound(attacker.EnemyMissSound);
+        }
     }
 
     public void HitRunningTargets(Fighter attacker)

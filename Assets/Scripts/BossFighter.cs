@@ -16,6 +16,9 @@ public sealed class BossFighter : HeavyFighter
     public bool IsRecovering => Health > 0 && _recoveryRemaining > 0;
     public float RecoverySecondsRemaining => _recoveryRemaining;
     public bool IsWideAttack => _isWideAttack;
+    protected override BrawlerSound EnemyWarningSound => BrawlerSound.BossWarning;
+    protected override BrawlerSound EnemySwingSound => BrawlerSound.BossSwing;
+    public override BrawlerSound EnemyMissSound => BrawlerSound.BossMiss;
     public override float OpeningSecondsRemaining => IsRecovering ? _recoveryRemaining : 0f;
     public override Color WarningStartColor => _isWideAttack
         ? BrawlerBalance.BossWideWarningStartColor : BrawlerBalance.BossStrikeWarningStartColor;

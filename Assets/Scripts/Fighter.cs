@@ -16,6 +16,10 @@ public class Fighter : Combatant
     public virtual Color WarningStartColor => Color.yellow;
     public virtual Color WarningEndColor => Color.red;
     public virtual float OpeningSecondsRemaining => 0f;
+    // 効果音も派生クラスで選び、予兆・攻撃開始の再生タイミングは共通化します。
+    protected virtual BrawlerSound EnemyWarningSound => BrawlerSound.EnemyWarning;
+    protected virtual BrawlerSound EnemySwingSound => BrawlerSound.EnemySwing;
+    public virtual BrawlerSound EnemyMissSound => BrawlerSound.EnemyMiss;
     private BeltBrawler _game;
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
@@ -682,6 +686,10 @@ public class Fighter : Combatant
     {
         _windupDuration = duration;
         _windupRemaining = duration;
+        if (!IsPlayer && Health > 0 && !Game.IsRunFinished && duration > 0)
+        {
+            Game.PlaySound(EnemyWarningSound);
+        }
     }
 
     // 発射や直接攻撃など、実際の命中処理だけを派生クラスで差し替えられます。
@@ -874,6 +882,11 @@ public class Fighter : Combatant
     // 攻撃を開始し、演出時間・次の攻撃までの時間・コンボ段数を設定します。
     private void Attack()
     {
+        // 命中フレームではなく、予兆が終わって腕を振り始める瞬間に一度だけ鳴らします。
+        if (!IsPlayer && Health > 0 && !Game.IsRunFinished)
+        {
+            Game.PlaySound(EnemySwingSound);
+        }
         ResetAttackKind();
         _attackKind = BrawlerDefines.AttackKind.Normal;
         if (IsPlayer)

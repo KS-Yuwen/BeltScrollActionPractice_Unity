@@ -272,7 +272,7 @@ public static class CombatValidation
             var audio = UnityEngine.Object.FindAnyObjectByType<BrawlerAudio>();
             Require(audio != null && UnityEngine.Object.FindAnyObjectByType<AudioListener>() != null, "音声再生役とリスナーを生成");
             var clips = (System.Collections.Generic.Dictionary<BrawlerSound, AudioClip>)GetPrivateField(audio, "_clips");
-            Require(clips.Count == 6, "6種類の効果音を生成");
+            Require(clips.Count == Enum.GetValues(typeof(BrawlerSound)).Length, "定義した全種類の効果音を生成");
             foreach (AudioClip clip in clips.Values)
             {
                 var samples = new float[clip.samples];
@@ -1166,6 +1166,7 @@ public static class CombatValidation
             ValidateMagicScrolls(game, createTurnEnemy);
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
+            ValidateEnemyAttackSounds(game, createTurnEnemy);
             ValidateBoss(game, createTurnEnemy, turnEnemies);
             ValidateBossPhase(game, createTurnEnemy);
             ValidateBossPreparation(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
@@ -1395,6 +1396,73 @@ public static class CombatValidation
         SetPrivateField(game, "_defeatedEnemyCount", previousKills);
         UnityEngine.Object.DestroyImmediate(enemy.gameObject);
         UnityEngine.Object.DestroyImmediate(cleric.gameObject);
+    }
+
+    // 聴感はUnityで確認し、自動検証では音を要求する攻撃段階と空振りの分類を確認します。
+    private static void ValidateEnemyAttackSounds(BeltBrawler game, MethodInfo createFighter)
+    {
+        var audio = (BrawlerAudio)GetPrivateField(game, "_audio");
+        var played = (System.Collections.Generic.Dictionary<BrawlerSound, float>)GetPrivateField(audio, "_lastPlayedAt");
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Fighter previousPlayer = (Fighter)GetPrivateField(game, "_player");
+        var player = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test sound player", Vector3.right * 10, true, false, false, false });
+        SetPrivateField(game, "_player", player);
+        var normal = (Fighter)createFighter.Invoke(game,
+            new object[] { "Test enemy sound", Vector3.zero, false, false, false, false });
+        var boss = (BossFighter)factory.CreateFighter("Test boss sound", Vector3.zero, false,
+            BrawlerBalance.StageWaveCount, isBoss: true);
+        MethodInfo begin = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        foreach (Fighter enemy in new Fighter[] { normal, boss })
+        {
+            bool isBoss = enemy == boss;
+            BrawlerSound warningSound = isBoss ? BrawlerSound.BossWarning : BrawlerSound.EnemyWarning;
+            BrawlerSound swingSound = isBoss ? BrawlerSound.BossSwing : BrawlerSound.EnemySwing;
+            BrawlerSound missSound = isBoss ? BrawlerSound.BossMiss : BrawlerSound.EnemyMiss;
+            player.transform.position = Vector3.right * 10;
+            typeof(Fighter).GetProperty("Facing").SetValue(enemy, 1f);
+            played.Clear();
+            begin.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(played.ContainsKey(warningSound) && !played.ContainsKey(swingSound), "敵種別に対応する予兆音を開始時に鳴らす");
+            played.Clear();
+            windup.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(played.ContainsKey(swingSound) && !played.ContainsKey(missSound), "予兆終了と振り始めで風切り音を鳴らす");
+            played.Clear();
+            animate.Invoke(enemy, new object[] { BrawlerBalance.AttackSeconds * 0.6f });
+            Require(played.ContainsKey(missSound), "命中判定時に相手が範囲外なら空振り音を鳴らす");
+            played.Clear();
+            animate.Invoke(enemy, new object[] { 0f });
+            Require(!played.ContainsKey(missSound), "同じ攻撃の空振り音を毎フレーム繰り返さない");
+            player.transform.position = Vector3.right;
+            typeof(Fighter).GetProperty("Facing").SetValue(player, -1f);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, true);
+            SetPrivateField(player, "_stunRemaining", 0f);
+            game.Hit(enemy, BrawlerBalance.BossStrikeDamage);
+            Require(played.ContainsKey(BrawlerSound.Guard) && !played.ContainsKey(missSound), "正面ガードはガード音を使い、空振り扱いにしない");
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(player, false);
+            begin.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            enemy.TakeDamage(1, 1);
+            played.Clear();
+            windup.Invoke(enemy, new object[] { BrawlerBalance.MeleeWindupSeconds });
+            Require(!played.ContainsKey(swingSound), "被弾で予兆を中断されたら振り始めの音を鳴らさない");
+        }
+        var projectile = new GameObject("Test missed projectile").AddComponent<EnemyProjectile>();
+        projectile.Initialize(player, 1f, game);
+        SetPrivateField(projectile, "_remainingLifetime", 0f);
+        MethodInfo updateProjectile = typeof(EnemyProjectile).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        played.Clear();
+        updateProjectile.Invoke(projectile, null);
+        Require(played.ContainsKey(BrawlerSound.EnemyMiss), "遠距離攻撃を避けた場合は寿命終了時に空振り音を鳴らす");
+        played.Clear();
+        updateProjectile.Invoke(projectile, null);
+        Require(played.Count == 0, "終了済みの弾は空振り音を再生し直さない");
+        UnityEngine.Object.DestroyImmediate(projectile.gameObject);
+        SetPrivateField(game, "_player", previousPlayer);
+        UnityEngine.Object.DestroyImmediate(normal.gameObject);
+        UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
     }
 
     private static void ValidateBoss(BeltBrawler game, MethodInfo createFighter,

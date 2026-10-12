@@ -4,20 +4,35 @@ using UnityEngine;
 public sealed class EnemyProjectile : MonoBehaviour
 {
     private Fighter _target;
+    private BeltBrawler _game;
+    private bool _isFinished;
     private float _direction;
     private float _remainingLifetime = BrawlerBalance.EnemyProjectileLifetimeSeconds;
 
-    public void Initialize(Fighter target, float direction)
+    public void Initialize(Fighter target, float direction, BeltBrawler game = null)
     {
         _target = target;
+        _game = game;
         _direction = direction;
     }
 
     private void Update()
     {
+        // Destroyはフレーム末に行われるため、終了済みの弾が二重に音やダメージを出すのを防ぎます。
+        if (_isFinished)
+        {
+            return;
+        }
         _remainingLifetime -= Time.deltaTime;
         if (_target == null || _target.Health <= 0 || _remainingLifetime <= 0)
         {
+            // 射線を避けられて弾が寿命を迎えた場合に限り空振り音を出します。
+            // 命中やガード時は既存の接触音を使い、終了後は効果音を追加しません。
+            if (_remainingLifetime <= 0 && _target != null && _target.Health > 0 && _game != null && !_game.IsRunFinished)
+            {
+                _game.PlaySound(BrawlerSound.EnemyMiss);
+            }
+            _isFinished = true;
             Destroy(gameObject);
             return;
         }
@@ -28,6 +43,7 @@ public sealed class EnemyProjectile : MonoBehaviour
         {
             // ダメージの可否は Fighter が判断するため、ガードと回避の共通ルールを使えます。
             _target.TakeDamage(BrawlerBalance.EnemyProjectileDamage, _direction);
+            _isFinished = true;
             Destroy(gameObject);
         }
     }
