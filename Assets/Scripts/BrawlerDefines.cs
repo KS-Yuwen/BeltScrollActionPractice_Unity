@@ -37,6 +37,7 @@ public static class BrawlerDefines
     public enum PickupKind
     {
         HealingPotion,
+        ThrowingHammer,
         ThrowingKnife
     }
 
@@ -61,6 +62,7 @@ public static class BrawlerDefines
         Healing,
         Protection,
         HealingPotion,
+        ThrowingHammer,
         ThrowingKnife
     }
 

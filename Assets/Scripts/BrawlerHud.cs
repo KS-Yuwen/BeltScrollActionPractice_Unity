@@ -119,7 +119,14 @@ public sealed class BrawlerHud
             GUI.color = enemy.IsWindingUp ? Color.yellow : new Color(1, 0.65f, 0.2f);
             GUI.DrawTexture(new Rect(enemyHealthArea.x, y, enemyHealthArea.width * enemy.Health / enemy.MaxHealth,
                 enemyHealthArea.height), Texture2D.whiteTexture);
-            if (enemy.IsWindingUp)
+            if (enemy.IsHammerStunned)
+            {
+                GUI.color = Color.yellow;
+                GUI.Label(new Rect(screen.x - BrawlerBalance.HammerStunLabelWidth / 2,
+                    y - BrawlerBalance.HammerStunLabelHeight, BrawlerBalance.HammerStunLabelWidth,
+                    BrawlerBalance.HammerStunLabelHeight), "STUN", style);
+            }
+            else if (enemy.IsWindingUp)
             {
                 GUI.Label(new Rect(screen.x - 12, y - 35, 40, 35), "!", style);
             }

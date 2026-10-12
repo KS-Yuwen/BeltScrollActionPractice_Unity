@@ -8,7 +8,12 @@ public sealed class PickupNotice : FloatingLabel
     public void Initialize(Camera camera, BrawlerDefines.PickupKind kind, Font font)
     {
         Kind = kind;
-        string text = kind == BrawlerDefines.PickupKind.HealingPotion ? "ポーション＋1" : "ナイフ＋1";
+        string text = kind switch
+        {
+            BrawlerDefines.PickupKind.HealingPotion => "ポーション＋1",
+            BrawlerDefines.PickupKind.ThrowingKnife => "ナイフ＋1",
+            _ => "ハンマー＋1"
+        };
         Color color = kind == BrawlerDefines.PickupKind.HealingPotion ? Color.green : Color.cyan;
         InitializeLabel(camera, text, color, BrawlerBalance.PickupNoticeFontSize,
             BrawlerBalance.PickupNoticeSeconds, BrawlerBalance.PickupNoticeWidth, font);

@@ -25,6 +25,10 @@ public class Fighter : Combatant
     private float _attackRemaining;
     private float _attackCooldown;
     private float _stunRemaining;
+    private float _hammerStunRemaining;
+
+    // 通常の被弾硬直と区別し、HUDに気絶中の表示を出すための読み取り専用状態です。
+    public bool IsHammerStunned => Health > 0 && _hammerStunRemaining > 0;
     private float _lastAttackTime = BrawlerDefines.UnsetTime;
     private float _walkPhase;
     // 現在のコンボ段数（1～3）。
@@ -145,7 +149,42 @@ public class Fighter : Combatant
     // 所持品は職業共通の状態です。魔法の使用回数とは独立して管理します。
     public int HealingPotionsHeld { get; private set; }
 
+    public int ThrowingHammersHeld { get; private set; }
     public int ThrowingKnivesHeld { get; private set; }
+    private float _itemRecoveryRemaining;
+
+    // 他職業はこの許可判定を上書きします。所持品の処理に具体的な職業名は持ち込みません。
+    public virtual bool CanUseAction(BrawlerDefines.UsableAction action)
+    {
+        return action == BrawlerDefines.UsableAction.HealingPotion
+            || action == BrawlerDefines.UsableAction.ThrowingKnife
+            || action == BrawlerDefines.UsableAction.ThrowingHammer;
+    }
+
+    public bool TryStoreThrowingKnife()
+    {
+        if (!CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife) || !IsPlayer || Health <= 0
+            || Game.IsRunFinished || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
+        {
+            return false;
+        }
+        ThrowingKnivesHeld++;
+        return true;
+    }
+
+    public bool TryThrowKnife()
+    {
+        if (!CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife) || !CanUseSpecialAction
+            || ThrowingKnivesHeld <= 0)
+        {
+            return false;
+        }
+        Game.ThrowKnife(this);
+        ThrowingKnivesHeld--;
+        _itemRecoveryRemaining = BrawlerBalance.KnifeRecoverySeconds;
+        ReleaseDefenseForSpecialAction();
+        return true;
+    }
 
     public void NotifyItemPickup(BrawlerDefines.PickupKind kind)
     {
@@ -155,25 +194,25 @@ public class Fighter : Combatant
         }
     }
 
-    public bool TryStoreThrowingKnife()
+    public bool TryStoreThrowingHammer()
     {
-        if (!IsPlayer || Health <= 0 || _game.IsRunFinished || ThrowingKnivesHeld >= BrawlerBalance.KnifeCapacity)
+        if (!CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer) || !IsPlayer || Health <= 0 || _game.IsRunFinished || ThrowingHammersHeld >= BrawlerBalance.HammerCapacity)
         {
             return false;
         }
-        ThrowingKnivesHeld++;
+        ThrowingHammersHeld++;
         return true;
     }
 
-    protected bool TryConsumeThrowingKnife()
+    protected bool TryConsumeThrowingHammer()
     {
         // 発射時の向きを使い、後から振り向いても弾の方向は変えません。
-        if (!IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction || ThrowingKnivesHeld <= 0)
+        if (!CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer) || !IsPlayer || !CanUseSpecialAction || IsUsingSpecialAction || ThrowingHammersHeld <= 0)
         {
             return false;
         }
-        Game.ThrowKnife(this);
-        ThrowingKnivesHeld--;
+        Game.ThrowHammer(this);
+        ThrowingHammersHeld--;
         ReleaseDefenseForSpecialAction();
         return true;
     }
@@ -222,7 +261,7 @@ public class Fighter : Combatant
     protected virtual int EnemyAttackDamage => BrawlerBalance.MeleeDamage;
 
     // 職業固有の行動は派生クラスが担当し、共通の戦闘状態はここで管理します。
-    protected virtual bool IsUsingSpecialAction => false;
+    protected virtual bool IsUsingSpecialAction => _itemRecoveryRemaining > 0;
 
     protected virtual Color? SpecialFeedbackColor => null;
 
@@ -341,8 +380,10 @@ public class Fighter : Combatant
     // 残り時間は経過秒数で減らし、フレームレートが違っても同じ時間になるようにします。
     private void UpdateTimers(float deltaTime)
     {
+        _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
         _attackCooldown -= deltaTime;
         _stunRemaining -= deltaTime;
+        _hammerStunRemaining = Mathf.Max(0, _hammerStunRemaining - deltaTime);
         _dashCooldown -= deltaTime;
         _flashRemaining -= deltaTime;
         _attackBufferRemaining = Mathf.Max(0, _attackBufferRemaining - deltaTime);
@@ -903,6 +944,41 @@ public class Fighter : Combatant
         _attackCooldown = BrawlerBalance.HeavyStrikeCooldownSeconds;
     }
 
+    // HPが実際に減ったときだけ気絶を付与し、無敵・終了後・撃破済みでは効果を残しません。
+    public void TakeThrownKnifeDamage(int amount, float direction)
+    {
+        if (CanReceiveDamage && amount > 0)
+        {
+            // ナイフはガードを通さず、通常の被弾・撃破処理だけを適用します。
+            ApplyDamage(amount, direction, false);
+        }
+    }
+
+    // 大型の職業・敵は派生クラスで体格と一投あたりの命中上限を指定します。
+    public virtual int HammerHitLimit => 1;
+    public virtual float HammerBodyRadius => 0;
+
+    public void TakeHammerDamage(int amount, float direction, bool isSameProjectileFollowup = false)
+    {
+        // 同じハンマーの2発目だけは、そのハンマーが付けた気絶中も受理します。
+        // 別の投擲や通常攻撃まで硬直無敵を解除しないよう、例外を限定します。
+        bool canReceiveFollowup = isSameProjectileFollowup && HammerHitLimit > 1 && IsHammerStunned
+            && !_game.IsRunFinished && _dashRemaining <= 0
+            && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
+        if ((!CanReceiveDamage && !canReceiveFollowup) || amount <= 0)
+        {
+            return;
+        }
+        int healthBeforeHit = Health;
+        // ハンマーはガード不能ですが、硬直・回避・ジャンプによる無敵は通常攻撃と共用します。
+        ApplyDamage(amount, direction, false);
+        if (!IsPlayer && Health > 0 && Health < healthBeforeHit)
+        {
+            _hammerStunRemaining = BrawlerBalance.HammerStunSeconds;
+            _stunRemaining = Mathf.Max(_stunRemaining, BrawlerBalance.HammerStunSeconds);
+            _attackCooldown = Mathf.Max(_attackCooldown, BrawlerBalance.HammerStunSeconds);
+        }
+    }
     public void TakePushDamage(int amount, float direction)
     {
         int previousHealth = Health;
@@ -1145,11 +1221,15 @@ public class Fighter : Combatant
         return true;
     }
 
+    // 通常攻撃と投擲で、ダメージを受理できる条件を共用します。
+    private bool CanReceiveDamage => Health > 0 && !_game.IsRunFinished && _stunRemaining <= 0
+        && _dashRemaining <= 0 && _jumpHeight <= BrawlerBalance.GroundAttackAvoidanceHeight;
+
     // 攻撃が当たった相手側で呼び出されます。direction は攻撃者の向きです。
     public void TakeDamage(int amount, float direction, BrawlerDefines.DamageKind kind = BrawlerDefines.DamageKind.Normal)
     {
         // 硬直中は追加ダメージを受けないため、短い無敵時間も兼ねています。
-        if (Health <= 0 || _game.IsRunFinished || _stunRemaining > 0 || _dashRemaining > 0 || _jumpHeight > BrawlerBalance.GroundAttackAvoidanceHeight)
+        if (!CanReceiveDamage)
         {
             return;
         }

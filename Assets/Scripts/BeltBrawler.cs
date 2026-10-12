@@ -233,7 +233,7 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         var notice = new GameObject("Pickup Notice");
         // 二種類を同時に拾っても、通知が同じ行に重ならないよう高さを分けます。
-        float height = BrawlerBalance.PickupNoticeHeight + (kind == BrawlerDefines.PickupKind.ThrowingKnife
+        float height = BrawlerBalance.PickupNoticeHeight + (kind == BrawlerDefines.PickupKind.ThrowingHammer
             ? BrawlerBalance.PickupNoticeItemSpacing : 0);
         notice.transform.position = target.transform.position + Vector3.up * height;
         notice.AddComponent<PickupNotice>().Initialize(_camera, kind, _pickupNoticeFont);
@@ -320,7 +320,13 @@ public sealed class BeltBrawler : MonoBehaviour
             // 3 体倒すごとに確実に落とし、ウェーブをまたいでも撃破数を引き継ぎます。
             // RegisterDamage は受理されたダメージだけで呼ばれるため、同じ敵から二重に落ちません。
             _defeatedEnemyCount++;
-            if (_defeatedEnemyCount % BrawlerBalance.KnifeDropInterval == 0)
+            if (_player.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer)
+                && _defeatedEnemyCount % BrawlerBalance.HammerDropInterval == 0)
+            {
+                DropHammer(victim.transform.position);
+            }
+            else if (_player.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+                && _defeatedEnemyCount % BrawlerBalance.KnifeDropInterval == 0)
             {
                 DropKnife(victim.transform.position);
             }
@@ -407,38 +413,95 @@ public sealed class BeltBrawler : MonoBehaviour
         impactObject.AddComponent<HitImpact>().Initialize(isStrong ? BrawlerBalance.StrongHitImpactSize : BrawlerBalance.NormalHitImpactSize);
     }
 
+    public void ThrowHammer(Fighter owner)
+    {
+        if (owner == null || !owner.IsPlayer || IsRunFinished || !owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer))
+        {
+            return;
+        }
+        Vector3 position = owner.transform.position + Vector3.up * BrawlerBalance.HammerHeight
+            + Vector3.right * (owner.Facing * BrawlerBalance.HammerLaunchOffset);
+        var hammer = new GameObject("Thrown Hammer");
+        hammer.transform.position = position;
+        CreateHammerModel(hammer.transform, Vector3.zero);
+        hammer.AddComponent<ThrowingHammerProjectile>().Initialize(this, owner);
+    }
+
     public void ThrowKnife(Fighter owner)
     {
-        Vector3 position = owner.transform.position + Vector3.up * BrawlerBalance.KnifeHeight
-            + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
+        if (owner == null || !owner.IsPlayer || IsRunFinished || !owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife))
+        {
+            return;
+        }
         var knife = new GameObject("Thrown Knife");
-        knife.transform.position = position;
-        _factory.CreateBodyPart("Knife blade", Vector3.zero, new Vector3(0.65f, 0.08f, 0.12f), _factory.KnifeMaterial, knife.transform);
-        _factory.CreateBodyPart("Knife grip", Vector3.left * (owner.Facing * 0.4f), new Vector3(0.2f, 0.12f, 0.14f), _factory.FloorMaterial, knife.transform);
+        knife.transform.position = owner.transform.position + Vector3.up * BrawlerBalance.KnifeHeight
+            + Vector3.right * (owner.Facing * BrawlerBalance.KnifeLaunchOffset);
+        CreateKnifeModel(knife.transform, Vector3.zero);
         knife.AddComponent<ThrowingKnifeProjectile>().Initialize(this, owner);
     }
 
-    public Fighter FindKnifeTarget(Vector3 start, Vector3 end)
+    // ナイフは直進する刃と柄を持ち、ハンマーとは別の形状で生成します。
+    private void CreateKnifeModel(Transform parent, Vector3 offset)
+    {
+        _factory.CreateBodyPart("Knife blade", offset,
+            new Vector3(BrawlerBalance.KnifeBladeLength, BrawlerBalance.KnifeBladeThickness, BrawlerBalance.KnifeBladeDepth),
+            _factory.HammerMaterial, parent);
+        _factory.CreateBodyPart("Knife grip", offset + Vector3.left * BrawlerBalance.KnifeGripOffset,
+            new Vector3(BrawlerBalance.KnifeGripLength, BrawlerBalance.KnifeGripThickness, BrawlerBalance.KnifeGripDepth),
+            _factory.FloorMaterial, parent);
+    }
+
+    // 床の取得物と飛んでいるハンマーで、同じ頭部・柄の仮モデルを使います。
+    private void CreateHammerModel(Transform parent, Vector3 offset)
+    {
+        _factory.CreateBodyPart("Hammer head", offset,
+            new Vector3(BrawlerBalance.HammerHeadWidth, BrawlerBalance.HammerHeadHeight, BrawlerBalance.HammerHeadDepth),
+            _factory.HammerMaterial, parent);
+        _factory.CreateBodyPart("Hammer handle", offset + Vector3.up * BrawlerBalance.HammerHandleOffset,
+            new Vector3(BrawlerBalance.HammerHandleThickness, BrawlerBalance.HammerHandleLength, BrawlerBalance.HammerHandleThickness),
+            _factory.FloorMaterial, parent);
+    }
+    public Fighter FindThrownProjectileTarget(Vector3 start, Vector3 end, float hitRadius, float targetHeight,
+        float targetVerticalHalfHeight = 0, System.Predicate<Fighter> canHit = null)
     {
         Fighter nearest = null;
         float nearestFraction = float.PositiveInfinity;
         Vector3 travel = end - start;
-        float hitRadiusSquared = BrawlerBalance.KnifeHitRadius * BrawlerBalance.KnifeHitRadius;
         foreach (Fighter enemy in _enemies)
         {
-            if (enemy == null || enemy.Health <= 0)
+            if (enemy == null || enemy.Health <= 0 || (canHit != null && !canHit(enemy)))
             {
                 continue;
             }
-            Vector3 target = enemy.transform.position + Vector3.up * (BrawlerBalance.KnifeHeight + enemy.JumpHeight);
+            Vector3 target = enemy.transform.position + Vector3.up * (targetHeight + enemy.JumpHeight);
             // 発射地点より後ろや射程末端より先の敵には当てません。
             float fraction = travel.sqrMagnitude > 0 ? Vector3.Dot(target - start, travel) / travel.sqrMagnitude : 0;
-            if (fraction < 0 || fraction > 1)
+            if (targetVerticalHalfHeight <= 0 && (fraction < 0 || fraction > 1))
             {
                 continue;
             }
             Vector3 closest = start + travel * fraction;
-            if ((target - closest).sqrMagnitude <= hitRadiusSquared && fraction < nearestFraction)
+            // ハンマーは点ではなく縦に伸びた身体を対象にします。ナイフは従来どおり中心点です。
+            // 飛行区間と縦線分の最短距離を調べ、放物線の上昇中も身体との接触を拾います。
+            if (targetVerticalHalfHeight > 0)
+            {
+                // 身体に幅がある場合は、中心の射影が区間外でも端点との接触を調べます。
+                // 中心だけで除外すると、接触が一瞬になり大型相手への2ヒットを見落とします。
+                Vector3 horizontalTravel = new Vector3(travel.x, 0, travel.z);
+                Vector3 horizontalOffset = target - start;
+                horizontalOffset.y = 0;
+                fraction = horizontalTravel.sqrMagnitude > 0
+                    ? Mathf.Clamp01(Vector3.Dot(horizontalOffset, horizontalTravel) / horizontalTravel.sqrMagnitude) : fraction;
+                closest = start + travel * fraction;
+                target.y = Mathf.Clamp(closest.y, target.y - targetVerticalHalfHeight, target.y + targetVerticalHalfHeight);
+                // 端点の丸い範囲だけでなく、区間内の斜め接触も判定します。
+                fraction = travel.sqrMagnitude > 0
+                    ? Mathf.Clamp01(Vector3.Dot(target - start, travel) / travel.sqrMagnitude) : 0;
+                closest = start + travel * fraction;
+            }
+            // ハンマーだけ体格による横幅を加味します。直進ナイフの判定は維持します。
+            float targetRadius = targetVerticalHalfHeight > 0 ? hitRadius + enemy.HammerBodyRadius : hitRadius;
+            if ((target - closest).sqrMagnitude <= targetRadius * targetRadius && fraction < nearestFraction)
             {
                 nearest = enemy;
                 nearestFraction = fraction;
@@ -450,11 +513,19 @@ public sealed class BeltBrawler : MonoBehaviour
     private void DropKnife(Vector3 position)
     {
         var knife = new GameObject("Knife Pickup");
-        // ポーションと同時に落ちても重ならず、床に銀色の刃が見えるよう少しずらします。
-        knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + 0.4f, -3, 3));
-        _factory.CreateBodyPart("Blade", new Vector3(0, 0.2f, 0), new Vector3(0.6f, 0.08f, 0.18f), _factory.KnifeMaterial, knife.transform);
-        _factory.CreateBodyPart("Grip", new Vector3(-0.4f, 0.2f, 0), new Vector3(0.2f, 0.12f, 0.2f), _factory.FloorMaterial, knife.transform);
+        knife.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + BrawlerBalance.KnifePickupLaneOffset,
+            -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        CreateKnifeModel(knife.transform, Vector3.up * BrawlerBalance.KnifePickupHeight);
         knife.AddComponent<ThrowingKnifePickup>().Initialize(_player, _audio);
+    }
+
+    private void DropHammer(Vector3 position)
+    {
+        var hammer = new GameObject("Hammer Pickup");
+        // ポーションと同時に落ちても重ならず、床に銀色のハンマー頭部が見えるよう少しずらします。
+        hammer.transform.position = new Vector3(position.x, 0, Mathf.Clamp(position.z + BrawlerBalance.HammerPickupLaneOffset, -BrawlerBalance.StageHalfDepth, BrawlerBalance.StageHalfDepth));
+        CreateHammerModel(hammer.transform, Vector3.up * BrawlerBalance.HammerPickupHeight);
+        hammer.AddComponent<ThrowingHammerPickup>().Initialize(_player, _audio);
     }
 
     private void DropPotion(Vector3 position)

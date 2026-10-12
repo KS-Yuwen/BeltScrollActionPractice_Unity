@@ -140,7 +140,7 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));
             InputSystem.Update();
             UpdatePlayer(player);
-            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "Qでナイフへ切り替え");
+            Require(spellCaster.SelectedAction == BrawlerDefines.UsableAction.ThrowingHammer, "Qでハンマーへ切り替え");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Q));

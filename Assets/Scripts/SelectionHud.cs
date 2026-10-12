@@ -9,7 +9,7 @@ public static class SelectionHud
         BrawlerDefines.UsableAction.Healing,
         BrawlerDefines.UsableAction.Protection,
         BrawlerDefines.UsableAction.HealingPotion,
-        BrawlerDefines.UsableAction.ThrowingKnife
+        BrawlerDefines.UsableAction.ThrowingHammer
     };
     private static GUIStyle s_titleStyle;
     private static GUIStyle s_countStyle;
@@ -75,7 +75,7 @@ public static class SelectionHud
             BrawlerDefines.UsableAction.Healing => ("HEAL", cleric.HealingUsesRemaining, BrawlerBalance.HealingUses),
             BrawlerDefines.UsableAction.Protection => ("PROTECTION", cleric.ProtectionUsesRemaining, BrawlerBalance.ProtectionUses),
             BrawlerDefines.UsableAction.HealingPotion => ("POTION", cleric.HealingPotionsHeld, BrawlerBalance.PotionCapacity),
-            _ => ("KNIFE", cleric.ThrowingKnivesHeld, BrawlerBalance.KnifeCapacity)
+            _ => ("HAMMER", cleric.ThrowingHammersHeld, BrawlerBalance.HammerCapacity)
         };
         var card = new Rect(x, 0, BrawlerBalance.SelectionCardWidth, BrawlerBalance.SelectionCardHeight);
         GUI.color = selected ? new Color(0.12f, 0.25f, 0.35f, 0.95f) : new Color(0.05f, 0.07f, 0.1f, 0.9f);

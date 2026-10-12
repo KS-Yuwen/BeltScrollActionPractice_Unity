@@ -317,6 +317,30 @@ public static class BrawlerBalance
     public const float ProtectionDamageMultiplier = 0.5f;
     public const int PotionHealingAmount = 20;
     // 有限の所持品。射程は時間ではなく飛んだ距離で制限します。
+    // ハンマーの軌道・気絶は試作用の調整値です。通常の転倒や被弾硬直とは区別します。
+    // 大きな弧を描き、0.5秒で発射位置から3.0上昇します。着地までは約1.09秒です。
+    // 原作動画を参考にした試作値で、映像から実測した数値ではありません。
+    public const float HammerVerticalSpeed = 12f;
+    public const float HammerGravity = 24f;
+    public const int LargeEnemyHammerHitLimit = 2;
+    public const float LargeEnemyHammerBodyRadius = 0.45f;
+    public const float HammerRepeatHitIntervalSeconds = 0.1f;
+    public const float ThrownProjectileCollisionStepSeconds = 0.025f;
+    // 胴体の中心から上下への命中範囲。弧の上昇区間でも頭・胴体に当たるようにします。
+    public const float HammerTargetVerticalHalfHeight = 0.6f;
+    public const float HammerSpinDegreesPerSecond = 720f;
+    public const float HammerStunSeconds = 1.5f;
+    public const float HammerStunLabelWidth = 90f;
+    public const float HammerStunLabelHeight = 35f;
+    public const float HammerHeadWidth = 0.4f;
+    public const float HammerHeadHeight = 0.24f;
+    public const float HammerHeadDepth = 0.24f;
+    public const float HammerHandleLength = 0.5f;
+    public const float HammerHandleThickness = 0.1f;
+    public const float HammerHandleOffset = -0.3f;
+    public const float HammerPickupHeight = 0.2f;
+    public const float HammerPickupLaneOffset = 0.4f;
+    // ナイフとハンマーは別々に調整できるよう、所持上限・射程・使用後の隙も独立させます。
     public const int KnifeCapacity = 9;
     public const int KnifeDamage = 24;
     public const int KnifeDropInterval = 2;
@@ -328,6 +352,25 @@ public static class BrawlerBalance
     public const float KnifeHitRadius = 0.45f;
     public const float KnifeLaunchOffset = 0.7f;
     public const float KnifeHeight = 1.2f;
+    public const float KnifeBladeLength = 0.65f;
+    public const float KnifeBladeThickness = 0.08f;
+    public const float KnifeBladeDepth = 0.12f;
+    public const float KnifeGripLength = 0.2f;
+    public const float KnifeGripThickness = 0.12f;
+    public const float KnifeGripDepth = 0.14f;
+    public const float KnifeGripOffset = 0.4f;
+    public const float KnifePickupHeight = 0.2f;
+    public const float KnifePickupLaneOffset = -0.4f;
+    public const int HammerCapacity = 9;
+    public const int HammerDamage = 24;
+    public const int HammerDropInterval = 2;
+    public const float HammerSpeed = 9f;
+    public const float HammerRecoverySeconds = 0.35f;
+    public const float HammerPickupRadius = 0.7f;
+    public const float HammerPickupLifetimeSeconds = 20f;
+    public const float HammerHitRadius = 0.45f;
+    public const float HammerLaunchOffset = 0.7f;
+    public const float HammerHeight = 1.2f;
     // 所持上限と使用後の隙は、将来の外部データ調整でも同じ窓口を使います。
     public const int PotionCapacity = 9;
     public const float PotionRecoverySeconds = 0.6f;

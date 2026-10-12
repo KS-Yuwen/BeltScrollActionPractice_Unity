@@ -20,8 +20,21 @@ public sealed class ClericFighter : Fighter
 
     public BrawlerDefines.ActionUseStatus SelectedActionUseStatus => GetActionUseStatus(SelectedAction);
 
+    // 刃物は禁止し、クレリックの魔法・ポーション・ハンマーだけを許可します。
+    public override bool CanUseAction(BrawlerDefines.UsableAction action)
+    {
+        return action == BrawlerDefines.UsableAction.Healing
+            || action == BrawlerDefines.UsableAction.Protection
+            || action == BrawlerDefines.UsableAction.HealingPotion
+            || action == BrawlerDefines.UsableAction.ThrowingHammer;
+    }
+
     public BrawlerDefines.ActionUseStatus GetActionUseStatus(BrawlerDefines.UsableAction action)
     {
+        if (!CanUseAction(action))
+        {
+            return BrawlerDefines.ActionUseStatus.Unavailable;
+        }
         // 複数の理由があるときは死亡・空中・行動中を優先し、その後に回数や効果を判定します。
         BrawlerDefines.ActionUseStatus commonStatus = CommonActionUseStatus;
         if (commonStatus != BrawlerDefines.ActionUseStatus.Ready)
@@ -36,7 +49,7 @@ public sealed class ClericFighter : Fighter
                 : IsProtected ? BrawlerDefines.ActionUseStatus.ProtectionActive : BrawlerDefines.ActionUseStatus.Ready,
             BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty
                 : Health >= MaxHealth ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready,
-            BrawlerDefines.UsableAction.ThrowingKnife => ThrowingKnivesHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty : BrawlerDefines.ActionUseStatus.Ready,
+            BrawlerDefines.UsableAction.ThrowingHammer => ThrowingHammersHeld <= 0 ? BrawlerDefines.ActionUseStatus.Empty : BrawlerDefines.ActionUseStatus.Ready,
             _ => BrawlerDefines.ActionUseStatus.Unavailable
         };
     }
@@ -46,7 +59,7 @@ public sealed class ClericFighter : Fighter
         BrawlerDefines.UsableAction.Healing => HealingUsesRemaining,
         BrawlerDefines.UsableAction.Protection => ProtectionUsesRemaining,
         BrawlerDefines.UsableAction.HealingPotion => HealingPotionsHeld,
-        BrawlerDefines.UsableAction.ThrowingKnife => ThrowingKnivesHeld,
+        BrawlerDefines.UsableAction.ThrowingHammer => ThrowingHammersHeld,
         _ => 0
     };
 
@@ -61,7 +74,7 @@ public sealed class ClericFighter : Fighter
         {
             BrawlerDefines.UsableAction.Healing => BrawlerDefines.UsableAction.Protection,
             BrawlerDefines.UsableAction.Protection => BrawlerDefines.UsableAction.HealingPotion,
-            BrawlerDefines.UsableAction.HealingPotion => BrawlerDefines.UsableAction.ThrowingKnife,
+            BrawlerDefines.UsableAction.HealingPotion => BrawlerDefines.UsableAction.ThrowingHammer,
             _ => BrawlerDefines.UsableAction.Healing
         };
     }
@@ -74,7 +87,7 @@ public sealed class ClericFighter : Fighter
             BrawlerDefines.UsableAction.Healing => TryHeal(),
             BrawlerDefines.UsableAction.Protection => TryProtection(),
             BrawlerDefines.UsableAction.HealingPotion => TryUseHealingPotion(),
-            BrawlerDefines.UsableAction.ThrowingKnife => TryThrowKnife(),
+            BrawlerDefines.UsableAction.ThrowingHammer => TryThrowHammer(),
             _ => false
         };
     }
@@ -91,15 +104,15 @@ public sealed class ClericFighter : Fighter
         return true;
     }
 
-    public bool TryThrowKnife()
+    public bool TryThrowHammer()
     {
-        if (GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingKnife) != BrawlerDefines.ActionUseStatus.Ready
-            || !TryConsumeThrowingKnife())
+        if (GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingHammer) != BrawlerDefines.ActionUseStatus.Ready
+            || !TryConsumeThrowingHammer())
         {
             return false;
         }
         // 消費に成功した時だけ使用後の隙を設定します。無敵は付けません。
-        _recoveryRemaining = BrawlerBalance.KnifeRecoverySeconds;
+        _recoveryRemaining = BrawlerBalance.HammerRecoverySeconds;
         return true;
     }
 
@@ -119,7 +132,7 @@ public sealed class ClericFighter : Fighter
 
     public bool IsRecoveringFromHeal => _recoveryRemaining > 0;
 
-    protected override bool IsUsingSpecialAction => IsRecoveringFromHeal || IsTurningUndead;
+    protected override bool IsUsingSpecialAction => base.IsUsingSpecialAction || IsRecoveringFromHeal || IsTurningUndead;
 
     protected override Color? SpecialFeedbackColor => IsTurningUndead ? new Color(1, 1, 0.65f) : IsRecoveringFromHeal
         ? new Color(0.4f, 1, 0.6f) : IsProtected ? new Color(1, 0.8f, 0.3f) : (Color?)null;

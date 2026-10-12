@@ -222,7 +222,7 @@ public static class CombatValidation
             Require(!cleric.TryUseSelectedAction() && player.Health == 85, "所持数ゼロでは回復しない");
             Require(cleric.HealingUsesRemaining == 0, "ポーションは魔法の回数を変更しない");
             cleric.SelectNextAction();
-            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.ThrowingKnife, "ポーションの次は投げナイフ");
+            Require(cleric.SelectedAction == BrawlerDefines.UsableAction.ThrowingHammer, "ポーションの次はスローイングハンマー");
             cleric.SelectNextAction();
 
             // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
@@ -665,75 +665,125 @@ public static class CombatValidation
             player.TakeDamage(5, player.Facing);
             Require(player.Health < turnHealth, "発動中にも被ダメージを受け、無敵は付かない");
             // 拾得の距離・上限・二重取得と、左右の直進・低FPS・射程を検証します。
-            // 前のポーション検証は撃破数を2から3へ進めるため、ここではナイフの2体目撃破を独立に作ります。
-            Fighter knifeDropEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test knife drop enemy", Vector3.right * 10, false, false, false, false });
-            turnEnemies.Add(knifeDropEnemy);
-            SetPrivateField(game, "_defeatedEnemyCount", BrawlerBalance.KnifeDropInterval - 1);
-            knifeDropEnemy.TakeDamage(1000, 1);
-            var knifePickup = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifePickup>();
-            Require(knifePickup != null, "敵撃破でナイフをドロップ");
-            knifePickup.transform.position = player.transform.position + Vector3.forward;
-            Require(!knifePickup.TryCollect(), "奥行きが離れたナイフは拾わない");
-            knifePickup.transform.position = player.transform.position;
-            int knifeNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
-            for (int held = 0; held < BrawlerBalance.KnifeCapacity; held++)
+            // 前のポーション検証は撃破数を2から3へ進めるため、ここではハンマーの2体目撃破を独立に作ります。
+            Fighter hammerDropEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test hammer drop enemy", Vector3.right * 10, false, false, false, false });
+            turnEnemies.Add(hammerDropEnemy);
+            SetPrivateField(game, "_defeatedEnemyCount", BrawlerBalance.HammerDropInterval - 1);
+            hammerDropEnemy.TakeDamage(1000, 1);
+            var hammerPickup = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerPickup>();
+            Require(hammerPickup != null, "敵撃破でハンマーをドロップ");
+            hammerPickup.transform.position = player.transform.position + Vector3.forward;
+            Require(!hammerPickup.TryCollect(), "奥行きが離れたハンマーは拾わない");
+            hammerPickup.transform.position = player.transform.position;
+            int hammerNoticesBefore = UnityEngine.Object.FindObjectsByType<PickupNotice>().Length;
+            for (int held = 0; held < BrawlerBalance.HammerCapacity; held++)
             {
-                Require(player.TryStoreThrowingKnife(), "ナイフを上限まで保存可能");
+                Require(player.TryStoreThrowingHammer(), "ハンマーを上限まで保存可能");
             }
-            Require(!knifePickup.TryCollect() && !player.TryStoreThrowingKnife(), "ナイフの所持上限を超えない");
-            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore, "ナイフの所持上限で通知しない");
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
-            Require(knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "床ナイフを所持品に保存");
-            Require(!knifePickup.TryCollect() && player.ThrowingKnivesHeld == 1, "ナイフの二重取得を防止");
-            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == knifeNoticesBefore + 1
-                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.ThrowingKnife
-                    && n.DisplayText == "ナイフ＋1"), "ナイフ取得時だけ一度通知");
+            Require(!hammerPickup.TryCollect() && !player.TryStoreThrowingHammer(), "ハンマーの所持上限を超えない");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == hammerNoticesBefore, "ハンマーの所持上限で通知しない");
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 0);
+            Require(hammerPickup.TryCollect() && player.ThrowingHammersHeld == 1, "床ハンマーを所持品に保存");
+            Require(!hammerPickup.TryCollect() && player.ThrowingHammersHeld == 1, "ハンマーの二重取得を防止");
+            Require(UnityEngine.Object.FindObjectsByType<PickupNotice>().Length == hammerNoticesBefore + 1
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<PickupNotice>(), n => n.Kind == BrawlerDefines.PickupKind.ThrowingHammer
+                    && n.DisplayText == "ハンマー＋1"), "ハンマー取得時だけ一度通知");
             SetPrivateField(cleric, "_turnUndeadRecoveryRemaining", 0f);
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            foreach (float knifeFacing in new float[] { -1, 1 })
+            foreach (float hammerFacing in new float[] { -1, 1 })
             {
-                foreach (Fighter knifeEnemy in turnEnemies)
+                foreach (Fighter hammerEnemy in turnEnemies)
                 {
-                    if (knifeEnemy != null) knifeEnemy.transform.position = new Vector3(20, 0, 3);
+                    if (hammerEnemy != null) hammerEnemy.transform.position = new Vector3(20, 0, 3);
                 }
-                Fighter firstKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test first knife target", Vector3.right * knifeFacing * 3, false, false, false, false });
-                Fighter secondKnifeEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test second knife target", Vector3.right * knifeFacing * 5, false, false, false, false });
-                turnEnemies.AddRange(new Fighter[] { secondKnifeEnemy, firstKnifeEnemy });
+                // 大きな弧は近距離の頭上を通過します。下降区間の敵への命中を確認します。
+                Fighter overflownEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test overflown hammer target", Vector3.right * hammerFacing * 3, false, false, false, false });
+                Fighter firstHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test first hammer target", Vector3.right * hammerFacing * 9.5f, false, false, false, false });
+                Fighter secondHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test second hammer target", new Vector3(20, 0, 3), false, false, false, false });
+                turnEnemies.AddRange(new Fighter[] { secondHammerEnemy, firstHammerEnemy, overflownEnemy });
                 player.transform.position = Vector3.zero;
-                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
-                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, hammerFacing);
+                typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingHammer);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
                 SetPrivateField(player, "_jumpHeight", 1f);
-                Require(!cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 1, "空中ではナイフを消費しない");
+                Require(!cleric.TryUseSelectedAction() && player.ThrowingHammersHeld == 1, "空中ではハンマーを消費しない");
                 SetPrivateField(player, "_jumpHeight", 0f);
-                Require(cleric.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0, "選択使用でナイフを一つ消費");
-                var thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
-                Require(thrownKnife != null && !cleric.TryThrowKnife(), "発射して使用後の隙では再使用不可");
-                // 振り向いてから大きな時間で進めても、発射時の方向で最初の敵だけに当たります。
-                typeof(Fighter).GetProperty("Facing").SetValue(player, -knifeFacing);
-                int firstKnifeHealth = firstKnifeEnemy.Health;
-                thrownKnife.Advance(1f);
-                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage
-                    && secondKnifeEnemy.Health == firstKnifeHealth, "左右・低FPSでも最初の一体だけに命中");
-                thrownKnife.Advance(1f);
-                Require(firstKnifeEnemy.Health == firstKnifeHealth - BrawlerBalance.KnifeDamage, "破棄前の再更新でも二重命中しない");
-                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                Require(cleric.TryUseSelectedAction() && player.ThrowingHammersHeld == 0, "選択使用でハンマーを一つ消費");
+                var thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                Require(thrownHammer != null && !cleric.TryThrowHammer(), "発射して使用後の隙では再使用不可");
+                // 振り向いてから大きな時間で進めても、発射時の方向を維持します。
+                typeof(Fighter).GetProperty("Facing").SetValue(player, -hammerFacing);
+                // 正面ガード中の相手にもハンマーが当たることを左右両方で確認します。
+                typeof(Fighter).GetProperty("Facing").SetValue(firstHammerEnemy, -hammerFacing);
+                typeof(Fighter).GetProperty("IsGuarding").SetValue(firstHammerEnemy, true);
+                int firstHammerHealth = firstHammerEnemy.Health;
+                thrownHammer.Advance(1f);
+                Require(!(bool)GetPrivateField(thrownHammer, "_hasFinished") && thrownHammer.transform.position.y > 0,
+                    "敵に当たっても空中のハンマーは生存する");
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage
+                    && secondHammerEnemy.Health == firstHammerHealth
+                    && overflownEnemy.Health == firstHammerHealth, "左右・低FPSでも頭上を通過し、下降中に正面ガードを貫通して一体だけに命中");
+                Require(firstHammerEnemy.IsHammerStunned && !firstHammerEnemy.IsDowned,
+                    "ハンマー命中は転倒ではなく気絶を付与");
+                firstHammerEnemy.TakeHammerDamage(BrawlerBalance.HammerDamage, hammerFacing);
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage,
+                    "気絶中の追加ハンマーは硬直無敵に従う");
+                typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(firstHammerEnemy, new object[] { BrawlerBalance.HammerStunSeconds });
+                Require(!firstHammerEnemy.IsHammerStunned && (float)GetPrivateField(firstHammerEnemy, "_stunRemaining") <= 0,
+                    "気絶時間が経過すると行動停止を解除");
+                thrownHammer.Advance(1f);
+                Require(firstHammerEnemy.Health == firstHammerHealth - BrawlerBalance.HammerDamage, "破棄前の再更新でも二重命中しない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
-                Require(!cleric.TryThrowKnife(), "所持数ゼロでは投げない");
-                Require(player.TryStoreThrowingKnife(), "次の射程検証用ナイフを補充");
-                firstKnifeEnemy.transform.position = new Vector3(20, 0, 3);
-                secondKnifeEnemy.transform.position = Vector3.right * knifeFacing * (BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange + 1);
-                typeof(Fighter).GetProperty("Facing").SetValue(player, knifeFacing);
-                Require(cleric.TryThrowKnife(), "射程検証用ナイフを発射");
-                thrownKnife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
-                thrownKnife.Advance(10f);
-                Require(secondKnifeEnemy.Health == firstKnifeHealth
-                    && Mathf.Abs(thrownKnife.transform.position.x) <= BrawlerBalance.KnifeLaunchOffset + BrawlerBalance.KnifeRange,
-                    "大きな経過時間でも射程の先には当たらない");
-                UnityEngine.Object.DestroyImmediate(thrownKnife.gameObject);
+                Require(!cleric.TryThrowHammer(), "所持数ゼロでは投げない");
+                Require(player.TryStoreThrowingHammer(), "次の射程検証用ハンマーを補充");
+                firstHammerEnemy.transform.position = new Vector3(20, 0, 3);
+                overflownEnemy.transform.position = new Vector3(20, 0, 3);
+                float landingSeconds = (BrawlerBalance.HammerVerticalSpeed
+                    + Mathf.Sqrt(BrawlerBalance.HammerVerticalSpeed * BrawlerBalance.HammerVerticalSpeed
+                        + 2 * BrawlerBalance.HammerGravity * BrawlerBalance.HammerHeight)) / BrawlerBalance.HammerGravity;
+                float landingDistance = BrawlerBalance.HammerLaunchOffset + BrawlerBalance.HammerSpeed * landingSeconds;
+                secondHammerEnemy.transform.position = Vector3.right * hammerFacing * (landingDistance + 1);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, hammerFacing);
+                Require(cleric.TryThrowHammer(), "射程検証用ハンマーを発射");
+                thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                float launchHeight = thrownHammer.transform.position.y;
+                thrownHammer.Advance(0);
+                Require(thrownHammer.transform.position.y == launchHeight, "停止中はハンマーの軌道も停止");
+                thrownHammer.Advance(0.1f);
+                Require(thrownHammer.transform.position.y > launchHeight + 0.45f,
+                    "発射直後に目視できる高さまで放物線が上昇");
+                float peakTime = BrawlerBalance.HammerVerticalSpeed / BrawlerBalance.HammerGravity;
+                thrownHammer.Advance(peakTime - 0.1f);
+                float expectedRise = BrawlerBalance.HammerVerticalSpeed * BrawlerBalance.HammerVerticalSpeed
+                    / (2 * BrawlerBalance.HammerGravity);
+                Require(Mathf.Abs(thrownHammer.transform.position.y - launchHeight - expectedRise) < 0.01f
+                    && expectedRise >= 3f, "頂点で実際のTransformが発射位置から3.0以上上昇");
+                thrownHammer.Advance(10f);
+                Require(Mathf.Abs(thrownHammer.transform.position.y) < 0.001f
+                    && (bool)GetPrivateField(thrownHammer, "_hasFinished"), "地面に到達した時点で消滅する");
+                Require(secondHammerEnemy.Health == firstHammerHealth
+                    && Mathf.Abs(Mathf.Abs(thrownHammer.transform.position.x) - landingDistance) < 0.01f,
+                    "大きな経過時間でも着地点を超えて飛ばない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
+                // 大きな身体には同じハンマーが時間差で2回当たり、3回目は発生しません。
+                firstHammerEnemy.transform.position = new Vector3(20, 0, 3);
+                Fighter largeHammerEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test large hammer target", Vector3.right * hammerFacing * 9.2f, false, false, true, false });
+                turnEnemies.Add(largeHammerEnemy);
+                int largeHealth = largeHammerEnemy.Health;
+                game.ThrowHammer(player);
+                thrownHammer = UnityEngine.Object.FindAnyObjectByType<ThrowingHammerProjectile>();
+                thrownHammer.Advance(10f);
+                Require(largeHammerEnemy.Health == largeHealth - BrawlerBalance.HammerDamage * 2,
+                    $"左右・低FPSでも大型の敵に同じハンマーが最大2ヒット：HP {largeHealth} → {largeHammerEnemy.Health}");
+                thrownHammer.Advance(10f);
+                Require(largeHammerEnemy.Health == largeHealth - BrawlerBalance.HammerDamage * 2,
+                    "着地後は大型の敵にも追加命中しない");
+                UnityEngine.Object.DestroyImmediate(thrownHammer.gameObject);
                 SetPrivateField(cleric, "_recoveryRemaining", 0f);
-                Require(player.TryStoreThrowingKnife(), "次の左右検証用に補充");
+                Require(player.TryStoreThrowingHammer(), "次の左右検証用に補充");
             }
             // 成功した防御・反撃だけが専用演出を生成することを確認します。
             foreach (Fighter effectEnemy in turnEnemies)
@@ -939,20 +989,26 @@ public static class CombatValidation
             typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
             typeof(ClericFighter).GetProperty("ProtectionUsesRemaining").SetValue(cleric, 1);
             typeof(Fighter).GetProperty("HealingPotionsHeld").SetValue(player, 1);
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 1);
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 1);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Healing) == BrawlerDefines.ActionUseStatus.HealthFull
                 && !cleric.TryHeal() && cleric.HealingUsesRemaining == 1, "HP満タン表示と回復の拒否が一致");
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.HealingPotion) == BrawlerDefines.ActionUseStatus.HealthFull
                 && !cleric.TryUseHealingPotion() && player.HealingPotionsHeld == 1, "HP満タン表示とポーションの拒否が一致");
-            typeof(Fighter).GetProperty("ThrowingKnivesHeld").SetValue(player, 0);
-            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingKnife) == BrawlerDefines.ActionUseStatus.Empty
-                && !cleric.TryThrowKnife(), "残りゼロ表示とナイフの拒否が一致");
+            typeof(Fighter).GetProperty("ThrowingHammersHeld").SetValue(player, 0);
+            Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.ThrowingHammer) == BrawlerDefines.ActionUseStatus.Empty
+                && !cleric.TryThrowHammer(), "残りゼロ表示とハンマーの拒否が一致");
             SetPrivateField(cleric, "_protectionRemaining", 1f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.ProtectionActive
                 && !cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中表示と補助魔法の拒否が一致");
             foreach (BrawlerDefines.UsableAction statusAction in Enum.GetValues(typeof(BrawlerDefines.UsableAction)))
             {
                 typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, statusAction);
+                if (!cleric.CanUseAction(statusAction))
+                {
+                    Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable
+                        && !cleric.TryUseSelectedAction(), "職業で禁止された項目は使用不可");
+                    continue;
+                }
                 SetPrivateField(player, "_attackRemaining", 0.1f);
                 Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Busy
                     && !cleric.TryUseSelectedAction(), "行動中の表示と選択発動の拒否が一致");
@@ -962,6 +1018,7 @@ public static class CombatValidation
                     && !cleric.TryUseSelectedAction(), "空中表示と選択発動の拒否が一致");
                 SetPrivateField(player, "_jumpHeight", 0f);
             }
+            typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.Healing);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
                 && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
@@ -1091,6 +1148,7 @@ public static class CombatValidation
             float enemyTrailPaused = trailEnemy.EnemyHealthTrail;
             enemyTrailFeedback.Refresh(trailEnemy.Health, trailEnemy.MaxHealth, 0);
             Require(trailEnemy.EnemyHealthTrail == enemyTrailPaused, "敵の残像も停止中は進まない");
+            ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
@@ -1178,6 +1236,93 @@ public static class CombatValidation
         int stoppedHealth = stoppedTarget.Health;
         Require(!stoppedTarget.TryTakeGroundHit(BrawlerBalance.GroundAttackDamage, 1)
             && stoppedTarget.Health == stoppedHealth, "終了後は追撃経路でもHPを変更しない");
+    }
+
+    // 新しい職業を追加する前に、共通キャラとクレリックの許可・所持・投擲の違いを確認します。
+    private static void ValidateThrownItems(BeltBrawler game, ClericFighter cleric, MethodInfo createEnemy,
+        System.Collections.Generic.List<Fighter> enemies)
+    {
+        // 死亡・魔法検証から状態を引き継がず、新しいクレリックで制限を検証します。
+        cleric = (ClericFighter)createEnemy.Invoke(game,
+            new object[] { "Test item permissions cleric", Vector3.zero, true, false, false, false });
+        Require(!cleric.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife)
+            && cleric.CanUseAction(BrawlerDefines.UsableAction.ThrowingHammer), "クレリックは刃物を禁止しハンマーを許可");
+        int knivesBefore = UnityEngine.Object.FindObjectsByType<ThrowingKnifeProjectile>().Length;
+        Require(!cleric.TryStoreThrowingKnife() && !cleric.TryThrowKnife() && cleric.ThrowingKnivesHeld == 0,
+            "クレリックはナイフを保存・消費しない");
+        game.ThrowKnife(cleric);
+        Require(UnityEngine.Object.FindObjectsByType<ThrowingKnifeProjectile>().Length == knivesBefore,
+            "管理役の直接呼び出しも職業制限を守る");
+        BrawlerDefines.UsableAction selectedBefore = cleric.SelectedAction;
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.ThrowingKnife);
+        Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.Unavailable && !cleric.TryUseSelectedAction(),
+            "不正な選択状態でもクレリックはナイフを使用しない");
+        typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, selectedBefore);
+        for (int i = 0; i < 4; i++)
+        {
+            cleric.SelectNextAction();
+            Require(cleric.SelectedAction != BrawlerDefines.UsableAction.ThrowingKnife, "クレリックの選択順にナイフを含めない");
+        }
+
+        var ownerObject = new GameObject("Test generic item user");
+        Fighter owner = ownerObject.AddComponent<Fighter>();
+        var model = new GameObject("Model").transform;
+        model.SetParent(ownerObject.transform, false);
+        owner.Initialize(game, true, BrawlerBalance.PlayerMaxHealth, model, model, model, model);
+        Require(owner.CanUseAction(BrawlerDefines.UsableAction.ThrowingKnife), "共通キャラはナイフの使用が可能");
+        var pickupObject = new GameObject("Test knife pickup");
+        ThrowingKnifePickup pickup = pickupObject.AddComponent<ThrowingKnifePickup>();
+        pickupObject.transform.position = cleric.transform.position;
+        pickup.Initialize(cleric, (BrawlerAudio)GetPrivateField(game, "_audio"));
+        Require(!pickup.TryCollect(), "クレリックは床ナイフを残す");
+        pickupObject.transform.position = owner.transform.position;
+        pickup.Initialize(owner, (BrawlerAudio)GetPrivateField(game, "_audio"));
+        Require(pickup.TryCollect() && owner.ThrowingKnivesHeld == 1 && !pickup.TryCollect(),
+            "使用可能なキャラだけ床ナイフを一度取得");
+        Require(owner.TryStoreThrowingHammer() && owner.ThrowingHammersHeld == 1 && owner.ThrowingKnivesHeld == 1,
+            "ナイフとハンマーの所持数は独立");
+        UnityEngine.Object.DestroyImmediate(pickupObject);
+        for (int i = owner.ThrowingKnivesHeld; i < BrawlerBalance.KnifeCapacity; i++)
+        {
+            Require(owner.TryStoreThrowingKnife(), "ナイフの所持数を上限まで保存");
+        }
+        Require(!owner.TryStoreThrowingKnife(), "ナイフの独立した所持上限を守る");
+        foreach (float facing in new float[] { -1, 1 })
+        {
+            foreach (Fighter existing in enemies)
+            {
+                if (existing != null)
+                {
+                    existing.transform.position = new Vector3(20, 0, 3);
+                }
+            }
+            Fighter nearest = (Fighter)createEnemy.Invoke(game,
+                new object[] { "Test knife nearest", Vector3.right * facing * 3, false, false, false, false });
+            Fighter further = (Fighter)createEnemy.Invoke(game,
+                new object[] { "Test knife further", Vector3.right * facing * 5, false, false, false, false });
+            enemies.AddRange(new[] { further, nearest });
+            typeof(Fighter).GetProperty("Facing").SetValue(owner, facing);
+            typeof(Fighter).GetProperty("Facing").SetValue(nearest, -facing);
+            typeof(Fighter).GetProperty("IsGuarding").SetValue(nearest, true);
+            SetPrivateField(owner, "_itemRecoveryRemaining", 0f);
+            int heldBefore = owner.ThrowingKnivesHeld;
+            Require(owner.TryThrowKnife() && owner.ThrowingKnivesHeld == heldBefore - 1 && !owner.TryThrowKnife(),
+                "ナイフ使用成功時だけ消費し、後隙中は連射しない");
+            ThrowingKnifeProjectile knife = UnityEngine.Object.FindAnyObjectByType<ThrowingKnifeProjectile>();
+            typeof(Fighter).GetProperty("Facing").SetValue(owner, -facing);
+            int nearestHealth = nearest.Health;
+            int furtherHealth = further.Health;
+            float initialHeight = knife.transform.position.y;
+            knife.Advance(1f);
+            Require(nearest.Health == nearestHealth - BrawlerBalance.KnifeDamage && further.Health == furtherHealth
+                && knife.transform.position.y == initialHeight && !nearest.IsHammerStunned,
+                "左右・低FPSでも直進ナイフは最初の敵だけに命中し気絶を付けない");
+            knife.Advance(1f);
+            Require(nearest.Health == nearestHealth - BrawlerBalance.KnifeDamage, "ナイフも二重命中を防止");
+            UnityEngine.Object.DestroyImmediate(knife.gameObject);
+        }
+        UnityEngine.Object.DestroyImmediate(ownerObject);
+        UnityEngine.Object.DestroyImmediate(cleric.gameObject);
     }
 
     // 本番の開始処理を呼び、技を切り替えたときに前の攻撃種別が残らないことを確認します。
