@@ -223,6 +223,8 @@ public static class GamepadValidation
             InputSystem.Update();
             UpdatePlayer(player);
             Require(!player.IsCrouching, "保持を離すとしゃがみ解除");
+            // 直前のしゃがみ攻撃を別ボタン→ジャンプとして扱わず、ジャンプ2回を単独で検証します。
+            SetPlayerTimer(player, "_lastBackstepButtonAt", BrawlerDefines.UnsetTime);
             SetPlayerTimer(player, "_attackRemaining", 0);
             SetPlayerTimer(player, "_attackCooldown", 0);
             UpdatePlayer(player);
@@ -465,6 +467,7 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
             ValidateComboAndCancelInput(player, pad);
+            ValidateBackstepInput(player, keyboard);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -478,6 +481,96 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateBackstepInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            // 毎回新しいキャラクターを作り、直前の回避・魔法の履歴を混ぜません。
+            foreach (Key firstButton in new[] { Key.J, Key.Q, Key.E })
+            {
+                Fighter player = factory.CreateFighter("Test keyboard backstep", Vector3.zero, true, 1);
+                try
+                {
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(firstButton));
+                    InputSystem.Update();
+                    read.Invoke(player, null);
+                    // 使用成功時の硬直は後述の専用ケースで確認します。
+                    SetPlayerTimer(player, "_itemRecoveryRemaining", 0);
+                    typeof(ClericFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, 0f);
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                    InputSystem.Update();
+                    read.Invoke(player, null);
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+                    InputSystem.Update();
+                    read.Invoke(player, null);
+                    Require(player.IsBackstepping && !player.IsAirborne, $"キーボードの{firstButton}→ジャンプで後方回避");
+                    Require(ReadPlayerTimer(player, "_attackRemaining") == 0, "中断した攻撃の判定を残さない");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(player.gameObject);
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                    InputSystem.Update();
+                }
+            }
+            foreach (GamepadState firstState in new[]
+            {
+                new GamepadState().WithButton(GamepadButton.West),
+                new GamepadState().WithButton(GamepadButton.Select),
+                new GamepadState { rightTrigger = 1 }
+            })
+            {
+                Fighter player = factory.CreateFighter("Test pad backstep", Vector3.zero, true, 1);
+                try
+                {
+                    SendState(pad, firstState);
+                    read.Invoke(player, null);
+                    SetPlayerTimer(player, "_itemRecoveryRemaining", 0);
+                    typeof(ClericFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, 0f);
+                    SendState(pad, new GamepadState());
+                    read.Invoke(player, null);
+                    SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+                    read.Invoke(player, null);
+                    Require(player.IsBackstepping, "パッドの攻撃・選択・使用→ジャンプで後方回避");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(player.gameObject);
+                    SendState(pad, new GamepadState());
+                }
+            }
+            Fighter blocked = factory.CreateFighter("Test blocked backstep", Vector3.zero, true, 1);
+            try
+            {
+                SetPlayerTimer(blocked, "_lastBackstepButtonAt", Time.time - BrawlerBalance.BackstepInputWindowSeconds - 1f);
+                SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+                read.Invoke(blocked, null);
+                Require(!blocked.IsBackstepping && blocked.IsAirborne, "受付時間を過ぎた入力は通常ジャンプ");
+                SetPlayerTimer(blocked, "_jumpHeight", 0);
+                SetPlayerTimer(blocked, "_jumpVelocity", 0);
+                SetPlayerTimer(blocked, "_lastBackstepButtonAt", Time.time);
+                SetPlayerTimer(blocked, "_itemRecoveryRemaining", BrawlerBalance.BackstepInputWindowSeconds);
+                SendState(pad, new GamepadState());
+                SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+                read.Invoke(blocked, null);
+                Require(!blocked.IsBackstepping, "アイテム使用後の硬直を後方回避で省略しない");
+            }
+            finally
+            {
+                UnityEngine.Object.DestroyImmediate(blocked.gameObject);
+            }
+        }
+        finally
+        {
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
         }
     }
 

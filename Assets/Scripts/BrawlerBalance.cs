@@ -225,6 +225,8 @@ public static class BrawlerBalance
     public const float JumpDirectionThreshold = 0.5f;
     public const float ForwardInputThreshold = 0.6f;
     public const float DoubleTapWindowSeconds = 0.25f;
+    // バックステップのボタン間隔。走りの2回入力とは独立して調整します。
+    public const float BackstepInputWindowSeconds = 0.25f;
     public const float FacingInputThreshold = 0.01f;
     // パッドの奥行き操作に混じる微小な左右入力で、意図せず反転するのを抑えます。
     public const float PlayerFacingInputThreshold = 0.2f;

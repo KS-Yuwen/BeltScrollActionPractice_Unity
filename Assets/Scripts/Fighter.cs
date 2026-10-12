@@ -92,6 +92,8 @@ public class Fighter : Combatant
     private bool _isCrouching;
     private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
     private bool _canBackstepFromJump;
+    // 攻撃・選択・使用の押下履歴。ジャンプと同じ入力更新で押した場合は成立させません。
+    private float _lastBackstepButtonAt = BrawlerDefines.UnsetTime;
     private bool _isBackstep;
     private bool _isRunning;
     private float _runDirection;
@@ -438,6 +440,17 @@ public class Fighter : Combatant
         Vector3 input = Vector3.zero;
         if (IsPlayer)
         {
+            bool attackPressed = BrawlerInput.WasAttackPressed();
+            bool jumpPressed = BrawlerInput.WasJumpPressed();
+            bool backstepButtonPressed = attackPressed || BrawlerInput.WasActionSelectPressed()
+                || BrawlerInput.WasActionUsePressed();
+            bool backstepRequested = jumpPressed && !backstepButtonPressed
+                && _lastBackstepButtonAt != BrawlerDefines.UnsetTime
+                && Time.time - _lastBackstepButtonAt <= BrawlerBalance.BackstepInputWindowSeconds;
+            if (backstepButtonPressed)
+            {
+                _lastBackstepButtonAt = Time.time;
+            }
             // 固有行動が成立したフレームは、同時押しの攻撃・回避より優先します。
             if (UpdateSpecialAction())
             {
@@ -445,8 +458,6 @@ public class Fighter : Combatant
                 return Vector3.zero;
             }
             input = BrawlerInput.ReadMovement();
-            bool attackPressed = BrawlerInput.WasAttackPressed();
-            bool jumpPressed = BrawlerInput.WasJumpPressed();
             if (IsSliding)
             {
                 ClearAttackHold();
@@ -481,8 +492,13 @@ public class Fighter : Combatant
                 && BrawlerInput.IsJumpHeld()
                 && (_isCrouching ? input.z < -BrawlerBalance.JumpDirectionThreshold
                     : _directionCommands.IsDownHeldBeforeButton(Time.time, _inputSample));
-            if (jumpPressed && _canBackstepFromJump && Time.time - _lastJumpPressedAt <= BrawlerBalance.DoubleTapWindowSeconds
-                && input.z >= -BrawlerBalance.JumpDirectionThreshold && _stunRemaining <= 0 && _attackRemaining <= 0 && DashReady)
+            // 通常ジャンプの2回押し、または地上の別ボタン→ジャンプで後方回避します。
+            // 空中攻撃や大ジャンプからの切り替えと、使用後の硬直の省略は許可しません。
+            bool jumpBackstepRequested = jumpPressed && _canBackstepFromJump
+                && Time.time - _lastJumpPressedAt <= BrawlerBalance.BackstepInputWindowSeconds;
+            if ((jumpBackstepRequested || (backstepRequested && !IsAirborne))
+                && input.z >= -BrawlerBalance.JumpDirectionThreshold && _stunRemaining <= 0
+                && _dashRemaining <= 0 && !IsUsingSpecialAction && DashReady)
             {
                 StartBackstep();
                 return Vector3.zero;
@@ -1316,7 +1332,14 @@ public class Fighter : Combatant
     {
         _isRunning = false;
         _wasForwardHeld = false;
-        // 1回目は通常ジャンプ、0.25秒以内の2回目で後方回避へ切り替えます。
+        // 中断した攻撃の命中判定・踏み込み・予約を残さず、回避だけを進めます。
+        ResetAttackKind();
+        ClearAttackHold();
+        _attackRemaining = 0;
+        _attackCooldown = 0;
+        _attackBufferRemaining = 0;
+        _dashAttackMovementRemaining = 0;
+        _lastBackstepButtonAt = BrawlerDefines.UnsetTime;
         // 向きを変えず、共通の回避無敵・ステージ端制限を使います。
         _canBackstepFromJump = false;
         _jumpHeight = 0;
