@@ -469,6 +469,11 @@ public static class BrawlerBalance
     // 回復魔法の試作用の時間です。攻撃魔法とは独立に調整できます。
     public const float HealingCastSeconds = 0.4f;
     public const float HealingEffectSeconds = 0.25f;
+    // 補助魔法も個別に時間を調整できます。持続時間とは区別します。
+    public const float ProtectionCastSeconds = 0.4f;
+    public const float ProtectionEffectSeconds = 0.25f;
+    public const float AttackBoostCastSeconds = 0.4f;
+    public const float AttackBoostEffectSeconds = 0.25f;
     public const float SpellRecoverySeconds = 0.6f;
     public const float ProtectionSeconds = 8;
     public const float ProtectionDamageMultiplier = 0.5f;

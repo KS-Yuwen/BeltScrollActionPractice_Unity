@@ -23,7 +23,6 @@ public sealed class ClericFighter : SpellFighter
         }
     }
     private const int HealingAmount = BrawlerBalance.HealingAmount;
-    private const float RecoveryDuration = BrawlerBalance.SpellRecoverySeconds;
     private float _recoveryRemaining;
     private const float ProtectionDuration = BrawlerBalance.ProtectionSeconds;
     private float _protectionRemaining;
@@ -140,7 +139,13 @@ public sealed class ClericFighter : SpellFighter
 
     protected override bool IsUsingSpecialAction => base.IsUsingSpecialAction || IsRecoveringFromHeal || IsTurningUndead;
 
-    protected override Color SpellEffectColor => new Color(0.4f, 1, 0.6f);
+    // 選択枠ではなく予約した魔法で色を決め、詠唱中に枠を切り替えても演出を維持します。
+    protected override Color SpellEffectColor => ActiveSpell switch
+    {
+        BrawlerDefines.UsableAction.Protection => new Color(1, 0.8f, 0.3f),
+        BrawlerDefines.UsableAction.AttackBoost => new Color(1, 0.45f, 0.2f),
+        _ => new Color(0.4f, 1, 0.6f)
+    };
 
     protected override Color? SpecialFeedbackColor => IsCastingSpell || IsReleasingSpell || IsRecoveringFromSpell
         ? base.SpecialFeedbackColor : IsTurningUndead ? new Color(1, 1, 0.65f) : IsRecoveringFromHeal
@@ -212,32 +217,16 @@ public sealed class ClericFighter : SpellFighter
 
     public bool TryAttackBoost()
     {
-        if (GetActionUseStatus(BrawlerDefines.UsableAction.AttackBoost) != BrawlerDefines.ActionUseStatus.Ready)
-        {
-            return false;
-        }
-        // この魔法だけを消費します。防御魔法とは独立し、効果は両方同時に持てます。
-        Inventory.TryConsume(BrawlerDefines.UsableAction.AttackBoost);
-        _attackBoostRemaining = BrawlerBalance.AttackBoostSeconds;
-        _recoveryRemaining = RecoveryDuration;
-        Game.PlaySound(BrawlerSound.Protection);
-        ReleaseDefenseForSpecialAction();
-        return true;
+        // 効果中の再使用は共通の使用条件で拒否し、詠唱開始時にこの魔法だけを消費します。
+        return TryBeginSpell(BrawlerDefines.UsableAction.AttackBoost, BrawlerBalance.AttackBoostCastSeconds,
+            BrawlerBalance.AttackBoostEffectSeconds, BrawlerBalance.SpellRecoverySeconds);
     }
 
     public bool TryProtection()
     {
-        if (GetActionUseStatus(BrawlerDefines.UsableAction.Protection) != BrawlerDefines.ActionUseStatus.Ready)
-        {
-            return false;
-        }
-        Inventory.TryConsume(BrawlerDefines.UsableAction.Protection);
-        Game.PlaySound(BrawlerSound.Protection);
-        _protectionRemaining = ProtectionDuration;
-        // 発動直後は回復と同じ 0.6 秒の隙。効果自体はその場で発生します。
-        _recoveryRemaining = RecoveryDuration;
-        ReleaseDefenseForSpecialAction();
-        return true;
+        // 防御効果は詠唱完了まで付けません。詠唱中の被弾は他の魔法と同じく中断されます。
+        return TryBeginSpell(BrawlerDefines.UsableAction.Protection, BrawlerBalance.ProtectionCastSeconds,
+            BrawlerBalance.ProtectionEffectSeconds, BrawlerBalance.SpellRecoverySeconds);
     }
 
     public bool TryTurnUndead()
@@ -264,11 +253,22 @@ public sealed class ClericFighter : SpellFighter
 
     protected override void ApplySpell(BrawlerDefines.UsableAction action)
     {
-        if (action == BrawlerDefines.UsableAction.Healing)
+        // 予約した魔法の効果を一度だけ開始します。持続時間は詠唱完了から数えます。
+        // 消費・詠唱・敵停止・後隙・被弾中断はSpellFighterで共用します。
+        switch (action)
         {
-            // 詠唱完了時に一度だけ回復します。被弾で中断した予約はここまで到達しません。
-            RestoreHealth(HealingAmount);
-            Game.PlaySound(BrawlerSound.Heal);
+            case BrawlerDefines.UsableAction.Healing:
+                RestoreHealth(HealingAmount);
+                Game.PlaySound(BrawlerSound.Heal);
+                break;
+            case BrawlerDefines.UsableAction.Protection:
+                _protectionRemaining = ProtectionDuration;
+                Game.PlaySound(BrawlerSound.Protection);
+                break;
+            case BrawlerDefines.UsableAction.AttackBoost:
+                _attackBoostRemaining = BrawlerBalance.AttackBoostSeconds;
+                Game.PlaySound(BrawlerSound.Protection);
+                break;
         }
     }
 }

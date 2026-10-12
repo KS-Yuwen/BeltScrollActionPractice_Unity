@@ -482,6 +482,7 @@ public static class GamepadValidation
             ValidateDwarfClassInput(player, keyboard);
             ValidateThiefClassInput(player, keyboard);
             ValidateElfClassInput(player, keyboard);
+            ValidateSupportSpellInput();
             ValidateHealingSpellInput();
             ValidateAttackSpellInput(player, keyboard);
             ValidateThiefAirJumpInput(player, keyboard);
@@ -1381,6 +1382,108 @@ public static class GamepadValidation
                 InputSystem.RemoveDevice(pad);
             }
             UnityEngine.Object.DestroyImmediate(player.gameObject);
+        }
+    }
+
+    // 補助魔法の直接入力・選択入力を通し、効果を詠唱前に付けないことを検証します。
+    private static void ValidateSupportSpellInput()
+    {
+        var game = UnityEngine.Object.FindAnyObjectByType<BeltBrawler>();
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic)
+            .GetValue(game);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        PropertyInfo feedback = typeof(ClericFighter).GetProperty("SpecialFeedbackColor", BindingFlags.Instance | BindingFlags.NonPublic);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+        try
+        {
+            foreach (BrawlerDefines.UsableAction action in new[]
+                { BrawlerDefines.UsableAction.Protection, BrawlerDefines.UsableAction.AttackBoost })
+            {
+                foreach (bool usePad in new[] { false, true })
+                {
+                    var caster = (ClericFighter)factory.CreateFighter("Test support spell", Vector3.zero, true, 1);
+                    try
+                    {
+                        bool protection = action == BrawlerDefines.UsableAction.Protection;
+                        float castSeconds = protection ? BrawlerBalance.ProtectionCastSeconds : BrawlerBalance.AttackBoostCastSeconds;
+                        float effectSeconds = protection ? BrawlerBalance.ProtectionEffectSeconds : BrawlerBalance.AttackBoostEffectSeconds;
+                        int otherUses = caster.Inventory.GetCount(protection
+                            ? BrawlerDefines.UsableAction.AttackBoost : BrawlerDefines.UsableAction.Protection);
+                        typeof(ClericFighter).GetProperty(protection ? "ProtectionUsesRemaining" : "AttackBoostUsesRemaining")
+                            .SetValue(caster, 1);
+                        caster.SelectNextAction();
+                        if (!protection)
+                        {
+                            caster.SelectNextAction();
+                        }
+                        if (usePad)
+                        {
+                            SendState(pad, protection ? new GamepadState().WithButton(GamepadButton.East)
+                                : new GamepadState { rightTrigger = 1 });
+                        }
+                        else
+                        {
+                            InputSystem.QueueStateEvent(keyboard, new KeyboardState(protection ? Key.I : Key.E));
+                            InputSystem.Update();
+                        }
+                        read.Invoke(caster, null);
+                        Require(caster.IsCastingSpell && !caster.IsProtected && !caster.IsAttackBoosted
+                            && !game.IsSpellEffectActive && caster.SelectedAction == BrawlerDefines.UsableAction.None,
+                            "補助魔法は最後の1回でも予約し、詠唱中は効果と敵停止を開始しない");
+                        Require(caster.CalculateMeleeDamage(BrawlerBalance.NormalDamage) == BrawlerBalance.NormalDamage,
+                            "攻撃強化は詠唱中の威力を変更しない");
+                        caster.SelectNextAction();
+                        Require(!caster.TryProtection() && !caster.TryAttackBoost(), "詠唱中に他の魔法も重複使用できない");
+                        AdvanceSpell(caster, 0);
+                        AdvanceSpell(caster, castSeconds / 2);
+                        Require(!caster.IsProtected && !caster.IsAttackBoosted, "詠唱途中でも補助効果を付けない");
+                        AdvanceSpell(caster, caster.SpellCastSecondsRemaining);
+                        Require(caster.IsReleasingSpell && game.IsSpellEffectActive
+                            && (protection ? caster.IsProtected : caster.IsAttackBoosted),
+                            "詠唱完了時に予約した補助効果を開始し、敵を停止する");
+                        Require((protection ? caster.ProtectionSecondsRemaining : caster.AttackBoostSecondsRemaining)
+                            == (protection ? BrawlerBalance.ProtectionSeconds : BrawlerBalance.AttackBoostSeconds),
+                            "補助効果の持続時間は詠唱完了から開始する");
+                        Color expected = protection ? new Color(1, 0.8f, 0.3f) : new Color(1, 0.45f, 0.2f);
+                        Require((Color)feedback.GetValue(caster) == expected, "枠を切り替えても予約した魔法の演出色を維持する");
+                        AdvanceSpell(caster, effectSeconds);
+                        Require(!game.IsSpellEffectActive && caster.IsRecoveringFromSpell,
+                            "補助魔法も演出終了時に敵を再開し、後隙へ移る");
+                        AdvanceSpell(caster, BrawlerBalance.SpellRecoverySeconds);
+                        typeof(ClericFighter).GetProperty(protection ? "ProtectionUsesRemaining" : "AttackBoostUsesRemaining")
+                            .SetValue(caster, 1);
+                        Require(caster.GetActionUseStatus(action) == (protection
+                            ? BrawlerDefines.ActionUseStatus.ProtectionActive : BrawlerDefines.ActionUseStatus.AttackBoostActive)
+                            && !(protection ? caster.TryProtection() : caster.TryAttackBoost())
+                            && caster.Inventory.GetCount(action) == 1,
+                            "効果中の再使用は追加消費も持続時間の延長も行わない");
+                        typeof(ClericFighter).GetField(protection ? "_protectionRemaining" : "_attackBoostRemaining",
+                            BindingFlags.Instance | BindingFlags.NonPublic).SetValue(caster, 0f);
+                        Require(protection ? caster.TryProtection() : caster.TryAttackBoost(), "中断検証用の詠唱を開始する");
+                        caster.TakeDamage(1, caster.Facing);
+                        Require(!caster.IsCastingSpell && caster.Inventory.GetCount(action) == 0 && !game.IsSpellEffectActive,
+                            "補助魔法の詠唱中も被弾で中断し、回数を返却しない");
+                        AdvanceSpell(caster, castSeconds + effectSeconds + BrawlerBalance.SpellRecoverySeconds);
+                        Require(!caster.IsProtected && !caster.IsAttackBoosted
+                            && caster.Inventory.GetCount(protection ? BrawlerDefines.UsableAction.AttackBoost
+                                : BrawlerDefines.UsableAction.Protection) == otherUses,
+                            "中断後は補助効果を遅れて発動せず、他の魔法回数を保持する");
+                    }
+                    finally
+                    {
+                        UnityEngine.Object.DestroyImmediate(caster.gameObject);
+                        SendState(pad, new GamepadState());
+                        InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                        InputSystem.Update();
+                    }
+                }
+            }
+        }
+        finally
+        {
+            InputSystem.RemoveDevice(pad);
+            InputSystem.RemoveDevice(keyboard);
         }
     }
 

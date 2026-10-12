@@ -8,6 +8,7 @@ public abstract class SpellFighter : ItemFighter
     private float _spellEffectRemaining;
     private BrawlerDefines.UsableAction _castingAction;
     private bool _spellPoseInterrupted;
+    private BrawlerDefines.UsableAction _activeSpell;
     private float _spellCastDuration;
     private float _spellEffectDuration;
     private float _spellRecoveryDuration;
@@ -22,6 +23,7 @@ public abstract class SpellFighter : ItemFighter
         }
         _spellPoseInterrupted = false;
         _castingAction = action;
+        _activeSpell = action;
         _spellCastDuration = Mathf.Max(0, castSeconds);
         _spellEffectDuration = Mathf.Max(0, effectSeconds);
         _spellRecoveryDuration = Mathf.Max(0, recoverySeconds);
@@ -32,6 +34,9 @@ public abstract class SpellFighter : ItemFighter
 
     // 消費や時間管理を派生クラスに重複させず、詠唱完了時の効果を一度だけ呼び出します。
     protected abstract void ApplySpell(BrawlerDefines.UsableAction action);
+    // 消費による空き枠化・選択切り替えと独立した、演出中の魔法の種類です。
+    protected BrawlerDefines.UsableAction ActiveSpell => IsCastingSpell || IsReleasingSpell || IsRecoveringFromSpell
+        ? _activeSpell : BrawlerDefines.UsableAction.None;
     protected virtual Color SpellEffectColor => Color.cyan;
 
     public bool IsCastingSpell => _castingAction != BrawlerDefines.UsableAction.None;

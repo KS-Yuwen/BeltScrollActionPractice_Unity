@@ -167,7 +167,10 @@ public static class CombatValidation
             // 回復の使用回数を使い切っても、補助魔法は独立した回数で使えます。
             cleric.SelectNextAction();
             Require(cleric.SelectedActionUsesRemaining == BrawlerBalance.ProtectionUses, "選択表示は補助魔法の独立した残り回数");
-            Require(cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == 1, "選択した補助魔法は回復と独立した回数");
+            Require(cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == 1
+                && cleric.IsCastingSpell && !cleric.IsProtected, "補助魔法は独立した回数を消費し、詠唱完了まで効果を付けない");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             Require(!cleric.TryProtection() && cleric.ProtectionUsesRemaining == 1, "効果中の再使用は消費しない");
             int beforeProtectionHit = player.Health;
             player.TakeDamage(9, player.Facing);
@@ -199,6 +202,8 @@ public static class CombatValidation
             SetPrivateField(player, "_attackCooldown", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == 0, "2回目で補助魔法を使い切る");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryProtection(), "回数0では補助魔法を使用できない");
@@ -1063,7 +1068,9 @@ public static class CombatValidation
             typeof(ClericFighter).GetProperty("SelectedAction").SetValue(cleric, BrawlerDefines.UsableAction.Healing);
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             Require(cleric.GetActionUseStatus(BrawlerDefines.UsableAction.Protection) == BrawlerDefines.ActionUseStatus.Ready
-                && cleric.TryProtection(), "使用可能表示と補助魔法の発動が一致");
+                && cleric.TryProtection(), "使用可能表示と補助魔法の詠唱開始が一致");
+            AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             Fighter fadeTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test defeat fade", Vector3.right * 10, false, false, false, false });
             Fighter unfadedTarget = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test shared material", Vector3.right * 12, false, false, false, false });
             Transform fadeVisual = (Transform)GetPrivateField(fadeTarget, "_visual");
@@ -1300,13 +1307,16 @@ public static class CombatValidation
         Require(!cleric.TryUseSelectedAction() && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses,
             "空中の攻撃強化は回数を消費しない");
         SetPrivateField(cleric, "_jumpHeight", 0f);
-        Require(cleric.TryUseSelectedAction() && cleric.IsAttackBoosted
+        Require(cleric.TryUseSelectedAction() && cleric.IsCastingSpell && !cleric.IsAttackBoosted
+            && cleric.AttackBoostSecondsRemaining == 0, "攻撃強化も詠唱完了まで効果と持続時間を開始しない");
+        AdvanceSpell(cleric, BrawlerBalance.AttackBoostCastSeconds);
+        Require(cleric.IsAttackBoosted
             && cleric.AttackBoostSecondsRemaining == BrawlerBalance.AttackBoostSeconds
             && cleric.AttackBoostUsesRemaining == BrawlerBalance.AttackBoostUses - 1
             && cleric.ProtectionUsesRemaining == BrawlerBalance.ProtectionUses
             && cleric.HealingUsesRemaining == healingBefore,
             "選択使用で攻撃強化だけを消費し、他の魔法回数は保持する");
-        SetPrivateField(cleric, "_recoveryRemaining", 0f);
+        AdvanceSpell(cleric, BrawlerBalance.AttackBoostEffectSeconds + BrawlerBalance.SpellRecoverySeconds);
         Require(cleric.SelectedActionUseStatus == BrawlerDefines.ActionUseStatus.AttackBoostActive
             && !cleric.TryAttackBoost(), "効果中の再発動は消費も時間延長もしない");
         Require(cleric.CalculateMeleeDamage(1) == 2, "攻撃強化は端数を切り上げる");
@@ -1330,7 +1340,10 @@ public static class CombatValidation
         game.HitGroundTarget(cleric, target, BrawlerBalance.GroundAttackDamage);
         Require(target.Health == Mathf.Max(0, healthBefore - Mathf.CeilToInt(BrawlerBalance.GroundAttackDamage
             * BrawlerBalance.AttackBoostDamageMultiplier)), "追撃にも同じ倍率を適用する");
-        Require(cleric.TryProtection() && cleric.IsProtected && cleric.IsAttackBoosted
+        Require(cleric.TryProtection(), "攻撃強化中にプロテクションの詠唱を開始できる");
+        AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+            + BrawlerBalance.SpellRecoverySeconds);
+        Require(cleric.IsProtected && cleric.IsAttackBoosted
             && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 1, "防御・攻撃強化は共存し各回数を独立して消費する");
         Require(cleric.TryRestoreSpellUses(BrawlerDefines.UsableAction.Protection, 1)
             && cleric.AttackBoostUsesRemaining == 1 && cleric.ProtectionUsesRemaining == 2, "防御スクロールで攻撃強化の回数を変更しない");
@@ -1383,7 +1396,9 @@ public static class CombatValidation
         scroll.Initialize(cleric, audio, BrawlerDefines.UsableAction.Protection);
         SetPrivateField(cleric, "_recoveryRemaining", 0f);
         Require(cleric.TryProtection() && cleric.ProtectionUsesRemaining == protectionBefore - 1,
-            "魔法使用はレベル共通枠を消費する");
+            "魔法使用は対応する種類の回数だけを消費する");
+        AdvanceSpell(cleric, BrawlerBalance.ProtectionCastSeconds + BrawlerBalance.ProtectionEffectSeconds
+            + BrawlerBalance.SpellRecoverySeconds);
         Require(scroll.TryCollect() && cleric.ProtectionUsesRemaining == protectionBefore
             && cleric.HealingUsesRemaining == 2 && cleric.IsProtected,
             "補助スクロールは効果を延長せず補助の回数だけ補充する");
