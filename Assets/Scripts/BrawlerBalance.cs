@@ -233,6 +233,11 @@ public static class BrawlerBalance
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
     // シーフの基本性能（試作用）。専用アクションの性能とは分けて管理します。
+    // ステージ端を壁として扱う三角跳びの試作調整値。
+    public const int ThiefWallJumps = 1;
+    public const float ThiefWallJumpMargin = 0.45f;
+    public const float ThiefWallJumpVelocity = 7f;
+    public const float ThiefWallJumpDriftSpeed = 8f;
     public const int ThiefExtraAirJumps = 1;
     public const float ThiefAirJumpVelocity = 7f;
     public const float ThiefWalkSpeed = 6f;

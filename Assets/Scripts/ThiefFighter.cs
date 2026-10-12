@@ -4,5 +4,10 @@ public sealed class ThiefFighter : ItemFighter
     // 着地ごとに空中で一度だけ跳び直せます。回避・被弾の状態判断は基底クラスへ委譲します。
     protected override int ExtraAirJumpCount => BrawlerBalance.ThiefExtraAirJumps;
     protected override float AirJumpVelocity => BrawlerBalance.ThiefAirJumpVelocity;
+    // 端での跳ね返りは空中ジャンプと別枠にし、着地までの発動回数を制限します。
+    protected override int WallJumpCount => BrawlerBalance.ThiefWallJumps;
+    protected override float WallJumpMargin => BrawlerBalance.ThiefWallJumpMargin;
+    protected override float WallJumpVelocity => BrawlerBalance.ThiefWallJumpVelocity;
+    protected override float WallJumpDriftSpeed => BrawlerBalance.ThiefWallJumpDriftSpeed;
     public override PlayerClassSettings ClassSettings => PlayerClassCatalog.Thief;
 }

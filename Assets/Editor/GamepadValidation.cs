@@ -476,6 +476,7 @@ public static class GamepadValidation
             ValidateDwarfClassInput(player, keyboard);
             ValidateThiefClassInput(player, keyboard);
             ValidateThiefAirJumpInput(player, keyboard);
+            ValidateThiefWallJumpInput(player);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -489,6 +490,67 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateThiefWallJumpInput(Fighter sourcePlayer)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        Fighter player = factory.CreateFighter("Test thief wall jump", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Thief);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        MethodInfo jump = typeof(Fighter).GetMethod("StartJump", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo wallJump = typeof(Fighter).GetMethod("TryStartWallJump", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo move = typeof(Fighter).GetMethod("Move", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            foreach (float side in new[] { -1f, 1f })
+            {
+                SendState(pad, new GamepadState());
+                player.transform.position = Vector3.right * side * BrawlerBalance.StageHalfWidth;
+                jump.Invoke(player, new object[] { Vector3.zero });
+                SetPlayerTimer(player, "_lastJumpPressedAt", BrawlerDefines.UnsetTime);
+                SetPlayerTimer(player, "_jumpHeight", 1f);
+                SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+                read.Invoke(player, null);
+                Vector3 drift = (Vector3)typeof(Fighter).GetField("_jumpDrift", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+                Require(player.Facing == -side && drift.x == -side * BrawlerBalance.ThiefWallJumpDriftSpeed
+                    && ReadPlayerTimer(player, "_jumpVelocity") == BrawlerBalance.ThiefWallJumpVelocity,
+                    "左右の壁から内側へ向いて三角跳び");
+                Require(player.AirJumpsRemaining == BrawlerBalance.ThiefExtraAirJumps,
+                    "壁際では三角跳びを優先し、2段ジャンプの回数は残す");
+                float before = player.transform.position.x;
+                move.Invoke(player, new object[] { Vector3.zero, 0.1f });
+                Require((player.transform.position.x - before) * side < 0,
+                    "見た目だけでなく実移動でステージの内側へ跳ね返る");
+                Require(!(bool)wallJump.Invoke(player, null), "空中で三角跳びを繰り返さない");
+                SendState(pad, new GamepadState());
+                SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+                read.Invoke(player, null);
+                Require(player.AirJumpsRemaining == 0, "三角跳び後に残した2段ジャンプを使用できる");
+                typeof(Fighter).GetMethod("UpdateJump", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(player, new object[] { 2f });
+                Require(!player.IsAirborne, "三角跳び後も着地する");
+            }
+            jump.Invoke(player, new object[] { Vector3.zero });
+            player.transform.position = Vector3.forward * BrawlerBalance.StageHalfDepth;
+            Require(!(bool)wallJump.Invoke(player, null), "中央・奥行きの端では三角跳びしない");
+            player.transform.position = Vector3.right * BrawlerBalance.StageHalfWidth;
+            SetPlayerTimer(player, "_attackRemaining", BrawlerBalance.AttackSeconds);
+            Require(!(bool)wallJump.Invoke(player, null), "空中攻撃を三角跳びで中断しない");
+            SetPlayerTimer(player, "_attackRemaining", 0);
+            SetPlayerTimer(player, "_stunRemaining", BrawlerBalance.StunSeconds);
+            Require(!(bool)wallJump.Invoke(player, null), "被弾硬直中は三角跳びしない");
+            SetPlayerTimer(player, "_stunRemaining", 0);
+            Require((bool)wallJump.Invoke(player, null), "着地後のジャンプでは三角跳びの回数が戻る");
+        }
+        finally
+        {
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
     }
 

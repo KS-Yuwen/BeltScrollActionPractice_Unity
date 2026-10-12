@@ -90,6 +90,11 @@ public class Fighter : Combatant
     private float _jumpHeight;
     private float _jumpVelocity;
     private int _airJumpsRemaining;
+    private int _wallJumpsRemaining;
+    protected virtual int WallJumpCount => 0;
+    protected virtual float WallJumpMargin => 0f;
+    protected virtual float WallJumpVelocity => BrawlerBalance.JumpVelocity;
+    protected virtual float WallJumpDriftSpeed => BrawlerBalance.JumpDriftSpeed;
     protected virtual int ExtraAirJumpCount => 0;
     protected virtual float AirJumpVelocity => BrawlerBalance.JumpVelocity;
     public int AirJumpsRemaining => IsAirborne ? _airJumpsRemaining : 0;
@@ -546,7 +551,12 @@ public class Fighter : Combatant
                 StartBackstep();
                 return Vector3.zero;
             }
-            // 先に通常ジャンプの2回押し回避を判定し、成立しない空中入力だけ職業の追加ジャンプへ渡します。
+            // 三角跳びは通常の空中ジャンプより優先し、同じ押下で両方の回数を消費しません。
+            if (jumpPressed && IsAirborne && TryStartWallJump())
+            {
+                return Vector3.zero;
+            }
+            // 先に通常ジャンプの2回押し回避と三角跳びを判定し、残る空中入力を追加ジャンプへ渡します。
             if (jumpPressed && IsAirborne && TryStartAirJump())
             {
                 return input;
@@ -1333,6 +1343,7 @@ public class Fighter : Combatant
         _canBackstepFromJump = input.z <= BrawlerBalance.JumpDirectionThreshold && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
         _airJumpsRemaining = ExtraAirJumpCount;
+        _wallJumpsRemaining = WallJumpCount;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
         _jumpVelocity = input.z > BrawlerBalance.JumpDirectionThreshold ? BrawlerBalance.HighJumpVelocity : BrawlerBalance.JumpVelocity;
         _jumpDrift = _isRunning ? new Vector3(_runDirection * BrawlerBalance.JumpDriftSpeed, 0, 0)
@@ -1342,6 +1353,30 @@ public class Fighter : Combatant
         _dashRemaining = 0;
         _knockbackVelocity = Vector3.zero;
         ReleaseDefenseForSpecialAction();
+    }
+
+    private bool TryStartWallJump()
+    {
+        if (!IsPlayer || !IsAirborne || _wallJumpsRemaining <= 0 || _stunRemaining > 0
+            || _attackRemaining > 0 || _dashRemaining > 0 || IsUsingSpecialAction)
+        {
+            return false;
+        }
+        // X軸のステージ端だけを壁として扱います。奥行きの境界や中央では発動しません。
+        float x = transform.position.x;
+        if (Mathf.Abs(x) < BrawlerBalance.StageHalfWidth - WallJumpMargin)
+        {
+            return false;
+        }
+        float inwardDirection = x > 0 ? -1f : 1f;
+        _wallJumpsRemaining--;
+        _jumpVelocity = WallJumpVelocity;
+        _jumpDrift = new Vector3(inwardDirection * WallJumpDriftSpeed, 0, 0);
+        Facing = inwardDirection;
+        _canBackstepFromJump = false;
+        ClearAttackHold();
+        // 高度・2段ジャンプの残り回数・攻撃の待ち時間は変更しません。無敵も追加しません。
+        return true;
     }
 
     private bool TryStartAirJump()
@@ -1373,6 +1408,7 @@ public class Fighter : Combatant
             _jumpHeight = 0;
             _jumpVelocity = 0;
             _airJumpsRemaining = 0;
+            _wallJumpsRemaining = 0;
             _jumpDrift = Vector3.zero;
             if ((_attackKind == BrawlerDefines.AttackKind.Air || _attackKind == BrawlerDefines.AttackKind.DownThrust))
             {
@@ -1430,6 +1466,7 @@ public class Fighter : Combatant
         _jumpHeight = 0;
         _jumpVelocity = 0;
         _airJumpsRemaining = 0;
+        _wallJumpsRemaining = 0;
         _jumpDrift = Vector3.zero;
         _isBackstep = true;
         _dashDirection = new Vector3(-Facing, 0, 0);
@@ -1550,6 +1587,7 @@ public class Fighter : Combatant
         _isCrouching = false;
         _canBackstepFromJump = false;
         _airJumpsRemaining = 0;
+        _wallJumpsRemaining = 0;
         _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;
         _attackBufferRemaining = 0;
