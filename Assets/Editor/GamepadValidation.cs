@@ -475,6 +475,7 @@ public static class GamepadValidation
             ValidateFighterClassInput(player, keyboard);
             ValidateDwarfClassInput(player, keyboard);
             ValidateThiefClassInput(player, keyboard);
+            ValidateThiefAirJumpInput(player, keyboard);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -488,6 +489,69 @@ public static class GamepadValidation
             InputSystem.Update();
             InputSystem.settings.backgroundBehavior = previousBackground;
             InputSystem.settings.editorInputBehaviorInPlayMode = previousEditorBehavior;
+        }
+    }
+
+    private static void ValidateThiefAirJumpInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        Fighter player = factory.CreateFighter("Test thief air jump", Vector3.zero, true, 1,
+            playerClass: BrawlerDefines.PlayerClass.Thief);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        MethodInfo jump = typeof(Fighter).GetMethod("StartJump", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo updateJump = typeof(Fighter).GetMethod("UpdateJump", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            jump.Invoke(player, new object[] { Vector3.zero });
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            read.Invoke(player, null);
+            Require(player.IsBackstepping && player.AirJumpsRemaining == 0, "シーフでも素早い2回押しはバックステップを優先");
+            SetPlayerTimer(player, "_dashRemaining", 0);
+            SetPlayerTimer(player, "_dashCooldown", 0);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            jump.Invoke(player, new object[] { Vector3.zero });
+            SetPlayerTimer(player, "_lastJumpPressedAt", Time.time - BrawlerBalance.BackstepInputWindowSeconds * 2);
+            SetPlayerTimer(player, "_jumpHeight", 1f);
+            SetPlayerTimer(player, "_jumpVelocity", -1f);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.U));
+            InputSystem.Update();
+            read.Invoke(player, null);
+            Require(player.IsAirborne && !player.IsBackstepping && player.AirJumpsRemaining == 0
+                && ReadPlayerTimer(player, "_jumpVelocity") == BrawlerBalance.ThiefAirJumpVelocity
+                && ReadPlayerTimer(player, "_jumpHeight") == 1f, "キーボードの2段ジャンプは現在高度から再上昇し一度だけ消費");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            read.Invoke(player, null);
+            Require(player.AirJumpsRemaining == 0, "デバイスを変えても3段目を発動しない");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState());
+            updateJump.Invoke(player, new object[] { 2f });
+            Require(!player.IsAirborne, "2段ジャンプ後も床へ着地する");
+            jump.Invoke(player, new object[] { Vector3.zero });
+            SetPlayerTimer(player, "_lastJumpPressedAt", BrawlerDefines.UnsetTime);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            read.Invoke(player, null);
+            Require(player.AirJumpsRemaining == 0 && !player.IsBackstepping, "着地後に回数を戻し、パッドでも2段ジャンプを発動");
+            SendState(pad, new GamepadState());
+            updateJump.Invoke(player, new object[] { 2f });
+            jump.Invoke(player, new object[] { Vector3.zero });
+            SetPlayerTimer(player, "_lastJumpPressedAt", BrawlerDefines.UnsetTime);
+            SetPlayerTimer(player, "_attackRemaining", BrawlerBalance.AttackSeconds);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            read.Invoke(player, null);
+            Require(player.AirJumpsRemaining == BrawlerBalance.ThiefExtraAirJumps,
+                "空中攻撃中は追加ジャンプで攻撃を中断せず、回数も消費しない");
+        }
+        finally
+        {
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
     }
 

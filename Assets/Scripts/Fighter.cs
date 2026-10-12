@@ -89,6 +89,10 @@ public class Fighter : Combatant
     private bool _hasReceivedGroundHit;
     private float _jumpHeight;
     private float _jumpVelocity;
+    private int _airJumpsRemaining;
+    protected virtual int ExtraAirJumpCount => 0;
+    protected virtual float AirJumpVelocity => BrawlerBalance.JumpVelocity;
+    public int AirJumpsRemaining => IsAirborne ? _airJumpsRemaining : 0;
     private Vector3 _jumpDrift;
     private bool _isCrouching;
     private float _lastJumpPressedAt = BrawlerDefines.UnsetTime;
@@ -541,6 +545,11 @@ public class Fighter : Combatant
             {
                 StartBackstep();
                 return Vector3.zero;
+            }
+            // 先に通常ジャンプの2回押し回避を判定し、成立しない空中入力だけ職業の追加ジャンプへ渡します。
+            if (jumpPressed && IsAirborne && TryStartAirJump())
+            {
+                return input;
             }
             if (jumpPressed && !_isCrouching && !IsAirborne && _stunRemaining <= 0
                 && _attackRemaining <= 0 && !IsUsingSpecialAction)
@@ -1323,6 +1332,7 @@ public class Fighter : Combatant
         _isCrouching = false;
         _canBackstepFromJump = input.z <= BrawlerBalance.JumpDirectionThreshold && _dashRemaining <= 0 && !_isRunning;
         _lastJumpPressedAt = Time.time;
+        _airJumpsRemaining = ExtraAirJumpCount;
         // 上＋ジャンプは大ジャンプ。回避中のジャンプは前方への慣性を引き継ぎます。
         _jumpVelocity = input.z > BrawlerBalance.JumpDirectionThreshold ? BrawlerBalance.HighJumpVelocity : BrawlerBalance.JumpVelocity;
         _jumpDrift = _isRunning ? new Vector3(_runDirection * BrawlerBalance.JumpDriftSpeed, 0, 0)
@@ -1332,6 +1342,21 @@ public class Fighter : Combatant
         _dashRemaining = 0;
         _knockbackVelocity = Vector3.zero;
         ReleaseDefenseForSpecialAction();
+    }
+
+    private bool TryStartAirJump()
+    {
+        if (!IsPlayer || !IsAirborne || _airJumpsRemaining <= 0 || _stunRemaining > 0
+            || _attackRemaining > 0 || _dashRemaining > 0 || IsUsingSpecialAction)
+        {
+            return false;
+        }
+        // 現在の高さを維持して上向き速度だけを再設定します。無敵の追加や攻撃硬直の解除は行いません。
+        _airJumpsRemaining--;
+        _jumpVelocity = AirJumpVelocity;
+        _canBackstepFromJump = false;
+        ClearAttackHold();
+        return true;
     }
 
     private void UpdateJump(float deltaTime)
@@ -1347,6 +1372,7 @@ public class Fighter : Combatant
         {
             _jumpHeight = 0;
             _jumpVelocity = 0;
+            _airJumpsRemaining = 0;
             _jumpDrift = Vector3.zero;
             if ((_attackKind == BrawlerDefines.AttackKind.Air || _attackKind == BrawlerDefines.AttackKind.DownThrust))
             {
@@ -1403,6 +1429,7 @@ public class Fighter : Combatant
         _canBackstepFromJump = false;
         _jumpHeight = 0;
         _jumpVelocity = 0;
+        _airJumpsRemaining = 0;
         _jumpDrift = Vector3.zero;
         _isBackstep = true;
         _dashDirection = new Vector3(-Facing, 0, 0);
@@ -1522,6 +1549,7 @@ public class Fighter : Combatant
         _attackRemaining = 0;
         _isCrouching = false;
         _canBackstepFromJump = false;
+        _airJumpsRemaining = 0;
         _counterWindowRemaining = 0;
         _dashAttackMovementRemaining = 0;
         _attackBufferRemaining = 0;

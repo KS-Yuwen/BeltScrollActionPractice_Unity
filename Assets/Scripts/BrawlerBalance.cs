@@ -233,6 +233,8 @@ public static class BrawlerBalance
 
     // 移動速度（Unity単位/秒）・行動時間（秒）。
     // シーフの基本性能（試作用）。専用アクションの性能とは分けて管理します。
+    public const int ThiefExtraAirJumps = 1;
+    public const float ThiefAirJumpVelocity = 7f;
     public const float ThiefWalkSpeed = 6f;
     public const float ThiefRunSpeed = 9.5f;
     public const float ThiefNormalAttackReach = 1.8f;
