@@ -328,6 +328,13 @@ public static class BrawlerBalance
     public const float BossRecoverySeconds = 1.4f;
     public const float BossAttackIntervalSeconds = 0.3f;
     public const int BossWaveEnemyCount = 1;
+    public const int BossPreparationHealingAmount = 40;
+    public const int BossPreparationSupplyCount = 5;
+    public const int BossPreparationSpellSupplyOffset = 2;
+    public const float BossPreparationSupplySpacing = 1.6f;
+    public const float BossPreparationHudTop = 370f;
+    public const float BossPreparationHudWidth = 1050f;
+    public const float BossPreparationHudLineHeight = 35f;
     public const float BossHudWidth = 320f;
     public const float BossHudMargin = 24f;
     public const float BossHudTitleHeight = 36f;

@@ -49,6 +49,16 @@ public sealed class BrawlerHud
             };
         }
         GUIStyle style = _style;
+        if (game.IsPreparingBoss)
+        {
+            float top = BrawlerBalance.BossPreparationHudTop;
+            float line = BrawlerBalance.BossPreparationHudLineHeight;
+            GUI.Label(new Rect(BrawlerBalance.BossHudMargin, top, BrawlerBalance.BossPreparationHudWidth, line),
+                "BOSS PREPARATION — Collect supplies and check your 6 slots", style);
+            string button = BrawlerInput.IsGamepadConnected ? "Start / Options" : "Enter";
+            GUI.Label(new Rect(BrawlerBalance.BossHudMargin, top + line, BrawlerBalance.BossPreparationHudWidth, line),
+                $"{button}: Begin boss battle when ready", style);
+        }
         GUI.Label(new Rect(24, 20, 700, 40), "NEON STREET  |  WAVE " + wave + "  |  ENEMIES " + enemies.Count, style);
         // 背景→遅れて縮む赤い残像→現在HPの順に重ね、HPゼロでも数値を表示します。
         var healthArea = new Rect(24, 65, BrawlerBalance.PlayerHealthBarWidth, BrawlerBalance.PlayerHealthBarHeight);

@@ -96,12 +96,19 @@ public static class BrawlerInput
         return (WasAttackPressed() && IsJumpHeld()) || (WasJumpPressed() && IsAttackHeld());
     }
 
-    public static bool WasRestartPressed()
+    // 準備中のStartはボス戦開始に使うため、管理役からパッドの再開始だけを抑制できます。
+    public static bool WasRestartPressed(bool allowGamepad = true)
     {
         Keyboard keyboard = Keyboard.current;
         Gamepad pad = Gamepad.current;
         return (keyboard != null && keyboard.rKey.wasPressedThisFrame)
-            || (pad != null && pad.startButton.wasPressedThisFrame);
+            || (allowGamepad && pad != null && pad.startButton.wasPressedThisFrame);
+    }
+
+    public static bool WasPreparationConfirmPressed()
+    {
+        return (Keyboard.current != null && Keyboard.current.enterKey.wasPressedThisFrame)
+            || (Gamepad.current != null && Gamepad.current.startButton.wasPressedThisFrame);
     }
 
     // 回復は押した瞬間だけ発動します。長押しで使用回数を消費し続けません。

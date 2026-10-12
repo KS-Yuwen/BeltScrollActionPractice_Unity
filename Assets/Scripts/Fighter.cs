@@ -313,6 +313,7 @@ public class Fighter : Combatant
     }
 
     protected bool CanUseSpecialAction => CommonActionUseStatus == BrawlerDefines.ActionUseStatus.Ready;
+    public bool IsReadyForStageTransition => CanUseSpecialAction;
 
     protected virtual bool UpdateSpecialAction() => false;
 

@@ -1167,6 +1167,7 @@ public static class CombatValidation
             ValidateThrownItems(game, cleric, createTurnEnemy, turnEnemies);
             ValidateAttackTransitions(game, createTurnEnemy);
             ValidateBoss(game, createTurnEnemy, turnEnemies);
+            ValidateBossPreparation(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             ValidateStageClear(game, createTurnEnemy, turnEnemies, bannerPending, waveProgress);
             Debug.Log("COMBAT_VALIDATION_PASSED");
             Finish(0);
@@ -1462,6 +1463,63 @@ public static class CombatValidation
         SetPrivateField(game, "_player", previousPlayer);
         enemies.Remove(boss);
         UnityEngine.Object.DestroyImmediate(boss.gameObject);
+        UnityEngine.Object.DestroyImmediate(player.gameObject);
+    }
+
+    private static void ValidateBossPreparation(BeltBrawler game, MethodInfo createFighter,
+        System.Collections.Generic.List<Fighter> enemies, System.Collections.Generic.List<Vector3> pending,
+        MethodInfo waveProgress)
+    {
+        var player = (ClericFighter)createFighter.Invoke(game,
+            new object[] { "Test preparation player", Vector3.right * BrawlerBalance.StageHalfWidth, true, false, false, false });
+        SetPrivateField(game, "_player", player);
+        enemies.Clear();
+        pending.Clear();
+        SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
+        SetPrivateField(game, "_nextWaveElapsed", 0f);
+        player.TakeDamage(BrawlerBalance.BossPreparationHealingAmount, 1);
+        waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+        Require(game.IsPreparingBoss && !game.IsRunFinished && pending.Count == 0
+            && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount - 1
+            && player.Health == player.MaxHealth, "第4ウェーブ後は回復して準備に入り、ボスを自動予約しない");
+        var supplies = (System.Collections.Generic.List<CollectibleItem>)GetPrivateField(game, "_preparationSupplies");
+        Require(supplies.Count == BrawlerBalance.BossPreparationSupplyCount, "支給品を一組だけ配置する");
+        MethodInfo advanceLifetime = typeof(CollectibleItem).GetMethod("AdvanceLifetime", BindingFlags.Instance | BindingFlags.NonPublic);
+        foreach (CollectibleItem supply in supplies)
+        {
+            Require(supply.IsLifetimePaused && Mathf.Abs(supply.transform.position.x) <= BrawlerBalance.StageHalfWidth,
+                "端で準備しても支給品は場内に置かれ、時間切れを停止する");
+            float lifetime = (float)GetPrivateField(supply, "_remainingLifetime");
+            advanceLifetime.Invoke(supply, new object[] { lifetime + 1 });
+            Require((float)GetPrivateField(supply, "_remainingLifetime") == lifetime, "準備に時間をかけても支給品は消えない");
+        }
+        waveProgress.Invoke(game, new object[] { 100f });
+        Require(game.IsPreparingBoss && supplies.Count == BrawlerBalance.BossPreparationSupplyCount && pending.Count == 0,
+            "準備中は時間で進行せず支給品を重複生成しない");
+        var potion = (HealingPotion)supplies[0];
+        player.transform.position = potion.transform.position;
+        Require(potion.TryCollect() && player.HealingPotionsHeld == 1 && !potion.TryCollect(),
+            "支給品も通常のスロット保存と二重取得防止を使用する");
+        SetPrivateField(player, "_stunRemaining", 0f);
+        SetPrivateField(player, "_attackCooldown", 0f);
+        SetPrivateField(player, "_jumpHeight", 1f);
+        Require(!game.TryStartBossBattle() && game.IsPreparingBoss, "空中ではボス戦開始を拒否する");
+        SetPrivateField(player, "_jumpHeight", 0f);
+        SetPrivateField(player, "_recoveryRemaining", BrawlerBalance.SpellRecoverySeconds);
+        Require(!game.TryStartBossBattle() && game.IsPreparingBoss, "魔法使用後の隙ではボス戦開始を拒否する");
+        SetPrivateField(player, "_recoveryRemaining", 0f);
+        CollectibleItem remainingSupply = supplies[1];
+        Require(game.TryStartBossBattle() && !game.IsPreparingBoss
+            && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount
+            && pending.Count == BrawlerBalance.BossWaveEnemyCount && !remainingSupply.IsLifetimePaused,
+            "準備完了でボス出現を予約し、残った支給品の寿命を再開する");
+        Require(!game.TryStartBossBattle() && pending.Count == BrawlerBalance.BossWaveEnemyCount,
+            "ボス戦開始は一度だけ受理する");
+        float remainingLifetime = (float)GetPrivateField(remainingSupply, "_remainingLifetime");
+        advanceLifetime.Invoke(remainingSupply, new object[] { 1f });
+        Require((float)GetPrivateField(remainingSupply, "_remainingLifetime") == remainingLifetime - 1,
+            "戦闘開始後は残った支給品も通常の期限に従う");
+        pending.Clear();
         UnityEngine.Object.DestroyImmediate(player.gameObject);
     }
 

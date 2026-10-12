@@ -115,6 +115,17 @@ public static class GamepadValidation
             Require(!BrawlerInput.WasProtectionPressed(), "補助魔法の長押しでは再入力しない");
 
             // 選択は回数を消費せず、押し続けても切り替わり続けません。
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
+            Require(BrawlerInput.WasPreparationConfirmPressed() && !BrawlerInput.WasRestartPressed(allowGamepad: false),
+                "準備中のStartはボス戦開始として受け付け、再開始には使わない");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.Start));
+            Require(!BrawlerInput.WasPreparationConfirmPressed(), "開始ボタンの保持では再入力しない");
+            SendState(pad, new GamepadState());
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            Require(BrawlerInput.WasPreparationConfirmPressed(), "Enterでボス戦開始入力");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
             var spellCaster = (ClericFighter)player;
             int healingBeforeSelection = spellCaster.HealingUsesRemaining;
             int protectionBeforeSelection = spellCaster.ProtectionUsesRemaining;
