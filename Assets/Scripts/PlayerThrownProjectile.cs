@@ -50,6 +50,11 @@ public abstract class PlayerThrownProjectile : MonoBehaviour
             Finish();
             return;
         }
+        // 魔法以外の飛行物は一緒に止め、停止している敵へ別の攻撃だけが進む状態を避けます。
+        if (Game.IsSpellEffectActive)
+        {
+            return;
+        }
         float flightSeconds = FlightSeconds;
         float endTime = Mathf.Min(flightSeconds, _elapsed + Mathf.Max(0, deltaTime));
         while (!_hasFinished && _elapsed < endTime)

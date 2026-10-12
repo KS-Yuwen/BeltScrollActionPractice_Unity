@@ -50,6 +50,10 @@ public sealed class EnemyDefeatFade : MonoBehaviour
 
     public void Advance(float deltaTime)
     {
+        if (_owner != null && _owner.IsPausedBySpellEffect)
+        {
+            return;
+        }
         _elapsed = Mathf.Min(BrawlerBalance.EnemyRemovalSeconds, _elapsed + Mathf.Max(0, deltaTime));
         ApplyOpacity();
         if (Alpha <= 0)

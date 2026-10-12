@@ -8,6 +8,7 @@ public sealed class MagicScrollPickup : CollectibleItem
     protected override float LifetimeSeconds => BrawlerBalance.ScrollLifetimeSeconds;
     protected override BrawlerDefines.PickupKind Kind => TargetAction switch
     {
+        BrawlerDefines.UsableAction.MagicMissile => BrawlerDefines.PickupKind.MagicMissileScroll,
         BrawlerDefines.UsableAction.Healing => BrawlerDefines.PickupKind.HealingScroll,
         BrawlerDefines.UsableAction.AttackBoost => BrawlerDefines.PickupKind.AttackBoostScroll,
         _ => BrawlerDefines.PickupKind.ProtectionScroll

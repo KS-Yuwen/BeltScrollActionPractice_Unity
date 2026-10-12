@@ -333,6 +333,8 @@ public class Fighter : Combatant
 
     // 派生クラスには必要な参照と判断だけを公開し、タイマー本体は非公開に保ちます。
     protected BeltBrawler Game => _game;
+    public bool IsSpellEffectActive => _game != null && _game.IsSpellEffectActive;
+    public bool IsPausedBySpellEffect => !IsPlayer && IsSpellEffectActive;
 
     protected bool CanStartEnemyAttack => _attackCooldown <= 0;
 
@@ -349,6 +351,14 @@ public class Fighter : Combatant
     protected virtual bool IsUsingSpecialAction => _itemRecoveryRemaining > 0;
 
     protected virtual Color? SpecialFeedbackColor => null;
+
+    // 固有行動の構えだけを差し替えます。通常攻撃の命中処理は変更しません。
+    protected virtual float? SpecialActionArmAngle => null;
+
+    // 実際にHPが減った場合だけ通知します。防御・無敵による不成立では呼びません。
+    protected virtual void OnDamageReceived(int actualAmount)
+    {
+    }
 
     // 発動とUIが同じ共通判定を使います。状態を変更せず、理由だけ返します。
     protected BrawlerDefines.ActionUseStatus CommonActionUseStatus
@@ -439,8 +449,9 @@ public class Fighter : Combatant
     protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
-        if (Health <= 0 || _game.IsRunFinished)
+        if (Health <= 0 || _game.IsRunFinished || IsPausedBySpellEffect)
         {
+            // AIだけでなく攻撃発生・硬直・ノックバック・アニメーションの時間も保存します。
             return;
         }
         float deltaTime = Time.deltaTime;
@@ -985,7 +996,9 @@ public class Fighter : Combatant
                 ResetAttackKind();
             }
             // 回転なしの状態に戻します。
-            _attackArm.localRotation = IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
+            _attackArm.localRotation = SpecialActionArmAngle.HasValue
+                ? Quaternion.Euler(0, 0, SpecialActionArmAngle.Value)
+                : IsGuarding ? Quaternion.Euler(0, 0, 55) : Quaternion.identity;
             _attackArm.localPosition = new Vector3(0.4f, 1.2f, -0.1f);
         }
     }
@@ -1598,6 +1611,10 @@ public class Fighter : Combatant
         _guardReleaseRemaining = 0;
         int healthBeforeDamage = Health;
         ReduceHealth(CalculateReceivedDamage(amount));
+        if (Health < healthBeforeDamage)
+        {
+            OnDamageReceived(healthBeforeDamage - Health);
+        }
         if (!IsPlayer)
         {
             // 被弾確定時に残像の待機を開始し、同フレームの描画にも直前HPを残します。

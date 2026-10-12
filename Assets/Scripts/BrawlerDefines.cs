@@ -54,7 +54,8 @@ public static class BrawlerDefines
         ThrowingKnife,
         HealingScroll,
         ProtectionScroll,
-        AttackBoostScroll
+        AttackBoostScroll,
+        MagicMissileScroll
     }
 
     public enum DamageKind
@@ -63,7 +64,8 @@ public static class BrawlerDefines
         Counter,
         HeavyStrike,
         Healing,
-        Critical
+        Critical,
+        Spell
     }
 
     public enum ImpactKind
@@ -82,7 +84,8 @@ public static class BrawlerDefines
         HealingPotion,
         ThrowingHammer,
         ThrowingKnife,
-        AttackBoost
+        AttackBoost,
+        MagicMissile
     }
 
     public enum CommandDirection

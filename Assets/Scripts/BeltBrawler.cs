@@ -42,8 +42,14 @@ public sealed class BeltBrawler : MonoBehaviour
     {
         BrawlerDefines.UsableAction.Healing,
         BrawlerDefines.UsableAction.Protection,
-        BrawlerDefines.UsableAction.AttackBoost
+        BrawlerDefines.UsableAction.AttackBoost,
+        BrawlerDefines.UsableAction.MagicMissile
     };
+    private SpellFighter _spellEffectOwner;
+    // 時間を進める役は術者です。死亡・破棄・終了時は所有者の状態から即座に停止を解除します。
+    public bool IsSpellEffectActive => !IsRunFinished && _spellEffectOwner != null
+        && _spellEffectOwner.Health > 0 && _spellEffectOwner.IsReleasingSpell;
+
     public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
@@ -436,7 +442,11 @@ public sealed class BeltBrawler : MonoBehaviour
                 number.transform.position = victim.transform.position + Vector3.up * BrawlerBalance.DamageNumberHeight;
                 number.AddComponent<DamageNumber>().Initialize(_camera, actualDamage, kind);
             }
-            BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            // 魔法は専用の敵停止中も演出を進めます。全体のtimeScaleを0にする命中停止は付けません。
+            if (kind != BrawlerDefines.DamageKind.Spell)
+            {
+                BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
+            }
         }
         _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
         if (victim.IsPlayer)
@@ -484,6 +494,10 @@ public sealed class BeltBrawler : MonoBehaviour
                     1 => BrawlerDefines.UsableAction.Protection,
                     _ => BrawlerDefines.UsableAction.AttackBoost
                 };
+                if (_player.CanUseAction(BrawlerDefines.UsableAction.MagicMissile))
+                {
+                    action = BrawlerDefines.UsableAction.MagicMissile;
+                }
                 if (_player.CanUseAction(action))
                 {
                     DropMagicScroll(victim.transform.position, action);
@@ -612,6 +626,62 @@ public sealed class BeltBrawler : MonoBehaviour
             ray.localRotation = Quaternion.Euler(0, 0, angle);
         }
         impactObject.AddComponent<HitImpact>().Initialize(isStrong ? BrawlerBalance.StrongHitImpactSize : BrawlerBalance.NormalHitImpactSize);
+    }
+
+    // 攻撃魔法・回復魔法から共通に呼びます。停止期間は術者の発動状態と常に同期します。
+    public void BeginSpellEffect(SpellFighter caster)
+    {
+        if (!IsRunFinished && caster != null && caster.IsPlayer && caster.Health > 0 && caster.IsReleasingSpell)
+        {
+            _spellEffectOwner = caster;
+        }
+    }
+
+    // 魔法の対象は床上の左右・奥行きで選びます。近接のリーチや威力倍率から独立させます。
+    public void CastMagicMissile(Fighter caster)
+    {
+        if (caster == null || !caster.IsPlayer || caster.Health <= 0 || IsRunFinished
+            || !caster.CanUseAction(BrawlerDefines.UsableAction.MagicMissile))
+        {
+            return;
+        }
+        Fighter target = null;
+        float nearest = BrawlerBalance.MagicMissileRange;
+        foreach (Fighter enemy in _enemies)
+        {
+            if (enemy == null || enemy.Health <= 0)
+            {
+                continue;
+            }
+            Vector3 offset = enemy.transform.position - caster.transform.position;
+            float forward = offset.x * caster.Facing;
+            if (forward > 0 && forward <= nearest && Mathf.Abs(offset.z) <= BrawlerBalance.MagicMissileDepth)
+            {
+                target = enemy;
+                nearest = forward;
+            }
+        }
+        Vector3 start = caster.transform.position + Vector3.up * BrawlerBalance.MagicMissileHeight;
+        Vector3 end = target != null
+            ? target.transform.position + Vector3.up * (BrawlerBalance.MagicMissileHeight + target.JumpHeight)
+            : start + Vector3.right * (caster.Facing * BrawlerBalance.MagicMissileRange);
+        // 即時命中の仮演出。Colliderを作らず、描画した光が再度ダメージを与えないようにします。
+        var trail = new GameObject("Magic Missile Trail");
+        var line = trail.AddComponent<LineRenderer>();
+        line.sharedMaterial = _factory.ImpactMaterial;
+        line.startColor = Color.cyan;
+        line.endColor = Color.white;
+        line.startWidth = BrawlerBalance.MagicMissileTrailWidth;
+        line.endWidth = BrawlerBalance.MagicMissileTrailWidth;
+        line.positionCount = 2;
+        line.SetPosition(0, start);
+        line.SetPosition(1, end);
+        trail.AddComponent<MagicMissileEffect>().Initialize(caster as SpellFighter, line);
+        PlaySound(BrawlerSound.Protection);
+        if (target != null)
+        {
+            target.TakeDamage(BrawlerBalance.MagicMissileDamage, caster.Facing, BrawlerDefines.DamageKind.Spell);
+        }
     }
 
     public void ThrowHammer(Fighter owner)
@@ -746,6 +816,7 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             BrawlerDefines.UsableAction.Healing => _factory.HealingScrollMaterial,
             BrawlerDefines.UsableAction.AttackBoost => _factory.AttackBoostScrollMaterial,
+            BrawlerDefines.UsableAction.MagicMissile => _factory.ImpactMaterial,
             _ => _factory.ProtectionScrollMaterial
         };
         _factory.CreateBodyPart("Scroll band", modelPosition,

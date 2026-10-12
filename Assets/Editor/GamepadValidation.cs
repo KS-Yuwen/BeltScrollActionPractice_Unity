@@ -428,8 +428,13 @@ public static class GamepadValidation
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
             InputSystem.Update();
             UpdatePlayer(player);
-            Require(player.Health == player.MaxHealth && spellCaster.HealingUsesRemaining == healingBeforeSelection - 1,
-                "E入力で選択した回復を実際に発動し、一度だけ消費");
+            Require(player.Health == player.MaxHealth - 10 && spellCaster.IsCastingSpell
+                && spellCaster.HealingUsesRemaining == healingBeforeSelection - 1,
+                "E入力で回復の詠唱を開始し、一度だけ消費する");
+            AdvanceSpell(spellCaster, BrawlerBalance.HealingCastSeconds);
+            Require(player.Health == player.MaxHealth && spellCaster.IsReleasingSpell,
+                "回復は詠唱完了時に発動する");
+            AdvanceSpell(spellCaster, BrawlerBalance.HealingEffectSeconds);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
             InputSystem.Update();
             UpdatePlayer(player);
@@ -437,6 +442,7 @@ public static class GamepadValidation
             // 後続の戦闘検証には開始時の使用回数と硬直を引き継ぎます。
             typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(spellCaster, healingBeforeSelection);
             typeof(ClericFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
+            typeof(SpellFighter).GetField("_spellRecoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(spellCaster, 0f);
             typeof(Fighter).GetField("_knockbackVelocity", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(player, Vector3.zero);
             InputSystem.QueueStateEvent(keyboard, new KeyboardState());
             InputSystem.Update();
@@ -476,6 +482,8 @@ public static class GamepadValidation
             ValidateDwarfClassInput(player, keyboard);
             ValidateThiefClassInput(player, keyboard);
             ValidateElfClassInput(player, keyboard);
+            ValidateHealingSpellInput();
+            ValidateAttackSpellInput(player, keyboard);
             ValidateThiefAirJumpInput(player, keyboard);
             ValidateThiefWallJumpInput(player);
             ValidateBackstabInput(player);
@@ -691,6 +699,170 @@ public static class GamepadValidation
         }
     }
 
+    // 実入力から発動し、対象制限・硬直・独立した回数管理まで確認します。
+    private static void ValidateAttackSpellInput(Fighter sourcePlayer, Keyboard keyboard)
+    {
+        var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        var enemies = (System.Collections.Generic.List<Fighter>)typeof(BeltBrawler).GetField("_enemies", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+        Fighter[] previous = enemies.ToArray();
+        var player = (ElfFighter)factory.CreateFighter("Test spell", Vector3.zero, true, 1, playerClass: BrawlerDefines.PlayerClass.Elf);
+        Fighter target = factory.CreateFighter("Test spell target", Vector3.right, false, 1, isHeavy: true);
+        Fighter boss = factory.CreateFighter("Test paused boss", Vector3.forward * 2f, false, 1, isBoss: true);
+        FieldInfo bossRecovery = typeof(BossFighter).GetField("_recoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic);
+        var projectileObject = new GameObject("Test paused enemy projectile");
+        var projectile = projectileObject.AddComponent<EnemyProjectile>();
+        projectile.Initialize(player, 1, game);
+        projectile.transform.position = Vector3.right * 10f;
+        MethodInfo updateProjectile = typeof(EnemyProjectile).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        FieldInfo lifetime = typeof(EnemyProjectile).GetField("_remainingLifetime", BindingFlags.Instance | BindingFlags.NonPublic);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        FieldInfo recovery = typeof(SpellFighter).GetField("_spellRecoveryRemaining", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo tick = typeof(SpellFighter).GetMethod("UpdateSpell", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        Transform arm = (Transform)typeof(Fighter).GetField("_attackArm", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(player);
+        Action<float, string> requireArm = (angle, message) =>
+        {
+            // 表示用の角度だけでなく、実際の腕Transformへ反映された姿勢を調べます。
+            animate.Invoke(player, new object[] { 0f });
+            Require(Quaternion.Angle(arm.localRotation, Quaternion.Euler(0, 0, angle)) < 0.01f, message);
+        };
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            enemies.Clear();
+            enemies.Add(target);
+            Require(player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile) == BrawlerBalance.MagicMissileUses,
+                "エルフの魔法は初期3回で選択済み");
+            foreach (float facing in new[] { -1f, 1f })
+            {
+                recovery.SetValue(player, 0f);
+                SetPlayerTimer(target, "_stunRemaining", 0);
+                SetPlayerTimer(target, "_downRemaining", 0);
+                typeof(Fighter).GetProperty("Facing").SetValue(player, facing);
+                target.transform.position = Vector3.right * facing * 2f;
+                int before = target.Health;
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                SendState(pad, new GamepadState());
+                if (facing < 0)
+                {
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+                    InputSystem.Update();
+                }
+                else
+                {
+                    SendState(pad, new GamepadState { rightTrigger = 1f });
+                }
+                read.Invoke(player, null);
+                Require(player.IsCastingSpell && !player.IsRecoveringFromSpell && target.Health == before,
+                    "入力直後は詠唱だけ開始し、効果と後隙はまだ発生しない");
+                requireArm(BrawlerBalance.SpellReadyArmAngle, "左右とも詠唱開始時は通常姿勢から構え始める");
+                int castCount = player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile);
+                player.SelectNextAction();
+                Require(!player.TryUseSelectedAction(), "詠唱中は別の所持品を使用できない");
+                for (int slot = 1; slot < player.Inventory.SlotCount; slot++) player.SelectNextAction();
+                tick.Invoke(player, new object[] { 0f });
+                Require(player.SpellCastSecondsRemaining == BrawlerBalance.MagicMissileCastSeconds,
+                    "ヒットストップ中は詠唱時間を減らさない");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileCastSeconds / 2 });
+                Require(target.Health == before && player.IsCastingSpell
+                    && player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile) == castCount,
+                    "詠唱途中にはダメージ・追加消費がない");
+                requireArm(BrawlerBalance.SpellCastingArmAngle, "詠唱途中は腕を持ち上げた構えを維持");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileCastSeconds / 2 - BrawlerBalance.SpellReleaseArmSeconds / 2 });
+                requireArm(Mathf.Lerp(BrawlerBalance.SpellCastingArmAngle, BrawlerBalance.SpellReleaseArmAngle, 0.5f),
+                    "詠唱の最後に腕を前へ振り出し、まだ効果は発動しない");
+                Require(target.Health == before, "腕を振り出す途中に早く命中させない");
+                tick.Invoke(player, new object[] { player.SpellCastSecondsRemaining });
+                requireArm(BrawlerBalance.SpellReleaseArmAngle, "効果発動の瞬間は腕を前へ伸ばした姿勢");
+                Require(game.IsSpellEffectActive && player.IsReleasingSpell && !player.IsRecoveringFromSpell,
+                    "詠唱完了で敵停止を開始し、後隙はまだ始めない");
+                float stun = ReadPlayerTimer(target, "_stunRemaining");
+                Vector3 enemyPosition = target.transform.position;
+                UpdatePlayer(target);
+                Require(target.transform.position == enemyPosition && ReadPlayerTimer(target, "_stunRemaining") == stun,
+                    "魔法効果中は敵の移動・硬直の経過を止める");
+                bossRecovery.SetValue(boss, BrawlerBalance.BossRecoverySeconds);
+                UpdatePlayer(boss);
+                Require((float)bossRecovery.GetValue(boss) == BrawlerBalance.BossRecoverySeconds, "ボス固有の後隙も停止");
+                float remainingLifetime = (float)lifetime.GetValue(projectile);
+                Vector3 bulletPosition = projectile.transform.position;
+                updateProjectile.Invoke(projectile, null);
+                Require(projectile.transform.position == bulletPosition && (float)lifetime.GetValue(projectile) == remainingLifetime,
+                    "発射済みの敵の弾も位置と寿命を維持");
+                Require(Time.timeScale > 0, "魔法命中では全体ヒットストップを起こさず、演出の時間を進める");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileEffectSeconds / 2 });
+                Require(game.IsSpellEffectActive && player.SpellEffectProgress > 0 && !player.IsRecoveringFromSpell,
+                    "敵停止中にも魔法演出だけは進行");
+                requireArm(BrawlerBalance.SpellReleaseArmAngle, "魔法演出中は放つ姿勢を維持");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileEffectSeconds / 2 });
+                Require(!game.IsSpellEffectActive && !player.IsReleasingSpell, "演出終了時に敵停止を解除");
+                Require(target.Health == before - BrawlerBalance.MagicMissileDamage && player.IsRecoveringFromSpell,
+                    "キーボード・パッドから左右へ専用威力で魔法を発動");
+                int count = player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile);
+                Require(!player.TryUseSelectedAction() && player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile) == count,
+                    "硬直中は連続使用して消費しない");
+                tick.Invoke(player, new object[] { BrawlerBalance.SpellReleasePoseHoldSeconds });
+                requireArm(BrawlerBalance.SpellReleaseArmAngle, "発動直後は腕を伸ばした姿勢を少し維持");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileRecoverySeconds - BrawlerBalance.SpellReleasePoseHoldSeconds });
+                requireArm(BrawlerBalance.SpellReadyArmAngle, "後隙終了時には腕を通常姿勢へ戻す");
+                Require(!player.IsCastingSpell && !player.IsRecoveringFromSpell
+                    && target.Health == before - BrawlerBalance.MagicMissileDamage, "後隙終了時は再行動可能で二重発動しない");
+            }
+            recovery.SetValue(player, 0f);
+            SetPlayerTimer(player, "_jumpHeight", 1f);
+            Require(!player.TryUseSelectedAction(), "空中では魔法を消費しない");
+            SetPlayerTimer(player, "_jumpHeight", 0f);
+            target.transform.position = Vector3.left;
+            int health = target.Health;
+            Require(player.TryUseSelectedAction() && target.Health == health
+                && player.SelectedAction == BrawlerDefines.UsableAction.None, "後方には命中せず、最後の1回でNOTHINGになる");
+            Require(player.IsCastingSpell, "最後の1回で空き枠になっても予約した魔法の詠唱は維持");
+            tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileCastSeconds });
+            tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileEffectSeconds });
+            Require(!player.IsCastingSpell && player.IsRecoveringFromSpell && target.Health == health,
+                "最後の1回でも詠唱完了後に発動し、後方には命中しない");
+            Require(player.TryRestoreSpellUses(BrawlerDefines.UsableAction.MagicMissile, BrawlerBalance.InventoryStackLimit)
+                && !player.TryRestoreSpellUses(BrawlerDefines.UsableAction.MagicMissile, 1), "空き枠へ補充し上限9を守る");
+            recovery.SetValue(player, 0f);
+            foreach (Vector3 position in new[] { Vector3.right * (BrawlerBalance.MagicMissileRange + 1f),
+                Vector3.right + Vector3.forward * (BrawlerBalance.MagicMissileDepth + 1f) })
+            {
+                target.transform.position = position;
+                Require(player.TryUseSelectedAction(), "射程外の敵しかいなくても詠唱を開始できる");
+                tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileCastSeconds });
+            tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileEffectSeconds });
+                Require(target.Health == health, "射程・奥行きの範囲外には命中しない");
+                recovery.SetValue(player, 0f);
+            }
+            target.transform.position = Vector3.right;
+            Require(player.TryUseSelectedAction(), "中断検証用の詠唱を開始");
+            int consumedCount = player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile);
+            player.TakeDamage(1, -1);
+            Require(!player.IsCastingSpell, "実際の被弾で詠唱を直ちに中断");
+            requireArm(BrawlerBalance.SpellReadyArmAngle, "被弾中断後に詠唱の腕の構えを残さない");
+            tick.Invoke(player, new object[] { BrawlerBalance.MagicMissileCastSeconds + BrawlerBalance.MagicMissileRecoverySeconds });
+            Require(target.Health == health && player.Inventory.GetCount(BrawlerDefines.UsableAction.MagicMissile) == consumedCount,
+                "中断後は遅れて発動せず、消費済みの回数も返却しない");
+        }
+        finally
+        {
+            enemies.Clear();
+            enemies.AddRange(previous);
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.RemoveDevice(pad);
+            InputSystem.Update();
+            UnityEngine.Object.DestroyImmediate(projectileObject);
+            UnityEngine.Object.DestroyImmediate(boss.gameObject);
+            UnityEngine.Object.DestroyImmediate(player.gameObject);
+            UnityEngine.Object.DestroyImmediate(target.gameObject);
+            foreach (LineRenderer line in UnityEngine.Object.FindObjectsByType<LineRenderer>())
+            {
+                if (line.name == "Magic Missile Trail") UnityEngine.Object.DestroyImmediate(line.gameObject);
+            }
+        }
+    }
+
     private static void ValidateElfClassInput(Fighter sourcePlayer, Keyboard keyboard)
     {
         var game = (BeltBrawler)typeof(Fighter).GetField("_game", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(sourcePlayer);
@@ -741,9 +913,10 @@ public static class GamepadValidation
                 .SetValue(player, BrawlerDefines.AttackKind.Uppercut);
             Require(Mathf.Approximately(player.AttackReach, BrawlerBalance.UppercutReach * BrawlerBalance.ElfWeaponReachMultiplier),
                 "エルフの特殊技にも職業のリーチ倍率を適用");
+            player.SelectNextAction();
             Require(player.TryStoreThrowingKnife() && player.TryUseSelectedAction() && player.ThrowingKnivesHeld == 0,
                 "エルフも共通所持品処理でナイフを消費");
-            Require(!player.CanUseAction(BrawlerDefines.UsableAction.Healing), "攻撃魔法の実装前はエルフの魔法を使用不可");
+            Require(!player.CanUseAction(BrawlerDefines.UsableAction.Healing), "エルフは回復魔法を使用不可");
         }
         finally
         {
@@ -1209,6 +1382,87 @@ public static class GamepadValidation
             }
             UnityEngine.Object.DestroyImmediate(player.gameObject);
         }
+    }
+
+    // 共通基底クラスを経由し、回復の予約・中断・敵停止と入力をまとめて検証します。
+    private static void ValidateHealingSpellInput()
+    {
+        var game = UnityEngine.Object.FindAnyObjectByType<BeltBrawler>();
+        var factory = (BrawlerSceneFactory)typeof(BeltBrawler).GetField("_factory", BindingFlags.Instance | BindingFlags.NonPublic)
+            .GetValue(game);
+        var caster = (ClericFighter)factory.CreateFighter("Test healing spell", Vector3.zero, true, 1);
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+        MethodInfo read = typeof(Fighter).GetMethod("ReadPlayerInput", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            foreach (bool usePad in new[] { false, true })
+            {
+                caster.TakeDamage(BrawlerBalance.HealingAmount, caster.Facing);
+                SetPlayerTimer(caster, "_stunRemaining", 0);
+                SetPlayerTimer(caster, "_attackCooldown", 0);
+                int healthBefore = caster.Health;
+                int usesBefore = caster.HealingUsesRemaining;
+                if (usePad)
+                {
+                    SendState(pad, new GamepadState { rightTrigger = 1 });
+                }
+                else
+                {
+                    InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.E));
+                    InputSystem.Update();
+                }
+                read.Invoke(caster, null);
+                Require(caster.IsCastingSpell && caster.Health == healthBefore
+                    && caster.HealingUsesRemaining == usesBefore - 1 && !game.IsSpellEffectActive,
+                    "キーボード・パッドの回復使用は詠唱を開始し、敵停止と回復はまだ起こさない");
+                caster.SelectNextAction();
+                Require(!caster.TryProtection() && !caster.TryHeal(), "詠唱中は他の魔法も回復の再使用も拒否する");
+                AdvanceSpell(caster, 0);
+                Require(caster.Health == healthBefore && caster.IsCastingSpell, "時間停止中は詠唱を進めない");
+                AdvanceSpell(caster, BrawlerBalance.HealingCastSeconds);
+                Require(caster.Health == caster.MaxHealth && caster.IsReleasingSpell && game.IsSpellEffectActive,
+                    "枠を切り替えても予約した回復が一度だけ発動し、共通の敵停止に入る");
+                AdvanceSpell(caster, BrawlerBalance.HealingEffectSeconds);
+                Require(!game.IsSpellEffectActive && caster.IsRecoveringFromSpell,
+                    "回復演出終了時に停止を解除し、後隙中の敵は再開する");
+                AdvanceSpell(caster, BrawlerBalance.SpellRecoverySeconds);
+                Require(!caster.IsRecoveringFromSpell && caster.Health == caster.MaxHealth,
+                    "後隙終了後にも回復を重複させない");
+                for (int slot = 1; slot < caster.Inventory.SlotCount; slot++)
+                {
+                    caster.SelectNextAction();
+                }
+                SendState(pad, new GamepadState());
+                InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+                InputSystem.Update();
+            }
+            caster.TakeDamage(1, caster.Facing);
+            SetPlayerTimer(caster, "_stunRemaining", 0);
+            SetPlayerTimer(caster, "_attackCooldown", 0);
+            Require(caster.TryHeal() && caster.SelectedAction == BrawlerDefines.UsableAction.None,
+                "最後の回復は空き枠になっても詠唱を予約できる");
+            int healthAtInterrupt = caster.Health;
+            caster.TakeDamage(1, caster.Facing);
+            Require(!caster.IsCastingSpell && caster.HealingUsesRemaining == 0 && !game.IsSpellEffectActive,
+                "詠唱中の被弾は中断し、回数は返却せず敵も停止しない");
+            AdvanceSpell(caster, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
+            Require(caster.Health == healthAtInterrupt - 1 && !caster.IsReleasingSpell,
+                "中断後に時間が経過しても回復を発動させない");
+        }
+        finally
+        {
+            InputSystem.RemoveDevice(pad);
+            InputSystem.RemoveDevice(keyboard);
+            UnityEngine.Object.DestroyImmediate(caster.gameObject);
+        }
+    }
+
+    private static void AdvanceSpell(SpellFighter caster, float seconds)
+    {
+        typeof(SpellFighter).GetMethod("UpdateSpell", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(caster, new object[] { seconds });
     }
 
     private static void SendState(Gamepad pad, GamepadState state)

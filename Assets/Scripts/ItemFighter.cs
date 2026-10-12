@@ -1,32 +1,48 @@
 using UnityEngine;
 
-// 魔法を使わない近接職の所持品操作を共通化します。武器や職業設定は派生クラスが選びます。
+// 近接職の所持品操作を共通化します。武器や職業設定は派生クラスが選びます。
 public abstract class ItemFighter : Fighter, IPlayerActionUser
 {
     public int SelectedSlot { get; private set; }
-    public BrawlerDefines.UsableAction SelectedAction => Inventory.GetAction(SelectedSlot);
-    public BrawlerDefines.ActionUseStatus SelectedActionUseStatus
+    public BrawlerDefines.UsableAction SelectedAction
     {
-        get
+        get => Inventory.GetAction(SelectedSlot);
+        protected set
         {
-            if (SelectedAction == BrawlerDefines.UsableAction.None)
+            // 指定した種類がなければ空き枠へ移ります。通常の選択操作は位置を循環させます。
+            int slot = Inventory.FindSlot(value);
+            SelectedSlot = slot >= 0 ? slot : Inventory.FindSlot(BrawlerDefines.UsableAction.None);
+            if (SelectedSlot < 0)
             {
-                return BrawlerDefines.ActionUseStatus.Empty;
+                SelectedSlot = 0;
             }
-            if (!CanUseAction(SelectedAction))
-            {
-                return BrawlerDefines.ActionUseStatus.Unavailable;
-            }
-            if (CommonActionUseStatus != BrawlerDefines.ActionUseStatus.Ready)
-            {
-                return CommonActionUseStatus;
-            }
-            if (SelectedAction == BrawlerDefines.UsableAction.HealingPotion && Health >= MaxHealth)
-            {
-                return BrawlerDefines.ActionUseStatus.HealthFull;
-            }
-            return BrawlerDefines.ActionUseStatus.Ready;
         }
+    }
+    public BrawlerDefines.ActionUseStatus SelectedActionUseStatus => GetActionUseStatus(SelectedAction);
+    public int SelectedActionUsesRemaining => Inventory.GetSlotCount(SelectedSlot);
+
+    // 直接入力と選択入力で同じ判定を使用します。魔法固有の条件は派生クラスで追加します。
+    public virtual BrawlerDefines.ActionUseStatus GetActionUseStatus(BrawlerDefines.UsableAction action)
+    {
+        if (action == BrawlerDefines.UsableAction.None)
+        {
+            return BrawlerDefines.ActionUseStatus.Empty;
+        }
+        if (!CanUseAction(action))
+        {
+            return BrawlerDefines.ActionUseStatus.Unavailable;
+        }
+        BrawlerDefines.ActionUseStatus commonStatus = CommonActionUseStatus;
+        if (commonStatus != BrawlerDefines.ActionUseStatus.Ready)
+        {
+            return commonStatus;
+        }
+        if (Inventory.GetCount(action) <= 0)
+        {
+            return BrawlerDefines.ActionUseStatus.Empty;
+        }
+        return action == BrawlerDefines.UsableAction.HealingPotion && Health >= MaxHealth
+            ? BrawlerDefines.ActionUseStatus.HealthFull : BrawlerDefines.ActionUseStatus.Ready;
     }
 
     protected override void InitializeInventory()
@@ -44,7 +60,7 @@ public abstract class ItemFighter : Fighter, IPlayerActionUser
         }
     }
 
-    public bool TryUseSelectedAction()
+    public virtual bool TryUseSelectedAction()
     {
         if (SelectedActionUseStatus != BrawlerDefines.ActionUseStatus.Ready)
         {

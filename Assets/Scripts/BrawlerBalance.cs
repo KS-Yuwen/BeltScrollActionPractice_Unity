@@ -447,6 +447,28 @@ public static class BrawlerBalance
     public const float ScrollBandWidth = 0.12f;
     public const float ScrollBandHeight = 0.27f;
     public const float ScrollBandDepth = 0.32f;
+    // 攻撃魔法の試作設定。所持数・戦闘性能・演出を名前付き定数で調整します。
+    public const int MagicMissileUses = 3;
+    public const int MagicMissileDamage = 24;
+    public const float MagicMissileRange = 6f;
+    public const float MagicMissileDepth = 0.65f;
+    public const float MagicMissileHeight = 1.2f;
+    public const float MagicMissileCastSeconds = 0.4f;
+    public const float SpellCastingArmAngle = 150f;
+    // 腕を持ち上げる→構える→前へ振り出す→戻す、の演出専用設定です。
+    public const float SpellReadyArmAngle = 0f;
+    public const float SpellReleaseArmAngle = 90f;
+    public const float SpellRaiseArmSeconds = 0.12f;
+    public const float SpellReleaseArmSeconds = 0.08f;
+    public const float SpellReleasePoseHoldSeconds = 0.12f;
+    public const float MagicMissileEffectSeconds = 0.25f;
+    public const float MagicMissileRecoverySeconds = 0.6f;
+    public const float MagicMissileTrailWidth = 0.12f;
+    public const float MagicMissileTrailSeconds = 0.2f;
+
+    // 回復魔法の試作用の時間です。攻撃魔法とは独立に調整できます。
+    public const float HealingCastSeconds = 0.4f;
+    public const float HealingEffectSeconds = 0.25f;
     public const float SpellRecoverySeconds = 0.6f;
     public const float ProtectionSeconds = 8;
     public const float ProtectionDamageMultiplier = 0.5f;

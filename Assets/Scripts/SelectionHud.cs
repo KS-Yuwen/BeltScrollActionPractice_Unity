@@ -37,7 +37,9 @@ public static class SelectionHud
         string hint = BrawlerInput.IsGamepadConnected ? "View / Share: Select    RT / R2: Use" : "Q: Select    E: Use";
         GUI.Label(new Rect(0, BrawlerBalance.SelectionCardHeight, width, BrawlerBalance.SelectionHintHeight), hint, s_hintStyle);
         BrawlerDefines.ActionUseStatus status = ((IPlayerActionUser)player).SelectedActionUseStatus;
-        string reason = status switch
+        string reason = player is SpellFighter caster && caster.IsCastingSpell
+            ? $"CASTING {caster.SpellCastSecondsRemaining:F1}s"
+            : player is SpellFighter releasing && releasing.IsReleasingSpell ? "SPELL EFFECT" : status switch
         {
             BrawlerDefines.ActionUseStatus.Ready => "READY",
             BrawlerDefines.ActionUseStatus.Empty => "EMPTY",
@@ -70,6 +72,7 @@ public static class SelectionHud
         int capacity = BrawlerBalance.InventoryStackLimit;
         string title = action switch
         {
+            BrawlerDefines.UsableAction.MagicMissile => "MAGIC MISSILE",
             BrawlerDefines.UsableAction.Healing => "HEAL",
             BrawlerDefines.UsableAction.Protection => "PROTECTION",
             BrawlerDefines.UsableAction.AttackBoost => "ATTACK BOOST",

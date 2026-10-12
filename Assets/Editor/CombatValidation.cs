@@ -135,19 +135,32 @@ public static class CombatValidation
             Require(!cleric.TryHeal(), "被ダメージ硬直中は回復できない");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
-            Require(cleric.TryUseSelectedAction() && player.Health == 85 && cleric.HealingUsesRemaining == 2, "選択した回復でHP を30回復し1回消費");
+            Require(cleric.TryUseSelectedAction() && player.Health == 55 && cleric.HealingUsesRemaining == 2
+                && cleric.IsCastingSpell, "選択した回復は詠唱を開始し、回数だけを先に消費する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds);
+            Require(player.Health == 85 && cleric.IsReleasingSpell && game.IsSpellEffectActive,
+                "詠唱完了時にHPを30回復し、発動演出中は敵を停止する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingEffectSeconds);
+            Require(cleric.IsRecoveringFromSpell && !game.IsSpellEffectActive,
+                "回復演出が終わると敵を再開し、術者は後隙へ移る");
             Require(!cleric.TryHeal(), "回復後の隙では再使用不可");
             player.TakeDamage(5, player.Facing);
             Require(player.Health == 80, "回復中も無敵にはならない");
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
-            Require(cleric.TryHeal() && player.Health == 100, "回復は最大HPで止まる");
+            SetPrivateField(cleric, "_spellRecoveryRemaining", 0f);
+            Require(cleric.TryHeal(), "2回目の回復の詠唱を開始する");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds);
+            Require(player.Health == 100, "詠唱完了時の回復は最大HPで止まる");
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
+            SetPrivateField(cleric, "_spellRecoveryRemaining", 0f);
             player.TakeDamage(40, player.Facing);
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             Require(cleric.TryHeal() && cleric.HealingUsesRemaining == 0, "3回目で残り0回");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
             SetPrivateField(cleric, "_recoveryRemaining", 0f);
             Require(!cleric.TryUseSelectedAction(), "選択使用でも回数を使い切ると発動できない");
 
@@ -965,7 +978,10 @@ public static class CombatValidation
             SetPrivateField(player, "_stunRemaining", 0f);
             SetPrivateField(player, "_attackCooldown", 0f);
             typeof(ClericFighter).GetProperty("HealingUsesRemaining").SetValue(cleric, 1);
-            Require(cleric.TryHeal() && player.Health == player.MaxHealth, "回復表示用の魔法を発動");
+            Require(cleric.TryHeal(), "回復表示用の魔法の詠唱を開始");
+            AdvanceSpell(cleric, BrawlerBalance.HealingCastSeconds + BrawlerBalance.HealingEffectSeconds
+                + BrawlerBalance.SpellRecoverySeconds);
+            Require(player.Health == player.MaxHealth, "詠唱完了時にHPを回復する");
             DamageNumber[] healingNumbers = Array.FindAll(UnityEngine.Object.FindObjectsByType<DamageNumber>(), n => n.Kind == BrawlerDefines.DamageKind.Healing);
             Require(healingNumbers.Length == healingNumberCount + 1
                 && Array.Exists(healingNumbers, n => n.Amount == 25 && n.DisplayText == "+25" && n.DisplayColor == Color.green),
@@ -1238,7 +1254,8 @@ public static class CombatValidation
         {
             if (action != BrawlerDefines.UsableAction.None)
             {
-                Require(inventory.TryAdd(action), "6種類を個別のスロットへ格納できる");
+                bool hasSpace = inventory.FindSlot(BrawlerDefines.UsableAction.None) >= 0;
+                Require(inventory.TryAdd(action) == hasSpace, "空き枠に格納し、7種類目は満枠で拒否する");
             }
         }
         Require(inventory.FindSlot(BrawlerDefines.UsableAction.None) < 0, "6種類で空き枠がなくなる");
@@ -2123,6 +2140,13 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    // エディター更新のdeltaTimeに依存せず、魔法の各段階の境界を検証します。
+    private static void AdvanceSpell(SpellFighter caster, float seconds)
+    {
+        typeof(SpellFighter).GetMethod("UpdateSpell", BindingFlags.Instance | BindingFlags.NonPublic)
+            .Invoke(caster, new object[] { seconds });
     }
 
     // テスト用に内部状態を設定します。ゲーム側の公開 API を増やさず確認するための仕組みです。

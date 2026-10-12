@@ -14,6 +14,7 @@ public sealed class PickupNotice : FloatingLabel
             BrawlerDefines.PickupKind.ThrowingKnife => "ナイフ＋1",
             BrawlerDefines.PickupKind.HealingScroll => "回復魔法＋1",
             BrawlerDefines.PickupKind.ProtectionScroll => "防御魔法＋1",
+            BrawlerDefines.PickupKind.MagicMissileScroll => "攻撃魔法＋1",
             BrawlerDefines.PickupKind.AttackBoostScroll => "攻撃強化＋1",
             _ => "ハンマー＋1"
         };
