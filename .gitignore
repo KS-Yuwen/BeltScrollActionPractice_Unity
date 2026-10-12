@@ -108,6 +108,8 @@ InitTestScene*.unity*
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
 
-# MdFiles
-AGENTS.md
-CONTROLS_ROADMAP.md
+# Local agent notes and configuration
+/.codex/
+
+# Local project documentation
+/docs/

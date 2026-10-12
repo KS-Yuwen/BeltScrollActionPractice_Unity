@@ -319,7 +319,7 @@ public static class BrawlerBalance
     // 有限の所持品。射程は時間ではなく飛んだ距離で制限します。
     // ハンマーの軌道・気絶は試作用の調整値です。通常の転倒や被弾硬直とは区別します。
     // 大きな弧を描き、0.5秒で発射位置から3.0上昇します。着地までは約1.09秒です。
-    // 原作動画を参考にした試作値で、映像から実測した数値ではありません。
+    // 動画を参考にした試作値で、映像から実測した数値ではありません。
     public const float HammerVerticalSpeed = 12f;
     public const float HammerGravity = 24f;
     public const int LargeEnemyHammerHitLimit = 2;
