@@ -57,6 +57,9 @@ public static class BrawlerBalance
     public const float ProtectionWarningSeconds = 3f;
     public const float ProtectionWarningPulsesPerSecond = 2f;
     public const int SelectionStatusFontSize = 14;
+    public const int LowSpellUsesThreshold = 2;
+    public const float SpellDepletedNoticeSeconds = 1.5f;
+    public static readonly UnityEngine.Color LowSpellUsesColor = new UnityEngine.Color(1f, 0.55f, 0.15f);
     public const float HitDirectionSeconds = 0.6f;
     public const float HitDirectionFadeSeconds = 0.2f;
     public const float HitDirectionWorldOffset = 1f;

@@ -112,6 +112,10 @@ public static class SelectionHud
             * BrawlerBalance.ProtectionWarningPulsesPerSecond * Mathf.PI * 2)) / 2 : 0;
         int count = player.Inventory.GetSlotCount(slot);
         int capacity = BrawlerBalance.InventoryStackLimit;
+        bool isSpell = action == BrawlerDefines.UsableAction.Healing || action == BrawlerDefines.UsableAction.Protection
+            || action == BrawlerDefines.UsableAction.AttackBoost || action == BrawlerDefines.UsableAction.MagicMissile;
+        bool lowUses = DisplayOptions.ShowLowSpellUsesWarning && isSpell && count > 0
+            && count <= BrawlerBalance.LowSpellUsesThreshold;
         string title = action switch
         {
             BrawlerDefines.UsableAction.MagicMissile => "MAGIC MISSILE",
@@ -139,8 +143,23 @@ public static class SelectionHud
         GUI.color = selected ? Color.yellow : count > 0 ? Color.white : Color.gray;
         GUI.Label(new Rect(x + padding, padding, card.width - padding * 2, card.height / 3),
             (selected ? "> " : "") + title, s_titleStyle);
+        // 少数時は色と「!」で強調します。常時点滅させず、設定でこの強調だけを無効にできます。
+        if (lowUses)
+        {
+            GUI.color = BrawlerBalance.LowSpellUsesColor;
+        }
         GUI.Label(new Rect(x + padding, card.height / 3, card.width - padding * 2, card.height / 3),
-            action == BrawlerDefines.UsableAction.None ? "—" : $"{count} / {capacity}", s_countStyle);
+            action == BrawlerDefines.UsableAction.None ? "—" : (lowUses ? "! " : "") + $"{count} / {capacity}", s_countStyle);
+        if (DisplayOptions.ShowSpellDepletedNotice && action == BrawlerDefines.UsableAction.None
+            && player is SpellFighter caster && caster.DepletedSpellSlot == slot
+            && caster.DepletedSpellNoticeSecondsRemaining > 0 && player.Health > 0)
+        {
+            // 選択を別の枠へ移しても元の空き枠に表示します。補充や別アイテムの取得後には表示しません。
+            GUI.color = BrawlerBalance.LowSpellUsesColor;
+            GUI.Label(new Rect(x + padding, card.height * 2 / 3, card.width - padding * 2, card.height / 3),
+                "使い切り", s_statusStyle);
+        }
+        GUI.color = selected ? Color.yellow : count > 0 ? Color.white : Color.gray;
         if (action == BrawlerDefines.UsableAction.AttackBoost && cleric != null && cleric.IsAttackBoosted)
         {
             GUI.color = cleric.IsAttackBoostExpiring ? Color.yellow : Color.white;
