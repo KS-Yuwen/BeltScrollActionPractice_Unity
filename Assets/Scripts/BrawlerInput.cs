@@ -29,6 +29,14 @@ public static class BrawlerInput
         InputSystem.settings.updateMode = InputSettings.UpdateMode.ProcessEventsInDynamicUpdate;
     }
 
+    // Startは既存のリスタート・ボス準備に使うため、オプションは右スティック押し込みで開きます。
+    public static bool WasOptionsPressed() => (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.rightStickButton.wasPressedThisFrame);
+    public static bool WasOptionsCancelPressed() => WasOptionsPressed()
+        || (Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame);
+    public static bool WasOptionsConfirmPressed() => (Keyboard.current != null && Keyboard.current.enterKey.wasPressedThisFrame)
+        || (Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame);
+
     public static bool IsGamepadConnected => Gamepad.current != null;
 
     // 実機入力が列挙されない状態を把握するための情報。仮想入力の検証とは区別します。

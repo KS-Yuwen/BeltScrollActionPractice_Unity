@@ -108,6 +108,10 @@ public abstract class SpellFighter : ItemFighter
 
     protected override void Update()
     {
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         UpdateSpell(Time.deltaTime);
         base.Update();
     }

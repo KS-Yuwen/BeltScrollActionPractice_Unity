@@ -154,6 +154,11 @@ public sealed class ClericFighter : SpellFighter
 
     protected override void Update()
     {
+        // メニューを開いたフレームも、基底クラスより先に進む効果時間を保持します。
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         // 硬直中や回復中も効果時間が経過します。共通の戦闘更新より先に終了を判定します。
         UpdateProtection(Time.deltaTime);
         UpdateAttackBoost(Time.deltaTime);

@@ -39,7 +39,7 @@ public sealed class BossFighter : HeavyFighter
     protected override void Update()
     {
         // 基底クラスより先に更新するボス固有の段階移行・後隙も、魔法演出中は進めません。
-        if (IsPausedBySpellEffect)
+        if (OptionsMenu.BlocksGameplay || IsPausedBySpellEffect)
         {
             return;
         }

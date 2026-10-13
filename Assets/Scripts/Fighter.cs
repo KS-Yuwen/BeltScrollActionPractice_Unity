@@ -449,7 +449,7 @@ public class Fighter : Combatant
     protected virtual void Update()
     {
         // 倒れた後は移動や攻撃の更新を止めます。
-        if (Health <= 0 || _game.IsRunFinished || IsPausedBySpellEffect)
+        if (OptionsMenu.BlocksGameplay || Health <= 0 || _game.IsRunFinished || IsPausedBySpellEffect)
         {
             // AIだけでなく攻撃発生・硬直・ノックバック・アニメーションの時間も保存します。
             return;

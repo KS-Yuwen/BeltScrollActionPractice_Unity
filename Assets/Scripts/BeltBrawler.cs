@@ -73,6 +73,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private float _timeScaleBeforeBossSlow = 1f;
     public bool IsShowingBossDefeat => _bossDefeatRemaining > 0 && !IsRunFinished;
     private BrawlerAudio _audio;
+    private OptionsMenu _optionsMenu;
     private Font _pickupNoticeFont;
 
     public void PlaySound(BrawlerSound sound)
@@ -88,6 +89,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private void Start()
     {
         _audio = gameObject.AddComponent<BrawlerAudio>();
+        _optionsMenu = gameObject.AddComponent<OptionsMenu>();
         // 日本語の取得名を描画できるOSフォントを一度だけ作り、通知間で共有します。
         _pickupNoticeFont = Font.CreateDynamicFontFromOSFont(new[] { "Yu Gothic", "Meiryo" }, BrawlerBalance.PickupNoticeFontSize);
         _factory = new BrawlerSceneFactory(this);
@@ -173,6 +175,11 @@ public sealed class BeltBrawler : MonoBehaviour
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
     private void Update()
     {
+        // メニュー中は実時間のヒットストップ解除や進行入力も止め、戦闘時間の所有権を維持します。
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
         UpdateHitStop(Time.unscaledDeltaTime);
         UpdateBossDefeat(Time.unscaledDeltaTime);
@@ -583,6 +590,10 @@ public sealed class BeltBrawler : MonoBehaviour
 
     private void OnDisable()
     {
+        if (_optionsMenu != null)
+        {
+            _optionsMenu.Close();
+        }
         RestoreCombatTime();
     }
 
@@ -1035,6 +1046,11 @@ public sealed class BeltBrawler : MonoBehaviour
     // 1 フレームに複数回呼ばれることがあるため、ゲーム進行はここで更新しません。
     private void OnGUI()
     {
+        if (_optionsMenu != null && _optionsMenu.IsOpen)
+        {
+            _optionsMenu.Draw(_pickupNoticeFont);
+            return;
+        }
         float margin = BrawlerBalance.ClassPanelMargin;
         // 職業ボタンは狭い画面でも収まる幅にそろえます。
         float width = Mathf.Min(BrawlerBalance.ClassButtonWidth,
@@ -1062,5 +1078,9 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
             _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
+        if (_optionsMenu != null)
+        {
+            _optionsMenu.Draw(_pickupNoticeFont);
+        }
     }
 }

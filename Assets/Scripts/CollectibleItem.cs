@@ -25,6 +25,10 @@ public abstract class CollectibleItem : MonoBehaviour
 
     protected virtual void Update()
     {
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         AdvanceLifetime(Time.deltaTime);
         if (_remainingLifetime <= 0)
         {
