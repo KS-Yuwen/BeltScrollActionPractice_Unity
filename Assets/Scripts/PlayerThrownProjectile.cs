@@ -35,7 +35,10 @@ public abstract class PlayerThrownProjectile : MonoBehaviour
 
     protected virtual void Update()
     {
-        Advance(Time.deltaTime);
+        if (!OptionsMenu.BlocksGameplay)
+        {
+            Advance(Time.deltaTime);
+        }
     }
 
     // 長いフレームでも寿命を超えず、曲線の途中にいる相手を見落とさないよう小区間で調べます。

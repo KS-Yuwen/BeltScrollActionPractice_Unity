@@ -18,6 +18,10 @@ public sealed class EnemyProjectile : MonoBehaviour
 
     private void Update()
     {
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         // Destroyはフレーム末に行われるため、終了済みの弾が二重に音やダメージを出すのを防ぎます。
         if (_isFinished)
         {

@@ -12,14 +12,25 @@ public abstract class SpellFighter : ItemFighter
     private float _spellCastDuration;
     private float _spellEffectDuration;
     private float _spellRecoveryDuration;
+    private float _depletedNoticeEndsAt;
+    public int DepletedSpellSlot { get; private set; } = -1;
+    public float DepletedSpellNoticeSecondsRemaining => Mathf.Max(0, _depletedNoticeEndsAt - Time.time);
 
     // 秒数を開始時に保存するため、所持枠の切り替えや消費による空き枠化に影響されません。
     protected bool TryBeginSpell(BrawlerDefines.UsableAction action, float castSeconds,
         float effectSeconds, float recoverySeconds)
     {
+        // 消費で空き枠になった後も元の位置を表示できるよう、使用前のスロットを記録します。
+        int usedSlot = Inventory.FindSlot(action);
         if (GetActionUseStatus(action) != BrawlerDefines.ActionUseStatus.Ready || !Inventory.TryConsume(action))
         {
             return false;
+        }
+        if (Inventory.GetCount(action) == 0)
+        {
+            // 詠唱中断でも消費は戻らないため、使い切りは発動時でなく消費成功時に記録します。
+            DepletedSpellSlot = usedSlot;
+            _depletedNoticeEndsAt = Time.time + BrawlerBalance.SpellDepletedNoticeSeconds;
         }
         _spellPoseInterrupted = false;
         _castingAction = action;
@@ -97,6 +108,10 @@ public abstract class SpellFighter : ItemFighter
 
     protected override void Update()
     {
+        if (OptionsMenu.BlocksGameplay)
+        {
+            return;
+        }
         UpdateSpell(Time.deltaTime);
         base.Update();
     }

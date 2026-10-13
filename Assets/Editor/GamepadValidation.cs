@@ -488,6 +488,7 @@ public static class GamepadValidation
             ValidateThiefAirJumpInput(player, keyboard);
             ValidateThiefWallJumpInput(player);
             ValidateBackstabInput(player);
+            ValidateOptionsInput(player);
             Debug.Log("GAMEPAD_VALIDATION_PASSED");
         }
         finally
@@ -1585,6 +1586,80 @@ public static class GamepadValidation
     {
         typeof(SpellFighter).GetMethod("UpdateSpell", BindingFlags.Instance | BindingFlags.NonPublic)
             .Invoke(caster, new object[] { seconds });
+    }
+
+    // 表示設定を戻しながら、一時停止とメニューの入力が戦闘へ流れないことを検証します。
+    private static void ValidateOptionsInput(Fighter player)
+    {
+        var game = UnityEngine.Object.FindAnyObjectByType<BeltBrawler>();
+        var menu = game.GetComponent<OptionsMenu>();
+        MethodInfo update = typeof(OptionsMenu).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        bool originalLow = DisplayOptions.ShowLowSpellUsesWarning;
+        bool originalDepleted = DisplayOptions.ShowSpellDepletedNotice;
+        float originalScale = Time.timeScale;
+        Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
+        Gamepad pad = InputSystem.AddDevice<Gamepad>();
+        try
+        {
+            Time.timeScale = 1;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.IsOpen && Time.timeScale == 0 && OptionsMenu.BlocksGameplay, "Escでオプションを開き、戦闘を一時停止する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(DisplayOptions.ShowLowSpellUsesWarning != originalLow, "Enterで残り回数の強調を切り替える");
+            // 保持は次の入力更新で検証します。
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            bool heldValue = DisplayOptions.ShowLowSpellUsesWarning;
+            update.Invoke(menu, null);
+            Require(DisplayOptions.ShowLowSpellUsesWarning == heldValue, "決定キー保持では連続切り替えしない");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == 1, "上下で使い切り表示の項目へ移動する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(DisplayOptions.ShowSpellDepletedNotice != originalDepleted, "使い切り表示を独立に切り替える");
+            float attackBefore = ReadPlayerTimer(player, "_attackRemaining");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
+            InputSystem.Update();
+            UpdatePlayer(player);
+            Require(ReadPlayerTimer(player, "_attackRemaining") == attackBefore, "メニュー中の攻撃入力を戦闘へ渡さない");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Escape));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(!menu.IsOpen && Time.timeScale == 1 && OptionsMenu.BlocksGameplay,
+                "閉じると停止前の速度を戻し、閉じたフレームの入力は抑制する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState());
+            InputSystem.Update();
+            SendState(pad, new GamepadState().WithButton(GamepadButton.RightStick));
+            update.Invoke(menu, null);
+            Require(menu.IsOpen, "パッドR3でもオプションを開ける");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == 1, "パッド十字キーで項目を選択する");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.East));
+            update.Invoke(menu, null);
+            Require(!menu.IsOpen && Time.timeScale == 1, "パッドBで閉じ、速度を復元する");
+            Time.timeScale = BrawlerBalance.BossDefeatSlowTimeScale;
+            menu.Open();
+            menu.Close();
+            Require(Time.timeScale == BrawlerBalance.BossDefeatSlowTimeScale, "低速演出中の開閉も元の速度に戻す");
+        }
+        finally
+        {
+            menu.Close();
+            typeof(OptionsMenu).GetField("_blockedFrame", BindingFlags.Instance | BindingFlags.NonPublic).SetValue(menu, -1);
+            Time.timeScale = originalScale;
+            DisplayOptions.ShowLowSpellUsesWarning = originalLow;
+            DisplayOptions.ShowSpellDepletedNotice = originalDepleted;
+            InputSystem.RemoveDevice(keyboard);
+            InputSystem.RemoveDevice(pad);
+        }
     }
 
     private static void SendState(Gamepad pad, GamepadState state)
