@@ -4,6 +4,7 @@ using UnityEngine;
 // 予告中に向きと奥行きを固定するため、プレイヤーは奥行き移動で射線から逃げられます。
 public sealed class RangedFighter : Fighter
 {
+    public override bool UsesCoordinatedMeleeAttacks => false;
     // 弾の発射位置・飛距離・衝突半径から射線表示を求めます。
     public override float WarningRangeStart => BrawlerBalance.EnemyProjectileLaunchOffset;
     public override float WarningRangeEnd => WarningRangeStart

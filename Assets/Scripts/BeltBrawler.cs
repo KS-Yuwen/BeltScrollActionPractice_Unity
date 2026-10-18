@@ -74,6 +74,9 @@ public sealed class BeltBrawler : MonoBehaviour
     public bool IsShowingBossDefeat => _bossDefeatRemaining > 0 && !IsRunFinished;
     private BrawlerAudio _audio;
     private OptionsMenu _optionsMenu;
+    private EnemyAttackCoordinator _enemyAttacks;
+
+    public bool TryRequestMeleeAttack(Fighter fighter) => _enemyAttacks.TryRequest(fighter);
     private Font _pickupNoticeFont;
 
     public void PlaySound(BrawlerSound sound)
@@ -88,6 +91,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
     private void Start()
     {
+        _enemyAttacks = new EnemyAttackCoordinator(EnemyAiSettings.Current);
         _audio = gameObject.AddComponent<BrawlerAudio>();
         _optionsMenu = gameObject.AddComponent<OptionsMenu>();
         // 日本語の取得名を描画できるOSフォントを一度だけ作り、通知間で共有します。
@@ -109,6 +113,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
     private void SpawnWave()
     {
+        _enemyAttacks.Reset();
         if (IsRunFinished || IsPreparingBoss || _wave >= BrawlerBalance.StageWaveCount)
         {
             return;
@@ -181,6 +186,11 @@ public sealed class BeltBrawler : MonoBehaviour
             return;
         }
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
+        // 魔法で敵を止めている間も、攻撃順の待ち時間を保持します。
+        if (!IsSpellEffectActive)
+        {
+            _enemyAttacks.Advance(Time.deltaTime);
+        }
         UpdateHitStop(Time.unscaledDeltaTime);
         UpdateBossDefeat(Time.unscaledDeltaTime);
         _hitDirectionIndicator.Advance(Time.unscaledDeltaTime);

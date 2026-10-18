@@ -72,6 +72,7 @@ public static class CombatValidation
                 return;
             }
             var player = game.Target;
+            ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
             // 回避中の無敵と、回避終了後にダメージを受けることを両方確認します。
@@ -2213,6 +2214,75 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    // 生きた敵の状態とCSV設定を使い、同時数・間隔・待ち順・離脱を検証します。
+    private static void ValidateEnemyCoordination(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nMaxSimultaneousAttackers,2\nAttackStartIntervalSeconds,0",
+            out EnemyAiSettings parallel, out _) && parallel.MaxSimultaneousAttackers == 2
+            && parallel.MeleeRecoverySeconds == EnemyAiSettings.CreateDefault().MeleeRecoverySeconds,
+            "敵AIのCSVは部分指定を読み、省略値を既定値で補う");
+        foreach (string invalid in new[] { "", "key,value", "key,value\nMaxSimultaneousAttackers,1.5",
+            "key,value\nMaxSimultaneousAttackers,0", "key,value\nAttackStartIntervalSeconds,NaN",
+            "key,value\nAttackStartIntervalSeconds,Infinity", "key,value\nMeleeRecoverySeconds,-1",
+            "key,value\nUnknown,1", "key,value\nMeleeWindupSeconds,1\nMeleeWindupSeconds,2" })
+        {
+            Require(!EnemyAiSettings.TryParse(invalid, out EnemyAiSettings fallback, out string error)
+                && fallback.MaxSimultaneousAttackers == EnemyAiSettings.CreateDefault().MaxSimultaneousAttackers
+                && !string.IsNullOrEmpty(error), "不正な敵AI設定は全体を既定値へ戻す");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 near = game.Target.transform.position + Vector3.right * (BrawlerBalance.MeleeStopDistance / 2);
+        Fighter first = factory.CreateFighter("Test attack order first", near, false, 1);
+        Fighter second = factory.CreateFighter("Test attack order second", near, false, 1);
+        Fighter heavyAttacker = factory.CreateFighter("Test attack order heavy", near, false, 1, isHeavy: true);
+        Fighter rangedAttacker = factory.CreateFighter("Test excluded ranged", near, false, 1, isRanged: true);
+        Fighter bossAttacker = factory.CreateFighter("Test excluded boss", near, false, 1, isBoss: true);
+        MethodInfo windup = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            var settings = EnemyAiSettings.CreateDefault();
+            var order = new EnemyAttackCoordinator(settings);
+            Require(order.TryRequest(first), "最初の近接敵に攻撃を許可する");
+            windup.Invoke(first, new object[] { settings.MeleeWindupSeconds });
+            Require(!order.TryRequest(second), "予告中の敵がいる場合は次の敵を待たせる");
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(!order.TryRequest(second), "開始間隔を過ぎても同時攻撃上限を守る");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            Require(!order.TryRequest(first) && order.TryRequest(second), "更新順でなく先に待った敵を優先する");
+            windup.Invoke(second, new object[] { settings.MeleeWindupSeconds });
+            UnityEngine.Object.DestroyImmediate(second.gameObject);
+            order.Advance(0);
+            Require(!order.TryRequest(first), "攻撃者が破棄されても開始間隔は飛ばさない");
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(order.TryRequest(first), "破棄された攻撃者は同時数から除外する");
+            windup.Invoke(first, new object[] { settings.MeleeWindupSeconds });
+            Require(!order.TryRequest(heavyAttacker), "重装敵も同じ待ち列へ参加する");
+            heavyAttacker.transform.position += Vector3.right * BrawlerBalance.StageHalfWidth;
+            SetPrivateField(first, "_windupRemaining", 0f);
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(order.TryRequest(first), "間合い外へ離れた待機敵で順番を詰まらせない");
+            Require(!order.TryRequest(rangedAttacker) && !order.TryRequest(bossAttacker), "遠距離敵とボスは共通の攻撃枠に入れない");
+            order.Reset();
+            Require(order.TryRequest(first), "ウェーブ切り替え時は開始間隔と待ち列をリセットする");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            heavyAttacker.transform.position = near;
+            var multiple = new EnemyAttackCoordinator(parallel);
+            Require(multiple.TryRequest(first), "CSVで変更した同時数でも先頭を許可する");
+            windup.Invoke(first, new object[] { parallel.MeleeWindupSeconds });
+            Require(multiple.TryRequest(heavyAttacker), "CSVで同時数2・間隔0を指定すると2体目を許可する");
+        }
+        finally
+        {
+            foreach (Fighter fighter in new[] { first, second, heavyAttacker, rangedAttacker, bossAttacker })
+            {
+                if (fighter != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+                }
+            }
+        }
     }
 
     // エディター更新のdeltaTimeに依存せず、魔法の各段階の境界を検証します。

@@ -1,0 +1,17 @@
+key,value
+# 予告中と攻撃動作中を合わせた近接敵の上限（整数1～8）。遠距離敵とボスは対象外
+MaxSimultaneousAttackers,1
+# 全体で次の近接攻撃を開始できるまでの秒数（0～10）
+AttackStartIntervalSeconds,0.75
+# 予告時間（秒、0.05～5）
+MeleeWindupSeconds,0.55
+HeavyWindupSeconds,0.95
+# 各敵の攻撃開始から次の攻撃までの間隔（秒、0～10）
+MeleeAttackIntervalSeconds,1.2
+HeavyAttackIntervalSeconds,1.8
+# 攻撃発生後の反撃できる隙（秒、0～10）
+MeleeRecoverySeconds,0.65
+HeavyRecoverySeconds,0.85
+# 接近を止める左右距離（0.1～3）と奥行き許容幅（0.05～3）。Unity単位
+MeleeStopDistance,1.1
+MeleeLaneTolerance,0.5

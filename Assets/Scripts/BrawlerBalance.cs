@@ -109,8 +109,8 @@ public static class BrawlerBalance
     public const float SelectionCardWidth = 154f;
     public const float SelectionCardHeight = 92f;
     // 敵の攻撃発生後に反撃できる隙。攻撃間隔・被弾硬直とは独立した試作値です。
-    public const float MeleeRecoverySeconds = 0.65f;
-    public const float HeavyRecoverySeconds = 0.85f;
+    public static float MeleeRecoverySeconds => EnemyAiSettings.Current.MeleeRecoverySeconds;
+    public static float HeavyRecoverySeconds => EnemyAiSettings.Current.HeavyRecoverySeconds;
     public const float SelectionCardGap = 8f;
     public const float SelectionCardPadding = 8f;
     public const float SelectionBorderWidth = 3f;
@@ -376,11 +376,11 @@ public static class BrawlerBalance
 
     // 敵の標準能力と、被ダメージ・防御後の反応。
     public const float MeleeSpeed = 2.2f;
-    public const float MeleeWindupSeconds = 0.55f;
-    public const float MeleeAttackIntervalSeconds = 1.2f;
+    public static float MeleeWindupSeconds => EnemyAiSettings.Current.MeleeWindupSeconds;
+    public static float MeleeAttackIntervalSeconds => EnemyAiSettings.Current.MeleeAttackIntervalSeconds;
     public const int MeleeDamage = 10;
-    public const float MeleeStopDistance = 1.1f;
-    public const float MeleeLaneTolerance = 0.5f;
+    public static float MeleeStopDistance => EnemyAiSettings.Current.MeleeStopDistance;
+    public static float MeleeLaneTolerance => EnemyAiSettings.Current.MeleeLaneTolerance;
     public const float StunSeconds = 0.25f;
     public const float EnemyHitCooldownSeconds = 0.6f;
     public const float DownSeconds = 0.7f;
@@ -400,8 +400,8 @@ public static class BrawlerBalance
     public const float StageHalfWidth = 22;
     public const float StageHalfDepth = 3;
     public const float HeavySpeed = 1.3f;
-    public const float HeavyWindupSeconds = 0.95f;
-    public const float HeavyAttackIntervalSeconds = 1.8f;
+    public static float HeavyWindupSeconds => EnemyAiSettings.Current.HeavyWindupSeconds;
+    public static float HeavyAttackIntervalSeconds => EnemyAiSettings.Current.HeavyAttackIntervalSeconds;
     public const int HeavyDamage = 24;
     public const int HealingAmount = 30;
     // ターニングアンデッドの試作用設定。HPや魔法回数は消費せず、再使用時間で連打を制限します。

@@ -3,6 +3,7 @@ using UnityEngine;
 // 重装型の被弾・気絶・転倒を共用し、ボスの攻撃選択と反撃できる隙だけを追加します。
 public sealed class BossFighter : HeavyFighter
 {
+    public override bool UsesCoordinatedMeleeAttacks => false;
     // ボスは専用の後隙と攻撃休止を使い、通常敵の後隙を重ねません。
     protected override float EnemyRecoverySeconds => 0f;
     public override bool CanBeBackstabbed => false;

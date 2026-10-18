@@ -23,6 +23,24 @@ public class Fighter : Combatant
     protected virtual BrawlerSound EnemyWarningSound => BrawlerSound.EnemyWarning;
     protected virtual BrawlerSound EnemySwingSound => BrawlerSound.EnemySwing;
     public virtual BrawlerSound EnemyMissSound => BrawlerSound.EnemyMiss;
+    // 遠距離型・ボスは独自の思考を使い、この待ち列から除外します。
+    public virtual bool UsesCoordinatedMeleeAttacks => !IsPlayer;
+    public bool IsEnemyAttackActive => !IsPlayer && Health > 0 && (IsWindingUp || _attackRemaining > 0);
+    public bool CanWaitForMeleeAttack
+    {
+        get
+        {
+            if (!UsesCoordinatedMeleeAttacks || Health <= 0 || _game == null || _game.IsRunFinished
+                || _game.Target == null || _game.Target.Health <= 0 || _stunRemaining > 0 || IsDowned
+                || IsEnemyAttackActive || !CanStartEnemyAttack)
+            {
+                return false;
+            }
+            Vector3 delta = _game.Target.transform.position - transform.position;
+            return Mathf.Abs(delta.x) <= BrawlerBalance.MeleeStopDistance
+                && Mathf.Abs(delta.z) <= BrawlerBalance.MeleeLaneTolerance;
+        }
+    }
     private BeltBrawler _game;
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
@@ -882,7 +900,7 @@ public class Fighter : Combatant
         {
             return delta.normalized;
         }
-        if (CanStartEnemyAttack)
+        if (CanStartEnemyAttack && Game.TryRequestMeleeAttack(this))
         {
             BeginAttackWindup(EnemyWindupDuration);
         }
