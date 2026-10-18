@@ -18,7 +18,14 @@ public sealed class EnemyAiSettings
         { nameof(MeleeRecoverySeconds), (0.65f, 0, 10, false) },
         { nameof(HeavyRecoverySeconds), (0.85f, 0, 10, false) },
         { nameof(MeleeStopDistance), (1.1f, 0.1f, 3, false) },
-        { nameof(MeleeLaneTolerance), (0.5f, 0.05f, 3, false) }
+        { nameof(MeleeLaneTolerance), (0.5f, 0.05f, 3, false) },
+        { nameof(WaitingDistance), (2.2f, 0.1f, 8, false) },
+        { nameof(WaitingDepthOffset), (0.9f, 0, 3, false) },
+        { nameof(WaitingMoveSpeed), (1f, 0, 5, false) },
+        { nameof(WaitingPositionTolerance), (0.15f, 0.01f, 1, false) },
+        { nameof(WaitingEngagementDistance), (5f, 0.1f, 12, false) },
+        { nameof(SeparationDistance), (0.75f, 0, 3, false) },
+        { nameof(SeparationStrength), (0.6f, 0, 3, false) }
     };
     private readonly Dictionary<string, float> _values;
     public static EnemyAiSettings Current { get; private set; } = CreateDefault();
@@ -32,6 +39,15 @@ public sealed class EnemyAiSettings
     public float HeavyRecoverySeconds => _values[nameof(HeavyRecoverySeconds)];
     public float MeleeStopDistance => _values[nameof(MeleeStopDistance)];
     public float MeleeLaneTolerance => _values[nameof(MeleeLaneTolerance)];
+
+    public float WaitingDistance => _values[nameof(WaitingDistance)];
+    public float WaitingDepthOffset => _values[nameof(WaitingDepthOffset)];
+    public float WaitingMoveSpeed => _values[nameof(WaitingMoveSpeed)];
+    public float WaitingPositionTolerance => _values[nameof(WaitingPositionTolerance)];
+    public float WaitingEngagementDistance => _values[nameof(WaitingEngagementDistance)];
+
+    public float SeparationDistance => _values[nameof(SeparationDistance)];
+    public float SeparationStrength => _values[nameof(SeparationStrength)];
 
     private EnemyAiSettings(Dictionary<string, float> values)
     {
@@ -113,6 +129,12 @@ public sealed class EnemyAiSettings
         if (!headerRead || seen.Count == 0)
         {
             error = "調整項目がありません。";
+            return false;
+        }
+        if (values[nameof(WaitingEngagementDistance)] < values[nameof(WaitingDistance)]
+            || values[nameof(WaitingEngagementDistance)] < values[nameof(MeleeStopDistance)])
+        {
+            error = "待機への参加距離は待機距離・接近停止距離以上にしてください。";
             return false;
         }
         // 省略した項目は既定値のまま。一行も失敗していない場合だけ全体を採用します。

@@ -2226,7 +2226,10 @@ public static class CombatValidation
         foreach (string invalid in new[] { "", "key,value", "key,value\nMaxSimultaneousAttackers,1.5",
             "key,value\nMaxSimultaneousAttackers,0", "key,value\nAttackStartIntervalSeconds,NaN",
             "key,value\nAttackStartIntervalSeconds,Infinity", "key,value\nMeleeRecoverySeconds,-1",
-            "key,value\nUnknown,1", "key,value\nMeleeWindupSeconds,1\nMeleeWindupSeconds,2" })
+            "key,value\nUnknown,1", "key,value\nMeleeWindupSeconds,1\nMeleeWindupSeconds,2",
+            "key,value\nWaitingMoveSpeed,-1", "key,value\nWaitingDepthOffset,NaN",
+            "key,value\nWaitingEngagementDistance,1", "key,value\nWaitingDistance,6\nWaitingEngagementDistance,5",
+            "key,value\nSeparationDistance,-1", "key,value\nSeparationStrength,NaN" })
         {
             Require(!EnemyAiSettings.TryParse(invalid, out EnemyAiSettings fallback, out string error)
                 && fallback.MaxSimultaneousAttackers == EnemyAiSettings.CreateDefault().MaxSimultaneousAttackers
@@ -2243,10 +2246,29 @@ public static class CombatValidation
         try
         {
             var settings = EnemyAiSettings.CreateDefault();
+            ValidateEnemySeparation(first, second, rangedAttacker, bossAttacker, settings);
             var order = new EnemyAttackCoordinator(settings);
             Require(order.TryRequest(first), "最初の近接敵に攻撃を許可する");
             windup.Invoke(first, new object[] { settings.MeleeWindupSeconds });
             Require(!order.TryRequest(second), "予告中の敵がいる場合は次の敵を待たせる");
+            Require(!order.TryRequest(heavyAttacker), "次の順番以外の敵も待機させる");
+            Vector3 waitingVelocity = order.GetWaitingVelocity(heavyAttacker, 0.1f);
+            Require(waitingVelocity.x > 0 && waitingVelocity.z != 0
+                && waitingVelocity.magnitude <= settings.WaitingMoveSpeed + 0.001f,
+                "攻撃待ちの敵は距離と奥行きをずらし、CSVの速度以内で移動する");
+            Require(order.GetWaitingVelocity(heavyAttacker, 0) == Vector3.zero,
+                "時間停止中は待機移動を進めない");
+            for (int step = 0; step < 100; step++)
+            {
+                heavyAttacker.transform.position += order.GetWaitingVelocity(heavyAttacker, 0.1f) * 0.1f;
+            }
+            Require(!heavyAttacker.IsWithinMeleeAttackRange && heavyAttacker.CanWaitForMeleeAttack
+                && order.GetWaitingVelocity(heavyAttacker, 0.1f) == Vector3.zero,
+                "待機位置へ到着すれば止まり、攻撃範囲外でも参加距離内なら順番を保持する");
+            // 後続の攻撃順検証と分けるため、一度遠ざけて待ち列から外します。
+            heavyAttacker.transform.position += Vector3.right * BrawlerBalance.StageHalfWidth;
+            Require(!order.TryRequest(second), "遠ざかった待機敵を除いても、攻撃中の上限は維持する");
+            heavyAttacker.transform.position = near;
             order.Advance(settings.AttackStartIntervalSeconds);
             Require(!order.TryRequest(second), "開始間隔を過ぎても同時攻撃上限を守る");
             SetPrivateField(first, "_windupRemaining", 0f);
@@ -2272,6 +2294,18 @@ public static class CombatValidation
             Require(multiple.TryRequest(first), "CSVで変更した同時数でも先頭を許可する");
             windup.Invoke(first, new object[] { parallel.MeleeWindupSeconds });
             Require(multiple.TryRequest(heavyAttacker), "CSVで同時数2・間隔0を指定すると2体目を許可する");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            order.Reset();
+            first.transform.position = game.Target.transform.position + Vector3.right * settings.WaitingDistance;
+            Require(!order.TryRequest(first) && order.IsFirstWaiting(first) && !first.IsWithinMeleeAttackRange,
+                "先頭でも攻撃範囲外では攻撃を開始せず、接近の順番を維持する");
+            Require(!order.TryRequest(heavyAttacker), "接近中の先頭を他の待機敵が追い越さない");
+            first.transform.position = near;
+            Require(order.TryRequest(first), "先頭が攻撃範囲へ戻ったら攻撃開始を許可する");
+            Require(EnemyAiSettings.TryParse("key,value\nWaitingDistance,3\nWaitingDepthOffset,1.2\nWaitingMoveSpeed,0",
+                out EnemyAiSettings waitingSettings, out _) && waitingSettings.WaitingDistance == 3
+                && waitingSettings.WaitingDepthOffset == 1.2f && waitingSettings.WaitingMoveSpeed == 0,
+                "CSVで待機距離・奥行き・移動速度0を調整できる");
         }
         finally
         {
@@ -2282,6 +2316,52 @@ public static class CombatValidation
                     UnityEngine.Object.DestroyImmediate(fighter.gameObject);
                 }
             }
+        }
+    }
+
+    private static void ValidateEnemySeparation(Fighter first, Fighter second, Fighter ranged, Fighter boss, EnemyAiSettings settings)
+    {
+        Vector3 firstPosition = first.transform.position;
+        Vector3 secondPosition = second.transform.position;
+        var neighbors = new[] { first, second };
+        var spacing = new EnemyAttackCoordinator(settings);
+        try
+        {
+            second.transform.position = firstPosition + Vector3.right * (settings.SeparationDistance / 2);
+            Vector3 avoidance = spacing.GetSeparationVelocity(first, neighbors, 0.1f);
+            Require(avoidance.x < 0 && avoidance.magnitude <= settings.SeparationStrength,
+                "近すぎる敵から離れる方向を、CSVの最大速度以内で返す");
+            Require(spacing.GetSeparationVelocity(first, neighbors, 0) == Vector3.zero,
+                "時間停止中は重なり回避も進めない");
+            second.transform.position = firstPosition;
+            Vector3 firstAvoidance = spacing.GetSeparationVelocity(first, neighbors, 0.1f);
+            Vector3 secondAvoidance = spacing.GetSeparationVelocity(second, neighbors, 0.1f);
+            Require(firstAvoidance != Vector3.zero && Vector3.Dot(firstAvoidance, secondAvoidance) < 0,
+                "完全に同じ位置でも互いに逆方向へ離れ、乱数による方向の揺れを起こさない");
+            Require(spacing.GetSeparationVelocity(first, neighbors, 5f).magnitude * 5f <= settings.SeparationDistance / 2 + 0.00001f,
+                "低FPSでも一度に離れすぎない距離に制限する");
+            foreach (string state in new[] { "_windupRemaining", "_attackRemaining", "_enemyRecoveryRemaining", "_stunRemaining", "_downRemaining" })
+            {
+                SetPrivateField(first, state, 1f);
+                Require(spacing.GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                    "予告・攻撃・反撃の隙・被弾・転倒中は回避移動を加えない");
+                SetPrivateField(first, state, 0f);
+            }
+            Require(spacing.GetSeparationVelocity(ranged, neighbors, 0.1f) == Vector3.zero
+                && spacing.GetSeparationVelocity(boss, neighbors, 0.1f) == Vector3.zero,
+                "遠距離敵とボスには近接敵用の移動補助を適用しない");
+            second.transform.position = firstPosition + Vector3.right * (settings.SeparationDistance * 2);
+            Require(spacing.GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                "十分に離れた敵に対しては回避を加えない");
+            second.transform.position = firstPosition;
+            Require(EnemyAiSettings.TryParse("key,value\nSeparationStrength,0", out EnemyAiSettings disabled, out _)
+                && new EnemyAttackCoordinator(disabled).GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                "CSVの強さ0で重なり回避だけを無効にできる");
+        }
+        finally
+        {
+            first.transform.position = firstPosition;
+            second.transform.position = secondPosition;
         }
     }
 

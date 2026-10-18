@@ -77,6 +77,10 @@ public sealed class BeltBrawler : MonoBehaviour
     private EnemyAttackCoordinator _enemyAttacks;
 
     public bool TryRequestMeleeAttack(Fighter fighter) => _enemyAttacks.TryRequest(fighter);
+    public bool IsFirstWaitingMeleeAttack(Fighter fighter) => _enemyAttacks.IsFirstWaiting(fighter);
+    public Vector3 GetMeleeWaitingVelocity(Fighter fighter, float deltaTime) => _enemyAttacks.GetWaitingVelocity(fighter, deltaTime);
+    public Vector3 GetEnemySeparationVelocity(Fighter fighter, float deltaTime)
+        => _enemyAttacks.GetSeparationVelocity(fighter, _enemies, deltaTime);
     private Font _pickupNoticeFont;
 
     public void PlaySound(BrawlerSound sound)

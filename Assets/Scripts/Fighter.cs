@@ -25,7 +25,22 @@ public class Fighter : Combatant
     public virtual BrawlerSound EnemyMissSound => BrawlerSound.EnemyMiss;
     // 遠距離型・ボスは独自の思考を使い、この待ち列から除外します。
     public virtual bool UsesCoordinatedMeleeAttacks => !IsPlayer;
+    // 移動・待機中だけ位置を調整します。反撃の隙や被弾状態を回避移動で短縮しません。
+    public bool CanAdjustEnemySpacing => UsesCoordinatedMeleeAttacks && Health > 0 && _stunRemaining <= 0
+        && !IsDowned && !IsEnemyAttackActive && OpeningSecondsRemaining <= 0 && _game != null
+        && !_game.IsRunFinished && !IsPausedBySpellEffect && !OptionsMenu.BlocksGameplay;
     public bool IsEnemyAttackActive => !IsPlayer && Health > 0 && (IsWindingUp || _attackRemaining > 0);
+    private bool _isRepositioningForMeleeAttack;
+    public Vector3 EnemyTargetPosition => _game.Target.transform.position;
+    public bool IsWithinMeleeAttackRange
+    {
+        get
+        {
+            Vector3 delta = EnemyTargetPosition - transform.position;
+            return Mathf.Abs(delta.x) <= BrawlerBalance.MeleeStopDistance
+                && Mathf.Abs(delta.z) <= BrawlerBalance.MeleeLaneTolerance;
+        }
+    }
     public bool CanWaitForMeleeAttack
     {
         get
@@ -37,8 +52,9 @@ public class Fighter : Combatant
                 return false;
             }
             Vector3 delta = _game.Target.transform.position - transform.position;
-            return Mathf.Abs(delta.x) <= BrawlerBalance.MeleeStopDistance
-                && Mathf.Abs(delta.z) <= BrawlerBalance.MeleeLaneTolerance;
+            // 待機のために攻撃範囲から離れても、参加距離内なら順番を保持します。
+            return Mathf.Abs(delta.x) <= EnemyAiSettings.Current.WaitingEngagementDistance
+                && Mathf.Abs(delta.z) <= BrawlerBalance.StageHalfDepth * 2;
         }
     }
     private BeltBrawler _game;
@@ -488,6 +504,7 @@ public class Fighter : Combatant
         bool wasWindingUp = UpdateAttackWindup(deltaTime);
         ApplyKnockback(deltaTime);
         Vector3 movement = GetMovement(input, wasWindingUp);
+        movement = AddEnemySeparation(movement, deltaTime);
         Move(movement, deltaTime);
         if (_isRunning)
         {
@@ -894,17 +911,25 @@ public class Fighter : Combatant
     // 近接型の標準 AI。遠距離型はこの判断だけを上書きし、硬直・転倒・演出は共用します。
     protected virtual Vector3 GetEnemyMovement()
     {
-        Vector3 delta = _game.Target.transform.position - transform.position;
+        _isRepositioningForMeleeAttack = false;
+        Vector3 delta = EnemyTargetPosition - transform.position;
         Facing = delta.x >= 0 ? 1 : -1;
-        if (Mathf.Abs(delta.x) > BrawlerBalance.MeleeStopDistance || Mathf.Abs(delta.z) > BrawlerBalance.MeleeLaneTolerance)
+        if (CanWaitForMeleeAttack)
         {
-            return delta.normalized;
+            if (Game.TryRequestMeleeAttack(this))
+            {
+                BeginAttackWindup(EnemyWindupDuration);
+                return Vector3.zero;
+            }
+            if (!Game.IsFirstWaitingMeleeAttack(this))
+            {
+                // 自分の番までは別の位置で待ちます。移動速度はCSVのUnity単位/秒を使います。
+                _isRepositioningForMeleeAttack = true;
+                return Game.GetMeleeWaitingVelocity(this, Time.deltaTime) / EnemyMovementSpeed;
+            }
         }
-        if (CanStartEnemyAttack && Game.TryRequestMeleeAttack(this))
-        {
-            BeginAttackWindup(EnemyWindupDuration);
-        }
-        return Vector3.zero;
+        // 先頭の敵だけが攻撃可能な間合いへ近づきます。範囲外からは予告を開始しません。
+        return IsWithinMeleeAttackRange ? Vector3.zero : delta.normalized;
     }
 
     protected void BeginAttackWindup(float duration)
@@ -933,12 +958,29 @@ public class Fighter : Combatant
         return Mathf.Abs(input.x) > BrawlerBalance.PlayerFacingInputThreshold ? Mathf.Sign(input.x) : Facing;
     }
 
+    private Vector3 AddEnemySeparation(Vector3 movement, float deltaTime)
+    {
+        if (!CanAdjustEnemySpacing)
+        {
+            return movement;
+        }
+        Vector3 avoidance = Game.GetEnemySeparationVelocity(this, deltaTime) / EnemyMovementSpeed;
+        if (avoidance == Vector3.zero)
+        {
+            return movement;
+        }
+        // 退くときもプレイヤーへの向きを保ち、回避の合成で追跡速度・待機速度を上げすぎません。
+        _isRepositioningForMeleeAttack = true;
+        float maxMovement = Mathf.Max(movement.magnitude, EnemyAiSettings.Current.SeparationStrength / EnemyMovementSpeed);
+        return Vector3.ClampMagnitude(movement + avoidance, maxMovement);
+    }
+
     private void Move(Vector3 movement, float deltaTime)
     {
         // 奥行きだけの移動では向きを維持し、左右に動いた場合だけ向きを変更します。
         float facingThreshold = IsPlayer ? BrawlerBalance.PlayerFacingInputThreshold : BrawlerBalance.FacingInputThreshold;
         // 空中では攻撃中も移動可能ですが、攻撃の向きは開始時のまま固定します。
-        if (_attackRemaining <= 0 && Mathf.Abs(movement.x) > facingThreshold)
+        if (_attackRemaining <= 0 && !_isRepositioningForMeleeAttack && Mathf.Abs(movement.x) > facingThreshold)
         {
             Facing = Mathf.Sign(movement.x);
         }

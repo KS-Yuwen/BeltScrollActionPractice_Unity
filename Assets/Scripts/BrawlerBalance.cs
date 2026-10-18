@@ -375,6 +375,7 @@ public static class BrawlerBalance
     public const float GroundHitRemainingSeconds = 0.23f;
 
     // 敵の標準能力と、被ダメージ・防御後の反応。
+    public const int WaitingPositionsPerDepthPair = 2;
     public const float MeleeSpeed = 2.2f;
     public static float MeleeWindupSeconds => EnemyAiSettings.Current.MeleeWindupSeconds;
     public static float MeleeAttackIntervalSeconds => EnemyAiSettings.Current.MeleeAttackIntervalSeconds;
