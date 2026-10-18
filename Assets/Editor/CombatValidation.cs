@@ -85,6 +85,12 @@ public static class CombatValidation
             }
             var player = game.Target;
             ValidateWaveSpawnSettings();
+            // 既存の戦闘ケースは出現待機が終わった状態で実行します。待機自体は専用ケースで検証します。
+            foreach (Fighter initialEnemy in UnityEngine.Object.FindObjectsByType<Fighter>())
+            {
+                SetPrivateField(initialEnemy, "_spawnWaitRemaining", 0f);
+            }
+            ValidateEnemySpawnWait(game);
             ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
@@ -282,6 +288,9 @@ public static class CombatValidation
             Require(notifiedSpawns.Count == 3, "予告表示中の更新では同じ通知を繰り返さない");
             player.transform.position = Vector3.left * 5;
             updateWarning.Invoke(game, new object[] { 1.1f });
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(),
+                f => !f.IsPlayer && f.transform.position == reservedPosition && f.IsWaitingAfterSpawn),
+                "予約を実体化した時点で出現後の待機を開始する");
             Require(pending.Count == 1 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 3,
                 "最初の予告終了で3体を生成し、遅延指定の重装敵だけを予約に残す");
             var scheduledEnemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(game, "_enemies");
@@ -302,6 +311,8 @@ public static class CombatValidation
             Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4
                 && Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(), f => f.transform.position == delayedPosition),
                 "遅延後はCSVの種類と予約位置で重装敵を一度だけ生成する");
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(),
+                f => f.transform.position == delayedPosition && f.IsWaitingAfterSpawn), "遅延増援にも生成後から待機時間を与える");
             Require(!game.TryGetSpawnNotice(0, out _, out _, out _), "出現済みの増援予告を残さない");
             Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && f.transform.position == reservedPosition),
                 "移動後も予約した位置に出現");
@@ -396,6 +407,9 @@ public static class CombatValidation
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             player.transform.position = Vector3.zero;
             heavy.transform.position = Vector3.right;
+            // 攻撃そのもののケースでは、直前に生成した重装敵の出現待機を先に経過させます。
+            typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(heavy, new object[] { EnemyAiSettings.Current.HeavySpawnWaitSeconds });
             typeof(Fighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(heavy, null);
             Require(heavy.IsWindingUp && (float)GetPrivateField(heavy, "_windupRemaining") == 0.95f, "重装型は長い予告を開始");
             typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -2281,6 +2295,111 @@ public static class CombatValidation
         Vector3 position = settings.GetWave(2)[3].ResolvePosition(Vector3.right * BrawlerBalance.StageHalfWidth);
         Require(Mathf.Abs(position.x) <= BrawlerBalance.StageHalfWidth && position.z == -1,
             "CSVの奥行きを保持し、左右位置は床の範囲内に置く");
+    }
+
+    // 出現前の予約とは独立した、敵の種類ごとの待機・停止・行動再開を確認します。
+    private static void ValidateEnemySpawnWait(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nMeleeSpawnWaitSeconds,0.2\nUndeadSpawnWaitSeconds,0.3\n"
+            + "RangedSpawnWaitSeconds,0.4\nHeavySpawnWaitSeconds,0.5\nBossSpawnWaitSeconds,0.7",
+            out EnemyAiSettings custom, out _), "敵種別ごとに異なる出現待機時間をCSVから読む");
+        foreach (string invalid in new[] { "MeleeSpawnWaitSeconds,-0.1", "UndeadSpawnWaitSeconds,NaN",
+            "RangedSpawnWaitSeconds,Infinity", "HeavySpawnWaitSeconds,5.1", "BossSpawnWaitSeconds,-1" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\n" + invalid, out _, out _), "出現待機の不正値を拒否する");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 near = game.Target.transform.position + Vector3.right * (BrawlerBalance.MeleeStopDistance / 2);
+        Fighter[] enemies = {
+            factory.CreateFighter("Test spawn melee", near, false, 1),
+            factory.CreateFighter("Test spawn undead", near, false, 1, isUndead: true),
+            factory.CreateFighter("Test spawn ranged", near, false, 1, isRanged: true),
+            factory.CreateFighter("Test spawn heavy", near, false, 1, isHeavy: true),
+            factory.CreateFighter("Test spawn boss", near, false, 1, isBoss: true)
+        };
+        float[] expected = { custom.MeleeSpawnWaitSeconds, custom.UndeadSpawnWaitSeconds,
+            custom.RangedSpawnWaitSeconds, custom.HeavySpawnWaitSeconds, custom.BossSpawnWaitSeconds };
+        PropertyInfo current = typeof(EnemyAiSettings).GetProperty("Current");
+        EnemyAiSettings original = EnemyAiSettings.Current;
+        MethodInfo begin = typeof(Fighter).GetMethod("BeginSpawnWait", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo update = typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        var menu = game.GetComponent<OptionsMenu>();
+        int blockedFrame = (int)GetPrivateField(menu, "_blockedFrame");
+        var coordinator = (EnemyAttackCoordinator)GetPrivateField(game, "_enemyAttacks");
+        object originalSpellOwner = GetPrivateField(game, "_spellEffectOwner");
+        var caster = (SpellFighter)factory.CreateFighter("Test spawn freeze caster", Vector3.zero, true, 1);
+        try
+        {
+            current.SetValue(null, custom);
+            for (int i = 0; i < enemies.Length; i++)
+            {
+                Fighter enemy = enemies[i];
+                begin.Invoke(enemy, null);
+                Require(enemy.IsWaitingAfterSpawn && Mathf.Approximately((float)GetPrivateField(enemy, "_spawnWaitRemaining"), expected[i]),
+                    "派生クラスが自分の敵種別のCSV待機秒数を選ぶ");
+                Require((Vector3)movement.Invoke(enemy, new object[] { Vector3.zero, false }) == Vector3.zero
+                    && !enemy.IsWindingUp && !enemy.CanAdjustEnemySpacing && !coordinator.TryRequest(enemy),
+                    "出現待機中は接近・退避・攻撃予告・重なり回避・攻撃順への参加を止める");
+                timers.Invoke(enemy, new object[] { 0f });
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == expected[i], "ゲーム時間0では出現待機が減らない");
+            }
+            menu.Open();
+            foreach (Fighter enemy in enemies)
+            {
+                float before = (float)GetPrivateField(enemy, "_spawnWaitRemaining");
+                update.Invoke(enemy, null);
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == before, "オプション中は出現待機を保存する");
+            }
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", -1);
+            SetPrivateField(caster, "_spellEffectRemaining", 1f);
+            SetPrivateField(game, "_spellEffectOwner", caster);
+            foreach (Fighter enemy in enemies)
+            {
+                float before = (float)GetPrivateField(enemy, "_spawnWaitRemaining");
+                update.Invoke(enemy, null);
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == before, "魔法の敵停止中も出現待機を保存する");
+            }
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            for (int i = 0; i < enemies.Length; i++)
+            {
+                Fighter enemy = enemies[i];
+                timers.Invoke(enemy, new object[] { expected[i] / 2 });
+                Require(enemy.IsWaitingAfterSpawn, "待機時間の途中では行動を再開しない");
+                timers.Invoke(enemy, new object[] { expected[i] });
+                Require(!enemy.IsWaitingAfterSpawn && (float)GetPrivateField(enemy, "_spawnWaitRemaining") == 0,
+                    "大きい経過時間でも待機を0で終了する");
+                enemy.transform.position = game.Target.transform.position + Vector3.right * 10;
+                Require((Vector3)movement.Invoke(enemy, new object[] { Vector3.zero, false }) != Vector3.zero,
+                    "待機後は各敵の接近処理を再開する");
+                coordinator.Reset();
+                enemy.transform.position = game.Target.transform.position + Vector3.right * (enemy is RangedFighter ? 4 : 0.5f);
+                movement.Invoke(enemy, new object[] { Vector3.zero, false });
+                Require(enemy.IsWindingUp, "待機後も通常の攻撃予告を経て攻撃する");
+            }
+            Require(EnemyAiSettings.TryParse("key,value\nMeleeSpawnWaitSeconds,0", out EnemyAiSettings disabled, out _),
+                "待機0をCSVから読み込める");
+            current.SetValue(null, disabled);
+            begin.Invoke(enemies[0], null);
+            Require(!enemies[0].IsWaitingAfterSpawn, "CSVの0指定で出現待機だけを無効にする");
+            begin.Invoke(game.Target, null);
+            Require(!game.Target.IsWaitingAfterSpawn, "プレイヤーには敵の出現待機を適用しない");
+        }
+        finally
+        {
+            current.SetValue(null, original);
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", blockedFrame);
+            coordinator.Reset();
+            foreach (Fighter enemy in enemies)
+            {
+                UnityEngine.Object.DestroyImmediate(enemy.gameObject);
+            }
+            UnityEngine.Object.DestroyImmediate(caster.gameObject);
+        }
     }
 
     // 生きた敵の状態とCSV設定を使い、同時数・間隔・待ち順・離脱を検証します。

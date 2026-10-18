@@ -211,11 +211,14 @@ public sealed class BeltBrawler : MonoBehaviour
                 continue;
             }
             WaveSpawnSettings.EnemyKind kind = entry.Kind;
-            _enemies.Add(_factory.CreateFighter(kind == WaveSpawnSettings.EnemyKind.Boss ? "Warden Boss" : kind + " Enemy", _pendingSpawnPositions[i], false, _wave,
+            Fighter enemy = _factory.CreateFighter(kind == WaveSpawnSettings.EnemyKind.Boss ? "Warden Boss" : kind + " Enemy", _pendingSpawnPositions[i], false, _wave,
                 isRanged: kind == WaveSpawnSettings.EnemyKind.Ranged,
                 isHeavy: kind == WaveSpawnSettings.EnemyKind.Heavy,
                 isUndead: kind == WaveSpawnSettings.EnemyKind.Undead,
-                isBoss: kind == WaveSpawnSettings.EnemyKind.Boss));
+                isBoss: kind == WaveSpawnSettings.EnemyKind.Boss);
+            // 各敵が実際に姿を現してから待機を開始します。遅延増援にも同じ猶予を与えます。
+            enemy.BeginSpawnWait();
+            _enemies.Add(enemy);
             // 生成済みの行だけ取り除き、低FPSで複数の時刻をまたいでも各行を一度だけ生成します。
             _pendingSpawnEntries.RemoveAt(i);
             _pendingSpawnPositions.RemoveAt(i);

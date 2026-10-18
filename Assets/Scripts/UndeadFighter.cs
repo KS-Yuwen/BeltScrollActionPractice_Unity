@@ -2,5 +2,6 @@
 // 属性だけを上書きし、今後のアンデッド専用の能力追加にも対応できます。
 public sealed class UndeadFighter : Fighter
 {
+    protected override float EnemySpawnWaitSeconds => EnemyAiSettings.Current.UndeadSpawnWaitSeconds;
     public override bool IsUndead => true;
 }

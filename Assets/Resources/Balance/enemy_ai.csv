@@ -1,4 +1,10 @@
 key,value
+# 出現後に移動・攻撃を始めるまでの秒数（敵種別ごとに0～5、0で待機なし）
+MeleeSpawnWaitSeconds,0.6
+UndeadSpawnWaitSeconds,0.6
+RangedSpawnWaitSeconds,0.8
+HeavySpawnWaitSeconds,1
+BossSpawnWaitSeconds,1.2
 # 予告中と攻撃動作中を合わせた近接敵の上限（整数1～8）。遠距離敵とボスは対象外
 MaxSimultaneousAttackers,1
 # 全体で次の近接攻撃を開始できるまでの秒数（0～10）

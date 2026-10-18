@@ -9,6 +9,11 @@ public sealed class EnemyAiSettings
     private static readonly Dictionary<string, (float Default, float Min, float Max, bool Integer)> s_rules
         = new Dictionary<string, (float Default, float Min, float Max, bool Integer)>(StringComparer.Ordinal)
     {
+        { nameof(MeleeSpawnWaitSeconds), (0.6f, 0, 5, false) },
+        { nameof(UndeadSpawnWaitSeconds), (0.6f, 0, 5, false) },
+        { nameof(RangedSpawnWaitSeconds), (0.8f, 0, 5, false) },
+        { nameof(HeavySpawnWaitSeconds), (1f, 0, 5, false) },
+        { nameof(BossSpawnWaitSeconds), (1.2f, 0, 5, false) },
         { nameof(MaxSimultaneousAttackers), (1, 1, 8, true) },
         { nameof(AttackStartIntervalSeconds), (0.75f, 0, 10, false) },
         { nameof(MeleeWindupSeconds), (0.55f, 0.05f, 5, false) },
@@ -29,6 +34,13 @@ public sealed class EnemyAiSettings
     };
     private readonly Dictionary<string, float> _values;
     public static EnemyAiSettings Current { get; private set; } = CreateDefault();
+    // 敵を生成した時点から数える待機時間です。出現前の予告・攻撃後の隙とは分けます。
+    public float MeleeSpawnWaitSeconds => _values[nameof(MeleeSpawnWaitSeconds)];
+    public float UndeadSpawnWaitSeconds => _values[nameof(UndeadSpawnWaitSeconds)];
+    public float RangedSpawnWaitSeconds => _values[nameof(RangedSpawnWaitSeconds)];
+    public float HeavySpawnWaitSeconds => _values[nameof(HeavySpawnWaitSeconds)];
+    public float BossSpawnWaitSeconds => _values[nameof(BossSpawnWaitSeconds)];
+
     public int MaxSimultaneousAttackers => (int)_values[nameof(MaxSimultaneousAttackers)];
     public float AttackStartIntervalSeconds => _values[nameof(AttackStartIntervalSeconds)];
     public float MeleeWindupSeconds => _values[nameof(MeleeWindupSeconds)];

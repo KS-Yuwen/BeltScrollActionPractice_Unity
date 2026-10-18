@@ -2,6 +2,7 @@
 // ガード・予告中断・転倒・追撃は通常の敵と共通なので、覚えた操作がそのまま使えます。
 public class HeavyFighter : Fighter
 {
+    protected override float EnemySpawnWaitSeconds => EnemyAiSettings.Current.HeavySpawnWaitSeconds;
     public override int HammerHitLimit => BrawlerBalance.LargeEnemyHammerHitLimit;
     public override float HammerBodyRadius => BrawlerBalance.LargeEnemyHammerBodyRadius;
 

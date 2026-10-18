@@ -27,6 +27,7 @@ public class Fighter : Combatant
     public virtual bool UsesCoordinatedMeleeAttacks => !IsPlayer;
     // 移動・待機中だけ位置を調整します。反撃の隙や被弾状態を回避移動で短縮しません。
     public bool CanAdjustEnemySpacing => UsesCoordinatedMeleeAttacks && Health > 0 && _stunRemaining <= 0
+        && !IsWaitingAfterSpawn
         && !IsDowned && !IsEnemyAttackActive && OpeningSecondsRemaining <= 0 && _game != null
         && !_game.IsRunFinished && !IsPausedBySpellEffect && !OptionsMenu.BlocksGameplay;
     public bool IsEnemyAttackActive => !IsPlayer && Health > 0 && (IsWindingUp || _attackRemaining > 0);
@@ -75,6 +76,9 @@ public class Fighter : Combatant
     private float _attackRemaining;
     // 攻撃間隔とは別に、攻撃を出した後の移動・再予告を止める時間です。
     private float _enemyRecoveryRemaining;
+    private float _spawnWaitRemaining;
+    public bool IsWaitingAfterSpawn => !IsPlayer && Health > 0 && _spawnWaitRemaining > 0;
+    protected virtual float EnemySpawnWaitSeconds => EnemyAiSettings.Current.MeleeSpawnWaitSeconds;
     private float _attackCooldown;
     private float _stunRemaining;
     private float _hammerStunRemaining;
@@ -372,7 +376,7 @@ public class Fighter : Combatant
     public bool IsSpellEffectActive => _game != null && _game.IsSpellEffectActive;
     public bool IsPausedBySpellEffect => !IsPlayer && IsSpellEffectActive;
 
-    protected bool CanStartEnemyAttack => _attackCooldown <= 0 && _enemyRecoveryRemaining <= 0;
+    protected bool CanStartEnemyAttack => !IsWaitingAfterSpawn && _attackCooldown <= 0 && _enemyRecoveryRemaining <= 0;
 
     protected virtual float EnemyRecoverySeconds => BrawlerBalance.MeleeRecoverySeconds;
 
@@ -471,6 +475,19 @@ public class Fighter : Combatant
         InitializeInventory();
     }
 
+    // 管理役が出現予約を実体化した直後に呼びます。予約中に待機時間を消費しません。
+    // 共通クラスで停止し、各派生クラスはCSVのどの秒数を使うかだけを選びます。
+    internal void BeginSpawnWait()
+    {
+        if (IsPlayer || Health <= 0)
+        {
+            return;
+        }
+        _spawnWaitRemaining = EnemySpawnWaitSeconds;
+        // その場で待つ間も出現時のプレイヤー側を向き、待機中に追跡はしません。
+        Facing = Game.Target.transform.position.x >= transform.position.x ? 1 : -1;
+    }
+
     protected virtual void InitializeInventory()
     {
         Inventory.Clear();
@@ -522,6 +539,9 @@ public class Fighter : Combatant
     // 残り時間は経過秒数で減らし、フレームレートが違っても同じ時間になるようにします。
     private void UpdateTimers(float deltaTime)
     {
+        // メニュー・魔法演出の停止判定を通過したゲーム時間だけを数えます。
+        // 被弾しても再設定せず、無敵や攻撃後の回復時間には流用しません。
+        _spawnWaitRemaining = Mathf.Max(0, _spawnWaitRemaining - Mathf.Max(0, deltaTime));
         _guardReleaseRemaining = Mathf.Max(0, _guardReleaseRemaining - deltaTime);
         _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
         _enemyRecoveryRemaining = Mathf.Max(0, _enemyRecoveryRemaining - deltaTime);
@@ -840,7 +860,7 @@ public class Fighter : Combatant
     private Vector3 GetMovement(Vector3 input, bool wasWindingUp)
     {
         // 空振り・ガード・命中のどの場合も反撃の時間を作ります。向きもこの間は維持します。
-        if (!IsPlayer && _enemyRecoveryRemaining > 0)
+        if (!IsPlayer && (IsWaitingAfterSpawn || _enemyRecoveryRemaining > 0))
         {
             return Vector3.zero;
         }
