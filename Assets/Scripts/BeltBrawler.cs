@@ -68,6 +68,29 @@ public sealed class BeltBrawler : MonoBehaviour
     private WaveSpawnSettings _waveSpawns;
     private readonly List<WaveSpawnSettings.Entry> _pendingSpawnEntries = new List<WaveSpawnSettings.Entry>();
     private float _spawnElapsed;
+    public int PendingSpawnCount => _pendingSpawnPositions.Count;
+
+    // 表示のために別のタイマーを持たず、実際の出現予定から直前の予約だけを返します。
+    public bool TryGetSpawnNotice(int index, out WaveSpawnSettings.EnemyKind kind, out Vector3 position, out float remaining)
+    {
+        kind = default;
+        position = Vector3.zero;
+        remaining = 0;
+        if (IsRunFinished || _player == null || _player.Health <= 0 || index < 0
+            || index >= _pendingSpawnPositions.Count || index >= _pendingSpawnEntries.Count)
+        {
+            return false;
+        }
+        WaveSpawnSettings.Entry entry = _pendingSpawnEntries[index];
+        remaining = BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds - _spawnElapsed;
+        if (remaining <= 0 || remaining > BrawlerBalance.SpawnNoticeLeadSeconds)
+        {
+            return false;
+        }
+        kind = entry.Kind;
+        position = _pendingSpawnPositions[index];
+        return true;
+    }
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private bool _bossDefeatStarted;
@@ -1097,7 +1120,7 @@ public sealed class BeltBrawler : MonoBehaviour
             StartAs(BrawlerDefines.PlayerClass.Elf);
         }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
-            _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
+            _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
         if (_optionsMenu != null)
         {
             _optionsMenu.Draw(_pickupNoticeFont);

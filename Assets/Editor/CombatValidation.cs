@@ -269,6 +269,10 @@ public static class CombatValidation
             var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
             Require(pending.Exists(p => p.x < 0) && pending.Exists(p => p.x > 0), "第2ウェーブは左右に出現を予約");
             Vector3 reservedPosition = pending[0];
+            Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind firstNoticeKind, out Vector3 noticePosition, out _)
+                && firstNoticeKind == WaveSpawnSettings.EnemyKind.Melee && noticePosition == reservedPosition,
+                "直前の増援予告はCSVの敵種別と予約位置を返す");
+            Require(!game.TryGetSpawnNotice(3, out _, out _, out _), "まだ先の増援は直前予告に表示しない");
             int beforeSpawn = UnityEngine.Object.FindObjectsByType<Fighter>().Length;
             MethodInfo updateWarning = typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic);
             updateWarning.Invoke(game, new object[] { 0.5f });
@@ -287,10 +291,14 @@ public static class CombatValidation
             updateWarning.Invoke(game, new object[] { 0f });
             Require(pending.Count == 1, "時間停止中は遅延出現を進めない");
             Vector3 delayedPosition = pending[0];
+            Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind delayedKind, out Vector3 delayedNoticePosition, out float delayedRemaining)
+                && delayedKind == WaveSpawnSettings.EnemyKind.Heavy && delayedNoticePosition == delayedPosition
+                && Mathf.Approximately(delayedRemaining, 0.9f), "遅延した重装敵も出現直前には正しい残り時間で予告する");
             updateWarning.Invoke(game, new object[] { 1f });
             Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4
                 && Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(), f => f.transform.position == delayedPosition),
                 "遅延後はCSVの種類と予約位置で重装敵を一度だけ生成する");
+            Require(!game.TryGetSpawnNotice(0, out _, out _, out _), "出現済みの増援予告を残さない");
             Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && f.transform.position == reservedPosition),
                 "移動後も予約した位置に出現");
             updateWarning.Invoke(game, new object[] { 2f });

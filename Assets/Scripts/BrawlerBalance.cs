@@ -102,6 +102,15 @@ public static class BrawlerBalance
     // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
     public const float NextWaveDelaySeconds = 2f;
     public const float SpawnWarningSeconds = 1.5f;
+    public const float SpawnNoticeLeadSeconds = 1.5f;
+    public const float SpawnNoticeWidth = 310f;
+    public const float SpawnNoticeRowHeight = 28f;
+    public const float SpawnNoticeMargin = 24f;
+    public const float SpawnNoticeTopFraction = 0.43f;
+    public const float SpawnNoticeBackgroundAlpha = 0.75f;
+    public const float SpawnNoticeMarkerHeight = 0.3f;
+    public const float SpawnNoticeMarkerWidth = 30f;
+    public const int SpawnNoticeFontSize = 18;
     public const float WaveBannerSeconds = 1.2f;
     public const float WaveBannerFadeSeconds = 0.3f;
     public const float WaveBannerWidth = 600f;
