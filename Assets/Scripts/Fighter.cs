@@ -966,6 +966,13 @@ public class Fighter : Combatant
     protected virtual void DealAttackDamage(int damage)
     {
         _game.Hit(this, damage);
+        BeginEnemyRecovery();
+    }
+
+    // 命中処理と分け、弾を発射する派生クラスも同じ移動停止・隙表示・被弾解除を使います。
+    // 攻撃間隔とは別の時間なので、どちらかが残る間は次の攻撃を始められません。
+    protected void BeginEnemyRecovery()
+    {
         // ガード反撃で既に被弾した場合は、反撃の隙より被ダメージ硬直を優先します。
         if (!IsPlayer && Health > 0 && _stunRemaining <= 0)
         {

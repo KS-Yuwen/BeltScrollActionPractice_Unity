@@ -390,6 +390,7 @@ public static class CombatValidation
             SetPrivateField(ranged, "_downRemaining", 0f);
             ranged.TakeDamage(30, 1);
             Require(ranged.CanReceiveGroundHit, "再ダウンでは追撃を再受付");
+            Require(ranged.OpeningSecondsRemaining == 0, "射撃後の隙は被弾時に通常の硬直・転倒へ切り替わる");
             ranged.transform.position = new Vector3(1, 0, 1);
             int beforeMiss = ranged.Health;
             game.HitGroundTarget(player, ranged, 24);
@@ -2504,13 +2505,14 @@ public static class CombatValidation
     {
         Require(EnemyAiSettings.TryParse("key,value\nRangedApproachDistance,6\nRangedRetreatDistance,2\n"
             + "RangedSpacingHysteresis,0.5\nRangedLaneTolerance,0.2\nRangedEdgeMargin,1\n"
-            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3",
+            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3\nRangedRecoverySeconds,1.25",
             out EnemyAiSettings custom, out _), "遠距離敵の間合いと射撃テンポをCSVから読む");
         TextAsset asset = Resources.Load<TextAsset>("Balance/enemy_ai");
         Require(asset != null && EnemyAiSettings.TryParse(asset.text, out _, out _), "同梱の敵AIのCSVも読み込める");
         foreach (string invalid in new[] { "RangedApproachDistance,3", "RangedRetreatDistance,7", "RangedSpacingHysteresis,2",
             "RangedMoveSpeed,0", "RangedLaneTolerance,NaN", "RangedEdgeMargin,-1", "RangedWindupSeconds,0",
-            "RangedAttackIntervalSeconds,Infinity", "RangedApproachDistance,21" })
+            "RangedAttackIntervalSeconds,Infinity", "RangedApproachDistance,21", "RangedRecoverySeconds,-1",
+            "RangedRecoverySeconds,NaN", "RangedRecoverySeconds,Infinity", "RangedRecoverySeconds,10.1" })
         {
             Require(!EnemyAiSettings.TryParse("key,value\n" + invalid, out EnemyAiSettings fallback, out _)
                 && fallback.RangedApproachDistance == EnemyAiSettings.CreateDefault().RangedApproachDistance,
@@ -2528,6 +2530,11 @@ public static class CombatValidation
         MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
         MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
         var existingBullets = new System.Collections.Generic.HashSet<EnemyProjectile>(UnityEngine.Object.FindObjectsByType<EnemyProjectile>());
+        var menu = game.GetComponent<OptionsMenu>();
+        int originalBlockedFrame = (int)GetPrivateField(menu, "_blockedFrame");
+        var caster = (SpellFighter)game.Target;
+        float originalSpellRemaining = (float)GetPrivateField(caster, "_spellEffectRemaining");
+        object originalSpellOwner = GetPrivateField(game, "_spellEffectOwner");
         Vector3 ReadMovement() => (Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, false });
         try
         {
@@ -2580,18 +2587,71 @@ public static class CombatValidation
                 animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
                 Require(UnityEngine.Object.FindObjectsByType<EnemyProjectile>().Length == before + 1,
                     "射撃動作から弾を一度だけ発射する");
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds,
+                    "弾を発射した瞬間からCSVの射撃後の隙を開始する");
+                var marker = ranged.GetComponentInChildren<EnemyAttackWarning>();
+                marker.Refresh();
+                Require(marker.IsShowingOpening, "射撃後も共通の緑色の反撃マーカーを表示する");
+                game.Target.transform.position = Vector3.zero;
+                Require(ReadMovement() == Vector3.zero && ranged.Facing == facing, "隙の間は対象が遠ざかっても追跡や振り向きを止める");
+                game.Target.transform.position = ranged.transform.position + new Vector3(-side, 0, 1);
+                Require(ReadMovement() == Vector3.zero && !ranged.IsWindingUp, "接近されても後退・奥行き合わせ・再射撃を止める");
+                timers.Invoke(ranged, new object[] { 0f });
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "ゲーム時間0では射撃後の隙を減らさない");
+                menu.Open();
+                typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ranged, null);
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "メニュー中は射撃後の隙を保持する");
+                menu.Close();
+                SetPrivateField(menu, "_blockedFrame", -1);
+                SetPrivateField(caster, "_spellEffectRemaining", 1f);
+                SetPrivateField(game, "_spellEffectOwner", caster);
+                typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ranged, null);
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "魔法の敵停止中も射撃後の隙を保持する");
+                SetPrivateField(caster, "_spellEffectRemaining", originalSpellRemaining);
+                SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+                timers.Invoke(ranged, new object[] { custom.RangedRecoverySeconds / 2 });
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds / 2 && ReadMovement() == Vector3.zero,
+                    "射撃後の隙を経過させ、攻撃表示の更新では隙を再設定しない");
+                timers.Invoke(ranged, new object[] { custom.RangedRecoverySeconds / 2 });
+                marker.Refresh();
+                game.Target.transform.position = Vector3.zero;
+                Require(ranged.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening && ReadMovement().x * side < 0,
+                    "隙が終われば攻撃間隔が残っていても追跡と位置調整を再開する");
                 game.Target.transform.position = Vector3.right * side * 20;
-                timers.Invoke(ranged, new object[] { 2.75f });
+                timers.Invoke(ranged, new object[] { custom.RangedAttackIntervalSeconds - custom.RangedRecoverySeconds - 0.25f });
                 ReadMovement();
                 Require(!ranged.IsWindingUp, "攻撃間隔の途中では再射撃しない");
                 timers.Invoke(ranged, new object[] { 0.25f });
                 ReadMovement();
                 Require(ranged.IsWindingUp, "攻撃間隔を経過すると次の射撃予告を始める");
             }
+            Require(EnemyAiSettings.TryParse("key,value\nRangedRecoverySeconds,4\nRangedAttackIntervalSeconds,0",
+                out EnemyAiSettings longRecovery, out _), "攻撃間隔より長い隙もCSVで指定できる");
+            current.SetValue(null, longRecovery);
+            SetPrivateField(ranged, "_windupRemaining", 0f);
+            SetPrivateField(ranged, "_attackCooldown", 0f);
+            typeof(RangedFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(ranged, new object[] { BrawlerBalance.EnemyProjectileDamage });
+            Require(ranged.OpeningSecondsRemaining == 4 && ReadMovement() == Vector3.zero && !ranged.IsWindingUp,
+                "攻撃間隔0でも射撃後の隙が残る間は移動・再射撃できない");
+            timers.Invoke(ranged, new object[] { 5f });
+            Require(ranged.OpeningSecondsRemaining == 0 && ReadMovement() != Vector3.zero,
+                "大きな経過時間でも隙を0で終え、位置調整を再開する");
+            Require(EnemyAiSettings.TryParse("key,value\nRangedRecoverySeconds,0", out EnemyAiSettings noRecovery, out _),
+                "射撃後の隙は0も指定できる");
+            current.SetValue(null, noRecovery);
+            typeof(RangedFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(ranged, new object[] { BrawlerBalance.EnemyProjectileDamage });
+            Require(ranged.OpeningSecondsRemaining == 0, "0指定なら発射しても追加の隙を作らない");
         }
         finally
         {
             current.SetValue(null, original);
+            SetPrivateField(caster, "_spellEffectRemaining", originalSpellRemaining);
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", originalBlockedFrame);
             game.Target.transform.position = originalPlayerPosition;
             foreach (EnemyProjectile bullet in UnityEngine.Object.FindObjectsByType<EnemyProjectile>())
             {

@@ -17,6 +17,7 @@ public sealed class RangedFighter : Fighter
     protected override float EnemyMovementSpeed => EnemyAiSettings.Current.RangedMoveSpeed;
     protected override float EnemyWindupDuration => EnemyAiSettings.Current.RangedWindupSeconds;
     protected override float EnemyAttackInterval => EnemyAiSettings.Current.RangedAttackIntervalSeconds;
+    protected override float EnemyRecoverySeconds => EnemyAiSettings.Current.RangedRecoverySeconds;
 
     protected override Vector3 GetEnemyMovement()
     {
@@ -82,5 +83,7 @@ public sealed class RangedFighter : Fighter
         // 判定は移動区間と対象の距離で行います。物理コライダーは使いません。
         Destroy(projectileObject.GetComponent<Collider>());
         projectileObject.AddComponent<EnemyProjectile>().Initialize(Game.Target, Facing, Game);
+        // 命中を待たず、発射時から足を止めます。弾はこの後も独立して飛び続けます。
+        BeginEnemyRecovery();
     }
 }

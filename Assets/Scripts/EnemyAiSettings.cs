@@ -22,6 +22,7 @@ public sealed class EnemyAiSettings
         { nameof(RangedMoveSpeed), (2.2f, 0.1f, 5, false) },
         { nameof(RangedWindupSeconds), (0.8f, 0.05f, 5, false) },
         { nameof(RangedAttackIntervalSeconds), (2f, 0, 10, false) },
+        { nameof(RangedRecoverySeconds), (0.8f, 0, 10, false) },
         { nameof(MaxSimultaneousAttackers), (1, 1, 8, true) },
         { nameof(AttackStartIntervalSeconds), (0.75f, 0, 10, false) },
         { nameof(MeleeWindupSeconds), (0.55f, 0.05f, 5, false) },
@@ -58,6 +59,7 @@ public sealed class EnemyAiSettings
     public float RangedMoveSpeed => _values[nameof(RangedMoveSpeed)];
     public float RangedWindupSeconds => _values[nameof(RangedWindupSeconds)];
     public float RangedAttackIntervalSeconds => _values[nameof(RangedAttackIntervalSeconds)];
+    public float RangedRecoverySeconds => _values[nameof(RangedRecoverySeconds)];
 
     public int MaxSimultaneousAttackers => (int)_values[nameof(MaxSimultaneousAttackers)];
     public float AttackStartIntervalSeconds => _values[nameof(AttackStartIntervalSeconds)];

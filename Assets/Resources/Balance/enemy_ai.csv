@@ -48,3 +48,5 @@ RangedMoveSpeed,2.2
 # 射撃予告の秒数（0.05～5）と、攻撃動作開始から次の予告開始までの間隔（0～10秒）
 RangedWindupSeconds,0.8
 RangedAttackIntervalSeconds,2
+# 弾の発射直後に移動・再射撃を止める隙（秒、0～10）。0でこの隙だけを無効にする
+RangedRecoverySeconds,0.8
