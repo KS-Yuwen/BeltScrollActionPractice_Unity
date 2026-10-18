@@ -21,13 +21,19 @@ public enum BrawlerSound
     SpellHeal,
     SpellProtection,
     SpellAttackBoost,
-    SpellMissile
+    SpellMissile,
+    SpawnNotice
 }
 
 // 試作用の短い効果音を起動時に生成し、同じ AudioClip を繰り返し再生します。
 public sealed class BrawlerAudio : MonoBehaviour
 {
     private const int SampleRate = 44100;
+    // 増援は高めの二音で知らせ、敵の攻撃予兆の音と聞き分けられるようにします。
+    private const float SpawnNoticeDuration = 0.22f;
+    private const float SpawnNoticeNoteSplit = 0.5f;
+    private const float SpawnNoticeFirstFrequency = 880f;
+    private const float SpawnNoticeSecondFrequency = 1174f;
     // 音作りの調整値。ボスは低い音域にし、複数の通常敵がいる場面でも聞き分けられます。
     private const float WarningDuration = 0.16f;
     private const float SwingDuration = 0.12f;
@@ -76,7 +82,8 @@ public sealed class BrawlerAudio : MonoBehaviour
         _source = gameObject.AddComponent<AudioSource>();
         _source.playOnAwake = false;
         _source.spatialBlend = 0;
-        _source.volume = 0.35f;
+        ApplySoundEffectsVolume(AudioOptions.SoundEffectsVolume);
+        AudioOptions.SoundEffectsVolumeChanged += ApplySoundEffectsVolume;
         // 音声はゲーム時間の停止に影響されません。リスナーの一時停止にも依存させません。
         _source.ignoreListenerPause = true;
         foreach (BrawlerSound sound in System.Enum.GetValues(typeof(BrawlerSound)))
@@ -85,8 +92,18 @@ public sealed class BrawlerAudio : MonoBehaviour
         }
     }
 
+    private void ApplySoundEffectsVolume(float volume)
+    {
+        // 設定の100%を従来の音量へ対応させ、最大値にしても以前より大音量にしません。
+        _source.volume = BrawlerBalance.SoundEffectsBaseVolume * volume;
+    }
+
     public void Play(BrawlerSound sound)
     {
+        if (sound == BrawlerSound.SpawnNotice && !AudioOptions.SpawnNoticeSoundEnabled)
+        {
+            return;
+        }
         // 範囲攻撃で同じ音が同時に重なることを抑えます。異なる種類の音は重ねて再生できます。
         float now = Time.unscaledTime;
         if (_lastPlayedAt.TryGetValue(sound, out float lastTime) && now - lastTime < 0.03f)
@@ -104,6 +121,7 @@ public sealed class BrawlerAudio : MonoBehaviour
             || sound == BrawlerSound.EnemyMiss || sound == BrawlerSound.BossMiss;
         float duration = sound switch
         {
+            BrawlerSound.SpawnNotice => SpawnNoticeDuration,
             BrawlerSound.SpellCast => SpellCastDuration,
             BrawlerSound.SpellInterrupted => SpellInterruptedDuration,
             BrawlerSound.SpellHeal => SpellHealDuration,
@@ -133,6 +151,7 @@ public sealed class BrawlerAudio : MonoBehaviour
             // 予兆は上昇する合図、振りと空振りは短い風切り音として作ります。
             frequency = sound switch
             {
+                BrawlerSound.SpawnNotice => progress < SpawnNoticeNoteSplit ? SpawnNoticeFirstFrequency : SpawnNoticeSecondFrequency,
                 BrawlerSound.SpellCast => Mathf.Lerp(SpellCastStartFrequency, SpellCastEndFrequency, progress),
                 BrawlerSound.SpellInterrupted => Mathf.Lerp(SpellInterruptedStartFrequency, SpellInterruptedEndFrequency, progress),
                 BrawlerSound.SpellHeal => Mathf.Lerp(SpellHealStartFrequency, SpellHealEndFrequency, progress),
@@ -178,6 +197,8 @@ public sealed class BrawlerAudio : MonoBehaviour
 
     private void OnDestroy()
     {
+        // staticイベントから購読を解除し、シーンの再開始で古い再生役を残さないようにします。
+        AudioOptions.SoundEffectsVolumeChanged -= ApplySoundEffectsVolume;
         // 実行時に生成した音声データは、リスタート時に解放します。
         foreach (AudioClip clip in _clips.Values)
         {

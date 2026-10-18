@@ -52,7 +52,7 @@ public sealed class BrawlerHud
 
     public void Draw(BeltBrawler game, Fighter player, IReadOnlyList<Fighter> enemies,
         Camera camera, int wave, int score, int hitChain, HealthBarFeedback healthFeedback,
-        IReadOnlyList<Vector3> pendingSpawns, float spawnWarningRemaining, Font font,
+        Font font,
         WaveBanner waveBanner, HitDirectionIndicator hitDirection)
     {
         if (game.IsRunFinished)
@@ -217,22 +217,7 @@ public sealed class BrawlerHud
         {
             GUI.Label(new Rect(24, 180, 1100, 40), "No input devices — Apply Input Settings and Restart from Tools / Neon Street", style);
         }
-        if (pendingSpawns.Count > 0)
-        {
-            GUI.color = Color.yellow;
-            GUI.Label(new Rect(24, 286, 900, 40), $"ENEMIES INCOMING — {spawnWarningRemaining:F1}s", style);
-            foreach (Vector3 position in pendingSpawns)
-            {
-                Vector3 screen = camera.WorldToScreenPoint(position + Vector3.up * 0.3f);
-                // 画面外の出現も端の矢印で知らせます。画面内では実際の出現位置に表示します。
-                bool offLeft = screen.x < 70;
-                bool offRight = screen.x > Screen.width - 70;
-                float x = Mathf.Clamp(screen.x, 70, Mathf.Max(70, Screen.width - 70));
-                float y = Mathf.Clamp(Screen.height - screen.y, 335, Mathf.Max(335, Screen.height - 90));
-                GUI.Label(new Rect(x - 60, y, 160, 40), offLeft ? "< INCOMING" : offRight ? "INCOMING >" : "! SPAWN", style);
-            }
-            GUI.color = Color.white;
-        }
+        SpawnWarningHud.Draw(game, player, camera, font);
         if (player.Health > 0)
         {
             waveBanner.Draw();

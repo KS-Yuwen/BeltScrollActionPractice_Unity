@@ -1596,6 +1596,10 @@ public static class GamepadValidation
         MethodInfo update = typeof(OptionsMenu).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
         bool originalLow = DisplayOptions.ShowLowSpellUsesWarning;
         bool originalDepleted = DisplayOptions.ShowSpellDepletedNotice;
+        bool originalShake = DisplayOptions.CameraShakeEnabled;
+        bool originalSpawnNotice = AudioOptions.SpawnNoticeSoundEnabled;
+        float originalVolume = AudioOptions.SoundEffectsVolume;
+        AudioSource audioSource = game.GetComponent<AudioSource>();
         float originalScale = Time.timeScale;
         Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
         Gamepad pad = InputSystem.AddDevice<Gamepad>();
@@ -1624,6 +1628,65 @@ public static class GamepadValidation
             InputSystem.Update();
             update.Invoke(menu, null);
             Require(DisplayOptions.ShowSpellDepletedNotice != originalDepleted, "使い切り表示を独立に切り替える");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsVolumeRow, "効果音の音量項目を選択する");
+            AudioOptions.SoundEffectsVolume = 0.5f;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.RightArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 0.5f + BrawlerBalance.SoundEffectsVolumeStep)
+                && Mathf.Approximately(audioSource.volume, AudioOptions.SoundEffectsVolume * BrawlerBalance.SoundEffectsBaseVolume),
+                "左右キーで音量を調整し、再生役へ即時反映する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.RightArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 0.5f + BrawlerBalance.SoundEffectsVolumeStep),
+                "方向キー保持で音量が勝手に変わり続けない");
+            AudioOptions.SoundEffectsVolume = -1;
+            Require(AudioOptions.SoundEffectsVolume == 0 && audioSource.volume == 0, "0%以下は消音に制限する");
+            AudioOptions.SoundEffectsVolume = 2;
+            Require(AudioOptions.SoundEffectsVolume == 1 && Mathf.Approximately(audioSource.volume, BrawlerBalance.SoundEffectsBaseVolume),
+                "100%以上は従来の最大音量に制限する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsCameraShakeRow, "画面の揺れの項目へ移動する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(DisplayOptions.CameraShakeEnabled != originalShake, "Enterで画面の揺れを切り替える");
+            DisplayOptions.CameraShakeEnabled = false;
+            FieldInfo shake = typeof(BeltBrawler).GetField("_cameraShakeRemaining", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo updateCamera = typeof(BeltBrawler).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
+            var camera = (Camera)typeof(BeltBrawler).GetField("_camera", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+            shake.SetValue(game, BrawlerBalance.CameraShakeSeconds);
+            updateCamera.Invoke(game, null);
+            Vector3 stablePosition = camera.transform.position;
+            updateCamera.Invoke(game, null);
+            Require((float)shake.GetValue(game) == 0 && camera.transform.position == stablePosition,
+                "オフにすると進行中の揺れを捨て、カメラを基準位置で安定させる");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsSpawnNoticeSoundRow, "増援の通知音の項目へ移動する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(AudioOptions.SpawnNoticeSoundEnabled != originalSpawnNotice, "Enterで増援の通知音を独立に切り替える");
+            // 再生履歴で通知音だけの抑制を確認します。音量0による消音とは別の設定です。
+            var audio = game.GetComponent<BrawlerAudio>();
+            var playedSounds = (System.Collections.Generic.Dictionary<BrawlerSound, float>)typeof(BrawlerAudio)
+                .GetField("_lastPlayedAt", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(audio);
+            playedSounds.Remove(BrawlerSound.SpawnNotice);
+            AudioOptions.SpawnNoticeSoundEnabled = false;
+            audio.Play(BrawlerSound.SpawnNotice);
+            Require(!playedSounds.ContainsKey(BrawlerSound.SpawnNotice), "通知音オフでは再生しない");
+            AudioOptions.SpawnNoticeSoundEnabled = true;
+            audio.Play(BrawlerSound.SpawnNotice);
+            Require(playedSounds.ContainsKey(BrawlerSound.SpawnNotice), "通知音オンでは再生できる");
+            AudioOptions.SpawnNoticeSoundEnabled = false;
             float attackBefore = ReadPlayerTimer(player, "_attackRemaining");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
             InputSystem.Update();
@@ -1642,6 +1705,27 @@ public static class GamepadValidation
             SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
             update.Invoke(menu, null);
             Require(menu.SelectedOption == 1, "パッド十字キーで項目を選択する");
+            SendState(pad, new GamepadState());
+            update.Invoke(menu, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsVolumeRow, "パッドでも音量項目を選択する");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadLeft));
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 1 - BrawlerBalance.SoundEffectsVolumeStep),
+                "パッド十字キーの左右で音量を調整する");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsCameraShakeRow, "パッドでも画面の揺れの項目へ移動できる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            update.Invoke(menu, null);
+            Require(DisplayOptions.CameraShakeEnabled, "パッドAで画面の揺れをオンにできる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsSpawnNoticeSoundRow, "パッドでも増援の通知音の項目へ移動できる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            update.Invoke(menu, null);
+            Require(AudioOptions.SpawnNoticeSoundEnabled, "パッドAで増援の通知音をオンにできる");
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             update.Invoke(menu, null);
             Require(!menu.IsOpen && Time.timeScale == 1, "パッドBで閉じ、速度を復元する");
@@ -1657,6 +1741,9 @@ public static class GamepadValidation
             Time.timeScale = originalScale;
             DisplayOptions.ShowLowSpellUsesWarning = originalLow;
             DisplayOptions.ShowSpellDepletedNotice = originalDepleted;
+            AudioOptions.SoundEffectsVolume = originalVolume;
+            DisplayOptions.CameraShakeEnabled = originalShake;
+            AudioOptions.SpawnNoticeSoundEnabled = originalSpawnNotice;
             InputSystem.RemoveDevice(keyboard);
             InputSystem.RemoveDevice(pad);
         }

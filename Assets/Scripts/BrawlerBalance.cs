@@ -27,6 +27,9 @@ public static class BrawlerBalance
     public const float CameraShakeStrength = 0.7f;
     public const float CameraFollowHalfWidth = 16;
     public const float SpawnBaseDistance = 7;
+    public const int DefaultSpawnLaneCount = 3;
+    public const float DefaultSpawnLaneSpacing = 1.5f;
+    public const float MaxSpawnDelaySeconds = 30f;
     public const float SpawnMinimumDistance = 4;
     public const float SpawnLaneHalfWidth = 2.5f;
     public const float HitImpactHeight = 1.2f;
@@ -56,11 +59,19 @@ public static class BrawlerBalance
     public const float LowHealthWarningLabelGap = 8f;
     public const float ProtectionWarningSeconds = 3f;
     public const float ProtectionWarningPulsesPerSecond = 2f;
-    public const int OptionsRowCount = 3;
+    public const float DefaultSoundEffectsVolume = 1f;
+    public const float SoundEffectsBaseVolume = 0.35f;
+    public const float SoundEffectsVolumeStep = 0.1f;
+    public const int OptionsVolumeRow = 2;
+    public const int OptionsVolumePercent = 100;
+    public const int OptionsCameraShakeRow = 3;
+    public const int OptionsSpawnNoticeSoundRow = 4;
+    public const int OptionsRowCount = 6;
+    public const float OptionsVolumeButtonWidth = 44f;
     public const int OptionsFontSize = 18;
     public const float OptionsInputThreshold = 0.5f;
     public const float OptionsWidth = 560f;
-    public const float OptionsHeight = 280f;
+    public const float OptionsHeight = 442f;
     public const float OptionsMargin = 20f;
     public const float OptionsTitleHeight = 50f;
     public const float OptionsRowHeight = 54f;
@@ -90,8 +101,19 @@ public static class BrawlerBalance
     public const float EnemyHealthBarHeight = 10f;
     public const float EnemyHealthBarWorldHeight = 2.3f;
     // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
+    // CSVを読み込めない場合の既定値と、入力できる待ち時間の上限です。
     public const float NextWaveDelaySeconds = 2f;
+    public const float MaxWaveClearDelaySeconds = 30f;
     public const float SpawnWarningSeconds = 1.5f;
+    public const float SpawnNoticeLeadSeconds = 1.5f;
+    public const float SpawnNoticeWidth = 310f;
+    public const float SpawnNoticeRowHeight = 28f;
+    public const float SpawnNoticeMargin = 24f;
+    public const float SpawnNoticeTopFraction = 0.43f;
+    public const float SpawnNoticeBackgroundAlpha = 0.75f;
+    public const float SpawnNoticeMarkerHeight = 0.3f;
+    public const float SpawnNoticeMarkerWidth = 30f;
+    public const int SpawnNoticeFontSize = 18;
     public const float WaveBannerSeconds = 1.2f;
     public const float WaveBannerFadeSeconds = 0.3f;
     public const float WaveBannerWidth = 600f;
@@ -101,6 +123,9 @@ public static class BrawlerBalance
     public const float SelectionHudMargin = 24f;
     public const float SelectionCardWidth = 154f;
     public const float SelectionCardHeight = 92f;
+    // 敵の攻撃発生後に反撃できる隙。攻撃間隔・被弾硬直とは独立した試作値です。
+    public static float MeleeRecoverySeconds => EnemyAiSettings.Current.MeleeRecoverySeconds;
+    public static float HeavyRecoverySeconds => EnemyAiSettings.Current.HeavyRecoverySeconds;
     public const float SelectionCardGap = 8f;
     public const float SelectionCardPadding = 8f;
     public const float SelectionBorderWidth = 3f;
@@ -365,12 +390,13 @@ public static class BrawlerBalance
     public const float GroundHitRemainingSeconds = 0.23f;
 
     // 敵の標準能力と、被ダメージ・防御後の反応。
+    public const int WaitingPositionsPerDepthPair = 2;
     public const float MeleeSpeed = 2.2f;
-    public const float MeleeWindupSeconds = 0.55f;
-    public const float MeleeAttackIntervalSeconds = 1.2f;
+    public static float MeleeWindupSeconds => EnemyAiSettings.Current.MeleeWindupSeconds;
+    public static float MeleeAttackIntervalSeconds => EnemyAiSettings.Current.MeleeAttackIntervalSeconds;
     public const int MeleeDamage = 10;
-    public const float MeleeStopDistance = 1.1f;
-    public const float MeleeLaneTolerance = 0.5f;
+    public static float MeleeStopDistance => EnemyAiSettings.Current.MeleeStopDistance;
+    public static float MeleeLaneTolerance => EnemyAiSettings.Current.MeleeLaneTolerance;
     public const float StunSeconds = 0.25f;
     public const float EnemyHitCooldownSeconds = 0.6f;
     public const float DownSeconds = 0.7f;
@@ -390,8 +416,8 @@ public static class BrawlerBalance
     public const float StageHalfWidth = 22;
     public const float StageHalfDepth = 3;
     public const float HeavySpeed = 1.3f;
-    public const float HeavyWindupSeconds = 0.95f;
-    public const float HeavyAttackIntervalSeconds = 1.8f;
+    public static float HeavyWindupSeconds => EnemyAiSettings.Current.HeavyWindupSeconds;
+    public static float HeavyAttackIntervalSeconds => EnemyAiSettings.Current.HeavyAttackIntervalSeconds;
     public const int HeavyDamage = 24;
     public const int HealingAmount = 30;
     // ターニングアンデッドの試作用設定。HPや魔法回数は消費せず、再使用時間で連打を制限します。

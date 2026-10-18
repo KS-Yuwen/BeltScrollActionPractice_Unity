@@ -53,7 +53,7 @@ public sealed class BeltBrawler : MonoBehaviour
     public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
-    // 全滅後、次の出現までに経過した秒数。
+    // 全滅後、次のウェーブ予告（ボス前は準備区間）を始めるまでに経過した秒数。
     private float _nextWaveElapsed;
     private readonly WaveBanner _waveBanner = new WaveBanner();
     private bool _waveClearAnnounced;
@@ -65,6 +65,34 @@ public sealed class BeltBrawler : MonoBehaviour
     // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
+    private WaveSpawnSettings _waveSpawns;
+    private WaveIntervalSettings _waveIntervals;
+    private readonly List<WaveSpawnSettings.Entry> _pendingSpawnEntries = new List<WaveSpawnSettings.Entry>();
+    private float _spawnElapsed;
+    private readonly HashSet<WaveSpawnSettings.Entry> _notifiedSpawns = new HashSet<WaveSpawnSettings.Entry>();
+    public int PendingSpawnCount => _pendingSpawnPositions.Count;
+
+    // 表示のために別のタイマーを持たず、実際の出現予定から直前の予約だけを返します。
+    public bool TryGetSpawnNotice(int index, out WaveSpawnSettings.EnemyKind kind, out Vector3 position, out float remaining)
+    {
+        kind = default;
+        position = Vector3.zero;
+        remaining = 0;
+        if (IsRunFinished || _player == null || _player.Health <= 0 || index < 0
+            || index >= _pendingSpawnPositions.Count || index >= _pendingSpawnEntries.Count)
+        {
+            return false;
+        }
+        WaveSpawnSettings.Entry entry = _pendingSpawnEntries[index];
+        remaining = BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds - _spawnElapsed;
+        if (remaining <= 0 || remaining > BrawlerBalance.SpawnNoticeLeadSeconds)
+        {
+            return false;
+        }
+        kind = entry.Kind;
+        position = _pendingSpawnPositions[index];
+        return true;
+    }
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private bool _bossDefeatStarted;
@@ -74,6 +102,14 @@ public sealed class BeltBrawler : MonoBehaviour
     public bool IsShowingBossDefeat => _bossDefeatRemaining > 0 && !IsRunFinished;
     private BrawlerAudio _audio;
     private OptionsMenu _optionsMenu;
+    private EnemyAttackCoordinator _enemyAttacks;
+
+    public bool TryRequestMeleeAttack(Fighter fighter) => _enemyAttacks.TryRequest(fighter);
+    public bool TryRequestRangedAttack(RangedFighter fighter) => _enemyAttacks.TryRequestRanged(fighter);
+    public bool IsFirstWaitingMeleeAttack(Fighter fighter) => _enemyAttacks.IsFirstWaiting(fighter);
+    public Vector3 GetMeleeWaitingVelocity(Fighter fighter, float deltaTime) => _enemyAttacks.GetWaitingVelocity(fighter, deltaTime);
+    public Vector3 GetEnemySeparationVelocity(Fighter fighter, float deltaTime)
+        => _enemyAttacks.GetSeparationVelocity(fighter, _enemies, deltaTime);
     private Font _pickupNoticeFont;
 
     public void PlaySound(BrawlerSound sound)
@@ -88,6 +124,9 @@ public sealed class BeltBrawler : MonoBehaviour
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
     private void Start()
     {
+        _waveSpawns = WaveSpawnSettings.Current;
+        _waveIntervals = WaveIntervalSettings.Current;
+        _enemyAttacks = new EnemyAttackCoordinator(EnemyAiSettings.Current);
         _audio = gameObject.AddComponent<BrawlerAudio>();
         _optionsMenu = gameObject.AddComponent<OptionsMenu>();
         // 日本語の取得名を描画できるOSフォントを一度だけ作り、通知間で共有します。
@@ -105,15 +144,16 @@ public sealed class BeltBrawler : MonoBehaviour
         return _factory.CreateFighter(label, position, isPlayer, _wave, isRanged, isHeavy, isUndead);
     }
 
-    // 敵の人数はウェーブごとに増えますが、最大 7 体で止めます。
-    // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
+    // CSVに定義した編成を予約します。全5ウェーブ、最後は既存のボス準備を経て開始します。
     private void SpawnWave()
     {
+        _enemyAttacks.Reset();
         if (IsRunFinished || IsPreparingBoss || _wave >= BrawlerBalance.StageWaveCount)
         {
             return;
         }
         _wave++;
+        _nextWaveElapsed = 0;
         _waveClearAnnounced = false;
         _waveBanner.ShowStart(_wave);
         // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
@@ -121,25 +161,38 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
-        int enemyCount = _wave == BrawlerBalance.StageWaveCount ? BrawlerBalance.BossWaveEnemyCount
-            : Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount);
-        for (int i = 0; i < enemyCount; i++)
+        _pendingSpawnPositions.Clear();
+        _pendingSpawnEntries.Clear();
+        _notifiedSpawns.Clear();
+        _spawnElapsed = 0;
+        _spawnWarningRemaining = float.MaxValue;
+        foreach (WaveSpawnSettings.Entry entry in _waveSpawns.GetWave(_wave))
         {
-            _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
+            _pendingSpawnEntries.Add(entry);
+            // 全員分を開始時に予約し、出現待ちの間にプレイヤーが動いても追いかけません。
+            _pendingSpawnPositions.Add(entry.ResolvePosition(_player.transform.position));
+            _spawnWarningRemaining = Mathf.Min(_spawnWarningRemaining, BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds);
         }
-        _spawnWarningRemaining = BrawlerBalance.SpawnWarningSeconds;
+        UpdateSpawnNoticeSounds();
     }
 
-    private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
+    // HUDと同じ残り時間を参照します。同じフレームに始まる予告は一つの音にまとめます。
+    private void UpdateSpawnNoticeSounds()
     {
-        float side = wave >= BrawlerBalance.MixedEnemiesStartWave && index % 2 == 1 ? -1 : 1;
-        float x = Mathf.Clamp(playerPosition.x + side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
-        // 端では反対側に回し、プレイヤーのすぐ上に突然出現することを防ぎます。
-        if (Mathf.Abs(x - playerPosition.x) < BrawlerBalance.SpawnMinimumDistance)
+        bool shouldPlay = false;
+        for (int i = 0; i < _pendingSpawnEntries.Count; i++)
         {
-            x = Mathf.Clamp(playerPosition.x - side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
+            if (TryGetSpawnNotice(i, out _, out _, out _) && _notifiedSpawns.Add(_pendingSpawnEntries[i]))
+            {
+                shouldPlay = true;
+            }
         }
-        return new Vector3(x, 0, Random.Range(-BrawlerBalance.SpawnLaneHalfWidth, BrawlerBalance.SpawnLaneHalfWidth));
+        // オフの間も通知済みにします。設定変更や停止からの復帰で同じ予告を鳴らし直しません。
+        // 低FPSで予告期間を通り過ぎた敵も、出現後に遅れて通知しません。
+        if (shouldPlay)
+        {
+            PlaySound(BrawlerSound.SpawnNotice);
+        }
     }
 
     private void UpdateSpawnWarning(float deltaTime)
@@ -148,28 +201,36 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
-        _spawnWarningRemaining = Mathf.Max(0, _spawnWarningRemaining - deltaTime);
-        if (_spawnWarningRemaining > 0)
+        _spawnElapsed += Mathf.Max(0, deltaTime);
+        UpdateSpawnNoticeSounds();
+        _spawnWarningRemaining = float.MaxValue;
+        for (int i = 0; i < _pendingSpawnPositions.Count;)
         {
-            return;
-        }
-        for (int i = 0; i < _pendingSpawnPositions.Count; i++)
-        {
-            if (_wave == BrawlerBalance.StageWaveCount)
+            WaveSpawnSettings.Entry entry = _pendingSpawnEntries[i];
+            float remaining = BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds - _spawnElapsed;
+            if (remaining > 0)
             {
-                _enemies.Add(_factory.CreateFighter("Warden Boss", _pendingSpawnPositions[i], false, _wave,
-                    isBoss: true));
+                _spawnWarningRemaining = Mathf.Min(_spawnWarningRemaining, remaining);
+                i++;
                 continue;
             }
-            // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
-            bool isRanged = i % BrawlerBalance.RangedSpawnInterval == BrawlerBalance.RangedSpawnOffset;
-            // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
-            bool isHeavy = _wave >= BrawlerBalance.MixedEnemiesStartWave && i == BrawlerBalance.HeavySpawnIndex;
-            bool isUndead = i == BrawlerBalance.UndeadSpawnIndex;
-            _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : isUndead ? "Undead Enemy" : "Melee Enemy",
-                _pendingSpawnPositions[i], false, isRanged, isHeavy, isUndead));
+            WaveSpawnSettings.EnemyKind kind = entry.Kind;
+            Fighter enemy = _factory.CreateFighter(kind == WaveSpawnSettings.EnemyKind.Boss ? "Warden Boss" : kind + " Enemy", _pendingSpawnPositions[i], false, _wave,
+                isRanged: kind == WaveSpawnSettings.EnemyKind.Ranged,
+                isHeavy: kind == WaveSpawnSettings.EnemyKind.Heavy,
+                isUndead: kind == WaveSpawnSettings.EnemyKind.Undead,
+                isBoss: kind == WaveSpawnSettings.EnemyKind.Boss);
+            // 各敵が実際に姿を現してから待機を開始します。遅延増援にも同じ猶予を与えます。
+            enemy.BeginSpawnWait();
+            _enemies.Add(enemy);
+            // 生成済みの行だけ取り除き、低FPSで複数の時刻をまたいでも各行を一度だけ生成します。
+            _pendingSpawnEntries.RemoveAt(i);
+            _pendingSpawnPositions.RemoveAt(i);
         }
-        _pendingSpawnPositions.Clear();
+        if (_pendingSpawnPositions.Count == 0)
+        {
+            _spawnWarningRemaining = 0;
+        }
     }
 
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
@@ -181,6 +242,11 @@ public sealed class BeltBrawler : MonoBehaviour
             return;
         }
         // timeScale が0でも停止を解除できるよう、実時間で残り秒数を減らします。
+        // 魔法で敵を止めている間も、攻撃順の待ち時間を保持します。
+        if (!IsSpellEffectActive)
+        {
+            _enemyAttacks.Advance(Time.deltaTime);
+        }
         UpdateHitStop(Time.unscaledDeltaTime);
         UpdateBossDefeat(Time.unscaledDeltaTime);
         _hitDirectionIndicator.Advance(Time.unscaledDeltaTime);
@@ -267,9 +333,10 @@ public sealed class BeltBrawler : MonoBehaviour
                 _waveClearAnnounced = true;
                 _waveBanner.ShowClear();
             }
-            // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
-            _nextWaveElapsed += deltaTime;
-            if (_nextWaveElapsed > BrawlerBalance.NextWaveDelaySeconds)
+            // 敵の消滅・全増援の出現が終わった後だけ、ゲーム時間でウェーブごとの間隔を計測します。
+            // メニュー中はUpdate自体を止め、ヒットストップ中はdeltaTimeが0になるため進みません。
+            _nextWaveElapsed += Mathf.Max(0, deltaTime);
+            if (_nextWaveElapsed >= _waveIntervals.GetClearDelaySeconds(_wave))
             {
                 _nextWaveElapsed = 0;
                 if (_wave == BrawlerBalance.StageWaveCount - 1)
@@ -357,6 +424,9 @@ public sealed class BeltBrawler : MonoBehaviour
         _waveBanner.Clear();
         // 敗北時の出現予約も破棄し、リザルトの背後で次の敵が出ないようにします。
         _pendingSpawnPositions.Clear();
+        _pendingSpawnEntries.Clear();
+        _notifiedSpawns.Clear();
+        _spawnWarningRemaining = 0;
     }
 
     // 全キャラクターの Update の後にカメラを動かし、そのフレームの最新位置を追います。
@@ -368,7 +438,12 @@ public sealed class BeltBrawler : MonoBehaviour
         _camera.transform.LookAt(focus);
         // 一瞬だけカメラをずらし、攻撃が命中した重さを表現します。
         // 毎フレーム基準位置から計算するため、揺れが積み重なって位置がずれることはありません。
-        if (_cameraShakeRemaining > 0)
+        // オフにしたら残り時間も破棄し、再度オンにしても古い命中の揺れを再生しません。
+        if (!DisplayOptions.CameraShakeEnabled)
+        {
+            _cameraShakeRemaining = 0;
+        }
+        if (DisplayOptions.CameraShakeEnabled && !OptionsMenu.BlocksGameplay && _cameraShakeRemaining > 0)
         {
             _camera.transform.position += Random.insideUnitSphere * _cameraShakeRemaining * BrawlerBalance.CameraShakeStrength;
         }
@@ -455,7 +530,7 @@ public sealed class BeltBrawler : MonoBehaviour
                 BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
             }
         }
-        _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
+        _cameraShakeRemaining = DisplayOptions.CameraShakeEnabled ? BrawlerBalance.CameraShakeSeconds : 0;
         if (victim.IsPlayer)
         {
             _hitChain = 0;
@@ -1077,7 +1152,7 @@ public sealed class BeltBrawler : MonoBehaviour
             StartAs(BrawlerDefines.PlayerClass.Elf);
         }
         _hud.Draw(this, _player, _enemies, _camera, _wave, _score, _hitChain, _healthBarFeedback,
-            _pendingSpawnPositions, _spawnWarningRemaining, _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
+            _pickupNoticeFont, _waveBanner, _hitDirectionIndicator);
         if (_optionsMenu != null)
         {
             _optionsMenu.Draw(_pickupNoticeFont);

@@ -9,6 +9,11 @@ using UnityEngine;
 // シーンの保存は行わず、Play モード中のオブジェクトだけを変更します。
 public static class CombatValidation
 {
+    private const string WaveSpawnTestCsv = "wave,enemy,offsetX,laneZ,delaySeconds\n"
+        + "1,Melee,7,0,0\n"
+        + "2,Melee,7,-1,0\n2,Undead,-8,0,0\n2,Ranged,9,1,0\n2,Heavy,-10,-1,1\n"
+        + "3,Melee,7,0,0\n4,Melee,7,0,0\n5,Boss,7,0,0\n";
+    private const string WaveIntervalTestCsv = "wave,clearDelaySeconds\n1,0\n2,3\n3,0.75\n4,4\n";
     private static double s_deadline;
     private static double s_readyAt;
 
@@ -61,6 +66,14 @@ public static class CombatValidation
             {
                 return;
             }
+            // 戦闘ルールの検証は初期編成が揃った状態で行います。増援の調整時間には依存させません。
+            // 段階出現そのものは後述の専用ケースで確認し、ここでは生成後のStartも待ちます。
+            var initialPending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
+            if (initialPending.Count > 0)
+            {
+                typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds + BrawlerBalance.MaxSpawnDelaySeconds });
+            }
             // Start だけでなく通常の Update も走らせ、初期化後の例外を検出します。
             if (s_readyAt == 0)
             {
@@ -72,6 +85,17 @@ public static class CombatValidation
                 return;
             }
             var player = game.Target;
+            ValidateWaveSpawnSettings();
+            ValidateWaveIntervals(game);
+            // 既存の戦闘ケースは出現待機が終わった状態で実行します。待機自体は専用ケースで検証します。
+            foreach (Fighter initialEnemy in UnityEngine.Object.FindObjectsByType<Fighter>())
+            {
+                SetPrivateField(initialEnemy, "_spawnWaitRemaining", 0f);
+            }
+            ValidateEnemySpawnWait(game);
+            ValidateRangedEnemyAi(game);
+            ValidateRangedCoordination(game);
+            ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
             // 回避中の無敵と、回避終了後にダメージを受けることを両方確認します。
@@ -246,26 +270,60 @@ public static class CombatValidation
             Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "3枠目に初期の攻撃強化が残る");
             cleric.SelectNextAction();
 
-            // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
+            // 第2ウェーブで3体を同時、重装敵だけを1秒遅らせ、予告位置と生成時刻を検証します。
+            var originalWaves = (WaveSpawnSettings)GetPrivateField(game, "_waveSpawns");
+            Require(WaveSpawnSettings.TryParse(WaveSpawnTestCsv, out WaveSpawnSettings staggeredWaves, out _), "検証用の段階出現編成を読む");
+            SetPrivateField(game, "_waveSpawns", staggeredWaves);
             player.transform.position = Vector3.zero;
             typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
             var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
             Require(pending.Exists(p => p.x < 0) && pending.Exists(p => p.x > 0), "第2ウェーブは左右に出現を予約");
+            var notifiedSpawns = (System.Collections.Generic.HashSet<WaveSpawnSettings.Entry>)GetPrivateField(game, "_notifiedSpawns");
+            Require(notifiedSpawns.Count == 3, "同時に予告する3体を開始時に通知済みにする");
             Vector3 reservedPosition = pending[0];
+            Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind firstNoticeKind, out Vector3 noticePosition, out _)
+                && firstNoticeKind == WaveSpawnSettings.EnemyKind.Melee && noticePosition == reservedPosition,
+                "直前の増援予告はCSVの敵種別と予約位置を返す");
+            Require(!game.TryGetSpawnNotice(3, out _, out _, out _), "まだ先の増援は直前予告に表示しない");
             int beforeSpawn = UnityEngine.Object.FindObjectsByType<Fighter>().Length;
             MethodInfo updateWarning = typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic);
             updateWarning.Invoke(game, new object[] { 0.5f });
             Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn, "予告中には出現しない");
+            Require(notifiedSpawns.Count == 3, "予告表示中の更新では同じ通知を繰り返さない");
             player.transform.position = Vector3.left * 5;
             updateWarning.Invoke(game, new object[] { 1.1f });
-            Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4,
-                "予告終了で4体を一度だけ生成");
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(),
+                f => !f.IsPlayer && f.transform.position == reservedPosition && f.IsWaitingAfterSpawn),
+                "予約を実体化した時点で出現後の待機を開始する");
+            Require(pending.Count == 1 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 3,
+                "最初の予告終了で3体を生成し、遅延指定の重装敵だけを予約に残す");
+            var scheduledEnemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(game, "_enemies");
+            var savedEnemies = new System.Collections.Generic.List<Fighter>(scheduledEnemies);
+            scheduledEnemies.Clear();
+            typeof(BeltBrawler).GetMethod("UpdateWaveProgress", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 1 });
+            Require((int)GetPrivateField(game, "_wave") == 2, "生存敵が0でも出現待ちが残る間は次のウェーブに進まない");
+            scheduledEnemies.AddRange(savedEnemies);
+            updateWarning.Invoke(game, new object[] { 0f });
+            Require(pending.Count == 1, "時間停止中は遅延出現を進めない");
+            Require(notifiedSpawns.Count == 4, "遅延増援の予告開始時にだけ通知を追加し、時間停止では繰り返さない");
+            Vector3 delayedPosition = pending[0];
+            Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind delayedKind, out Vector3 delayedNoticePosition, out float delayedRemaining)
+                && delayedKind == WaveSpawnSettings.EnemyKind.Heavy && delayedNoticePosition == delayedPosition
+                && Mathf.Approximately(delayedRemaining, 0.9f), "遅延した重装敵も出現直前には正しい残り時間で予告する");
+            updateWarning.Invoke(game, new object[] { 1f });
+            Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(), f => f.transform.position == delayedPosition),
+                "遅延後はCSVの種類と予約位置で重装敵を一度だけ生成する");
+            Require(Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(),
+                f => f.transform.position == delayedPosition && f.IsWaitingAfterSpawn), "遅延増援にも生成後から待機時間を与える");
+            Require(!game.TryGetSpawnNotice(0, out _, out _, out _), "出現済みの増援予告を残さない");
             Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && f.transform.position == reservedPosition),
                 "移動後も予約した位置に出現");
             updateWarning.Invoke(game, new object[] { 2f });
             Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4, "予告終了後は重複生成しない");
-            MethodInfo calculatePosition = typeof(BeltBrawler).GetMethod("CalculateSpawnPosition", BindingFlags.Static | BindingFlags.NonPublic);
-            Vector3 edgeSpawn = (Vector3)calculatePosition.Invoke(null, new object[] { Vector3.right * 22, 0, 2 });
+            SetPrivateField(game, "_waveSpawns", originalWaves);
+            Vector3 edgeSpawn = WaveSpawnSettings.Current.GetWave(2)[0].ResolvePosition(Vector3.right * BrawlerBalance.StageHalfWidth);
             Require(edgeSpawn.x <= 18 && edgeSpawn.x >= -22, "ステージ端で近すぎる出現を避ける");
 
             // 実時間で停止が解除され、複数命中やリスタートで停止が残らないことを検証します。
@@ -333,6 +391,7 @@ public static class CombatValidation
             SetPrivateField(ranged, "_downRemaining", 0f);
             ranged.TakeDamage(30, 1);
             Require(ranged.CanReceiveGroundHit, "再ダウンでは追撃を再受付");
+            Require(ranged.OpeningSecondsRemaining == 0, "射撃後の隙は被弾時に通常の硬直・転倒へ切り替わる");
             ranged.transform.position = new Vector3(1, 0, 1);
             int beforeMiss = ranged.Health;
             game.HitGroundTarget(player, ranged, 24);
@@ -353,6 +412,9 @@ public static class CombatValidation
             SetPrivateField(cleric, "_protectionRemaining", 0f);
             player.transform.position = Vector3.zero;
             heavy.transform.position = Vector3.right;
+            // 攻撃そのもののケースでは、直前に生成した重装敵の出現待機を先に経過させます。
+            typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(heavy, new object[] { EnemyAiSettings.Current.HeavySpawnWaitSeconds });
             typeof(Fighter).GetMethod("GetEnemyMovement", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(heavy, null);
             Require(heavy.IsWindingUp && (float)GetPrivateField(heavy, "_windupRemaining") == 0.95f, "重装型は長い予告を開始");
             typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic)
@@ -853,6 +915,43 @@ public static class CombatValidation
             HitImpact effectToAdvance = counterEffects[counterEffects.Length - 1];
             effectToAdvance.Advance(BrawlerBalance.CounterImpactSeconds);
             Require(effectToAdvance.transform.localScale == Vector3.zero, "ヒットストップ中も実時間で専用演出が終了");
+            // 通常敵も攻撃を空振りした後に止まり、反撃できる隙を表示します。
+            foreach (bool heavyOpening in new[] { false, true })
+            {
+                Fighter openingEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[]
+                    { "Test melee opening", player.transform.position + Vector3.right * 10, false, false, heavyOpening, false });
+                try
+                {
+                    MethodInfo strike = typeof(Fighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+                    MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+                    MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+                    EnemyAttackWarning marker = openingEnemy.GetComponentInChildren<EnemyAttackWarning>();
+                    int playerHealth = player.Health;
+                    strike.Invoke(openingEnemy, new object[] { BrawlerBalance.MeleeDamage });
+                    float duration = heavyOpening ? BrawlerBalance.HeavyRecoverySeconds : BrawlerBalance.MeleeRecoverySeconds;
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == duration && player.Health == playerHealth
+                        && marker.IsShowingOpening, "空振りでも通常・重装敵の専用の隙を開始し、緑の枠を表示する");
+                    float facingBefore = openingEnemy.Facing;
+                    Require((Vector3)movement.Invoke(openingEnemy, new object[] { Vector3.zero, false }) == Vector3.zero
+                        && openingEnemy.Facing == facingBefore, "隙の間は移動・振り向きを止める");
+                    timers.Invoke(openingEnemy, new object[] { 0f });
+                    Require(openingEnemy.OpeningSecondsRemaining == duration, "時間停止中は反撃の隙も進めない");
+                    timers.Invoke(openingEnemy, new object[] { duration });
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening,
+                        "隙の時間が終われば表示を解除する");
+                    strike.Invoke(openingEnemy, new object[] { BrawlerBalance.MeleeDamage });
+                    openingEnemy.TakeDamage(1, 1);
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening,
+                        "隙への反撃を受けると既存の被弾状態へ移り、隙の表示は解除する");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(openingEnemy.gameObject);
+                }
+            }
             // 予告開始・進行・攻撃開始・中断・死亡に表示が追従することを確認します。
             Fighter warningEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test warning", Vector3.right * 10, false, false, false, false });
             EnemyAttackWarning warning = warningEnemy.GetComponentInChildren<EnemyAttackWarning>();
@@ -1117,7 +1216,8 @@ public static class CombatValidation
             waveProgress.Invoke(game, new object[] { 0f });
             Require(banner.Text == string.Empty, "消えたクリア通知を同じウェーブで再表示しない");
             int waveBeforeBanner = (int)GetPrivateField(game, "_wave");
-            waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+            var intervals = (WaveIntervalSettings)GetPrivateField(game, "_waveIntervals");
+            waveProgress.Invoke(game, new object[] { intervals.GetClearDelaySeconds(waveBeforeBanner) + 0.1f });
             Require(banner.Text == "WAVE " + (waveBeforeBanner + 1) && bannerPending.Count > 0,
                 "次の出現予告と同時にウェーブ番号を表示");
             waveProgress.Invoke(game, new object[] { 0f });
@@ -1937,7 +2037,20 @@ public static class CombatValidation
         SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
         SetPrivateField(game, "_nextWaveElapsed", 0f);
         player.TakeDamage(BrawlerBalance.BossPreparationHealingAmount, 1);
-        waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+        object originalIntervals = GetPrivateField(game, "_waveIntervals");
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv, out WaveIntervalSettings bossIntervals, out _),
+            "ボス準備前の待ち時間もCSVで指定できる");
+        try
+        {
+            SetPrivateField(game, "_waveIntervals", bossIntervals);
+            waveProgress.Invoke(game, new object[] { 3f });
+            Require(!game.IsPreparingBoss && pending.Count == 0, "第4ウェーブの待ち時間が終わる前は準備に入らない");
+            waveProgress.Invoke(game, new object[] { 1f });
+        }
+        finally
+        {
+            SetPrivateField(game, "_waveIntervals", originalIntervals);
+        }
         Require(game.IsPreparingBoss && !game.IsRunFinished && pending.Count == 0
             && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount - 1
             && player.Health == player.MaxHealth, "第4ウェーブ後は回復して準備に入り、ボスを自動予約しない");
@@ -2176,6 +2289,639 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    // 実際の進行メソッドを専用の管理役で呼び、元のステージ進行や敵一覧を変更せず検証します。
+    private static void ValidateWaveIntervals(BeltBrawler game)
+    {
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv, out WaveIntervalSettings custom, out _)
+            && custom.GetClearDelaySeconds(1) == 0 && custom.GetClearDelaySeconds(2) == 3
+            && custom.GetClearDelaySeconds(3) == 0.75f && custom.GetClearDelaySeconds(4) == 4,
+            "ウェーブごとの全滅後の待ち時間をCSVから読む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/wave_intervals");
+        Require(asset != null && WaveIntervalSettings.TryParse(asset.text, out _, out _), "同梱のウェーブ間隔CSVも読み込める");
+        foreach (string invalid in new[] { "", "wave,clearDelaySeconds", WaveIntervalTestCsv.Replace("1,0", "0,0"),
+            WaveIntervalTestCsv.Replace("1,0", "5,0"), WaveIntervalTestCsv.Replace("1,0", "1.5,0"),
+            WaveIntervalTestCsv.Replace("1,0", "1,-1"), WaveIntervalTestCsv.Replace("1,0", "1,NaN"),
+            WaveIntervalTestCsv.Replace("1,0", "1,Infinity"), WaveIntervalTestCsv.Replace("1,0", "1,30.1"),
+            WaveIntervalTestCsv.Replace("3,0.75\n", ""), WaveIntervalTestCsv + "1,2\n",
+            WaveIntervalTestCsv.Replace("clearDelaySeconds", "delay"), WaveIntervalTestCsv.Replace("1,0", "1,0,0") })
+        {
+            Require(!WaveIntervalSettings.TryParse(invalid, out WaveIntervalSettings fallback, out string error)
+                && fallback.GetClearDelaySeconds(1) == BrawlerBalance.NextWaveDelaySeconds
+                && fallback.GetClearDelaySeconds(4) == BrawlerBalance.NextWaveDelaySeconds && error.Length > 0,
+                "不正・欠落・重複した間隔CSVは全区間を既定値へ戻す");
+        }
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv.Replace("1,0", "1,30"), out _, out _),
+            "上限30秒も読み込める");
+        var fixture = new GameObject("Test wave intervals");
+        var progression = fixture.AddComponent<BeltBrawler>();
+        progression.enabled = false;
+        try
+        {
+            SetPrivateField(progression, "_player", game.Target);
+            SetPrivateField(progression, "_audio", GetPrivateField(game, "_audio"));
+            SetPrivateField(progression, "_waveSpawns", WaveSpawnSettings.Current);
+            SetPrivateField(progression, "_waveIntervals", custom);
+            SetPrivateField(progression, "_enemyAttacks", new EnemyAttackCoordinator(EnemyAiSettings.Current));
+            SetPrivateField(progression, "_wave", 1);
+            var enemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(progression, "_enemies");
+            var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(progression, "_pendingSpawnPositions");
+            var entries = (System.Collections.Generic.List<WaveSpawnSettings.Entry>)GetPrivateField(progression, "_pendingSpawnEntries");
+            MethodInfo advance = typeof(BeltBrawler).GetMethod("UpdateWaveProgress", BindingFlags.Instance | BindingFlags.NonPublic);
+            // 死亡フェード中も管理一覧には残ります。一覧が空になるまで計測しません。
+            enemies.Add(game.Target);
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 1 && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "敵が残っていれば待ち時間を計測しない");
+            enemies.Clear();
+            pending.Add(Vector3.zero);
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 1 && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "増援予約だけが残っている場合も待ち時間を計測しない");
+            pending.Clear();
+            advance.Invoke(progression, new object[] { 0f });
+            Require((int)GetPrivateField(progression, "_wave") == 2 && pending.Count > 0,
+                "0秒設定では全滅判定時に次のウェーブの予告を始める");
+            pending.Clear();
+            entries.Clear();
+            advance.Invoke(progression, new object[] { 1f });
+            advance.Invoke(progression, new object[] { 0f });
+            advance.Invoke(progression, new object[] { -1f });
+            Require((float)GetPrivateField(progression, "_nextWaveElapsed") == 1,
+                "ゲーム時間0では間隔を減らさず、負数でも巻き戻さない");
+            advance.Invoke(progression, new object[] { 1.75f });
+            Require((int)GetPrivateField(progression, "_wave") == 2, "設定の3秒より前は次の予告を始めない");
+            advance.Invoke(progression, new object[] { 0.25f });
+            Require((int)GetPrivateField(progression, "_wave") == 3 && pending.Count > 0
+                && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "設定の3秒に到達すると一度だけ次へ進み、経過時間をリセットする");
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 3, "次の出現待ちがある間はウェーブを飛ばさない");
+            pending.Clear();
+            entries.Clear();
+            advance.Invoke(progression, new object[] { 0.5f });
+            Require((int)GetPrivateField(progression, "_wave") == 3, "第3ウェーブには独自の0.75秒を使う");
+            advance.Invoke(progression, new object[] { 0.25f });
+            Require((int)GetPrivateField(progression, "_wave") == 4, "ウェーブ番号に対応した間隔で進む");
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(fixture);
+        }
+    }
+
+    private static void ValidateWaveSpawnSettings()
+    {
+        Require(WaveSpawnSettings.TryParse(WaveSpawnTestCsv, out WaveSpawnSettings settings, out _)
+            && settings.GetWave(2).Count == 4 && settings.GetWave(2)[3].Kind == WaveSpawnSettings.EnemyKind.Heavy
+            && settings.GetWave(2)[3].DelaySeconds == 1, "編成CSVから敵種別・出現順・遅延を読み込む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/wave_spawns");
+        Require(asset != null && WaveSpawnSettings.TryParse(asset.text, out _, out _), "同梱のウェーブCSVも読み込める");
+        foreach (string invalid in new[] { "", "wave,enemy,offsetX,laneZ,delaySeconds",
+            WaveSpawnTestCsv.Replace("1,Melee", "1,Unknown"), WaveSpawnTestCsv.Replace("1,Melee", "1,999"),
+            WaveSpawnTestCsv.Replace("1,Melee", "1,Boss"), WaveSpawnTestCsv.Replace("5,Boss", "5,Melee"),
+            WaveSpawnTestCsv.Replace("3,Melee,7,0,0\n", ""), WaveSpawnTestCsv + "1,Melee,7,0,0\n",
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,0,0,0"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,7,4,0"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,7,0,-1"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,NaN,0,0") })
+        {
+            Require(!WaveSpawnSettings.TryParse(invalid, out WaveSpawnSettings fallback, out string error)
+                && fallback.GetWave(1).Count == WaveSpawnSettings.CreateDefault().GetWave(1).Count
+                && !string.IsNullOrEmpty(error), "不正な編成CSVは一部だけ適用せず全体を既定値へ戻す");
+        }
+        Vector3 position = settings.GetWave(2)[3].ResolvePosition(Vector3.right * BrawlerBalance.StageHalfWidth);
+        Require(Mathf.Abs(position.x) <= BrawlerBalance.StageHalfWidth && position.z == -1,
+            "CSVの奥行きを保持し、左右位置は床の範囲内に置く");
+    }
+
+    // 出現前の予約とは独立した、敵の種類ごとの待機・停止・行動再開を確認します。
+    private static void ValidateEnemySpawnWait(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nMeleeSpawnWaitSeconds,0.2\nUndeadSpawnWaitSeconds,0.3\n"
+            + "RangedSpawnWaitSeconds,0.4\nHeavySpawnWaitSeconds,0.5\nBossSpawnWaitSeconds,0.7",
+            out EnemyAiSettings custom, out _), "敵種別ごとに異なる出現待機時間をCSVから読む");
+        foreach (string invalid in new[] { "MeleeSpawnWaitSeconds,-0.1", "UndeadSpawnWaitSeconds,NaN",
+            "RangedSpawnWaitSeconds,Infinity", "HeavySpawnWaitSeconds,5.1", "BossSpawnWaitSeconds,-1" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\n" + invalid, out _, out _), "出現待機の不正値を拒否する");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 near = game.Target.transform.position + Vector3.right * (BrawlerBalance.MeleeStopDistance / 2);
+        Fighter[] enemies = {
+            factory.CreateFighter("Test spawn melee", near, false, 1),
+            factory.CreateFighter("Test spawn undead", near, false, 1, isUndead: true),
+            factory.CreateFighter("Test spawn ranged", near, false, 1, isRanged: true),
+            factory.CreateFighter("Test spawn heavy", near, false, 1, isHeavy: true),
+            factory.CreateFighter("Test spawn boss", near, false, 1, isBoss: true)
+        };
+        float[] expected = { custom.MeleeSpawnWaitSeconds, custom.UndeadSpawnWaitSeconds,
+            custom.RangedSpawnWaitSeconds, custom.HeavySpawnWaitSeconds, custom.BossSpawnWaitSeconds };
+        PropertyInfo current = typeof(EnemyAiSettings).GetProperty("Current");
+        EnemyAiSettings original = EnemyAiSettings.Current;
+        MethodInfo begin = typeof(Fighter).GetMethod("BeginSpawnWait", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo update = typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
+        var menu = game.GetComponent<OptionsMenu>();
+        int blockedFrame = (int)GetPrivateField(menu, "_blockedFrame");
+        var coordinator = (EnemyAttackCoordinator)GetPrivateField(game, "_enemyAttacks");
+        object originalSpellOwner = GetPrivateField(game, "_spellEffectOwner");
+        var caster = (SpellFighter)factory.CreateFighter("Test spawn freeze caster", Vector3.zero, true, 1);
+        try
+        {
+            current.SetValue(null, custom);
+            for (int i = 0; i < enemies.Length; i++)
+            {
+                Fighter enemy = enemies[i];
+                begin.Invoke(enemy, null);
+                Require(enemy.IsWaitingAfterSpawn && Mathf.Approximately((float)GetPrivateField(enemy, "_spawnWaitRemaining"), expected[i]),
+                    "派生クラスが自分の敵種別のCSV待機秒数を選ぶ");
+                Require((Vector3)movement.Invoke(enemy, new object[] { Vector3.zero, false }) == Vector3.zero
+                    && !enemy.IsWindingUp && !enemy.CanAdjustEnemySpacing && !coordinator.TryRequest(enemy),
+                    "出現待機中は接近・退避・攻撃予告・重なり回避・攻撃順への参加を止める");
+                timers.Invoke(enemy, new object[] { 0f });
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == expected[i], "ゲーム時間0では出現待機が減らない");
+            }
+            menu.Open();
+            foreach (Fighter enemy in enemies)
+            {
+                float before = (float)GetPrivateField(enemy, "_spawnWaitRemaining");
+                update.Invoke(enemy, null);
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == before, "オプション中は出現待機を保存する");
+            }
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", -1);
+            SetPrivateField(caster, "_spellEffectRemaining", 1f);
+            SetPrivateField(game, "_spellEffectOwner", caster);
+            foreach (Fighter enemy in enemies)
+            {
+                float before = (float)GetPrivateField(enemy, "_spawnWaitRemaining");
+                update.Invoke(enemy, null);
+                Require((float)GetPrivateField(enemy, "_spawnWaitRemaining") == before, "魔法の敵停止中も出現待機を保存する");
+            }
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            for (int i = 0; i < enemies.Length; i++)
+            {
+                Fighter enemy = enemies[i];
+                timers.Invoke(enemy, new object[] { expected[i] / 2 });
+                Require(enemy.IsWaitingAfterSpawn, "待機時間の途中では行動を再開しない");
+                timers.Invoke(enemy, new object[] { expected[i] });
+                Require(!enemy.IsWaitingAfterSpawn && (float)GetPrivateField(enemy, "_spawnWaitRemaining") == 0,
+                    "大きい経過時間でも待機を0で終了する");
+                enemy.transform.position = game.Target.transform.position + Vector3.right * 10;
+                Require((Vector3)movement.Invoke(enemy, new object[] { Vector3.zero, false }) != Vector3.zero,
+                    "待機後は各敵の接近処理を再開する");
+                coordinator.Reset();
+                enemy.transform.position = game.Target.transform.position + Vector3.right * (enemy is RangedFighter ? 4 : 0.5f);
+                movement.Invoke(enemy, new object[] { Vector3.zero, false });
+                Require(enemy.IsWindingUp, "待機後も通常の攻撃予告を経て攻撃する");
+            }
+            Require(EnemyAiSettings.TryParse("key,value\nMeleeSpawnWaitSeconds,0", out EnemyAiSettings disabled, out _),
+                "待機0をCSVから読み込める");
+            current.SetValue(null, disabled);
+            begin.Invoke(enemies[0], null);
+            Require(!enemies[0].IsWaitingAfterSpawn, "CSVの0指定で出現待機だけを無効にする");
+            begin.Invoke(game.Target, null);
+            Require(!game.Target.IsWaitingAfterSpawn, "プレイヤーには敵の出現待機を適用しない");
+        }
+        finally
+        {
+            current.SetValue(null, original);
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", blockedFrame);
+            coordinator.Reset();
+            foreach (Fighter enemy in enemies)
+            {
+                UnityEngine.Object.DestroyImmediate(enemy.gameObject);
+            }
+            UnityEngine.Object.DestroyImmediate(caster.gameObject);
+        }
+    }
+
+    // 左右からの接近・後退・端での射撃を、既定値と異なるCSV設定で検証します。
+    private static void ValidateRangedEnemyAi(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nRangedApproachDistance,6\nRangedRetreatDistance,2\n"
+            + "RangedSpacingHysteresis,0.5\nRangedLaneTolerance,0.2\nRangedEdgeMargin,1\n"
+            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3\nRangedRecoverySeconds,1.25\nRangedAttackStartIntervalSeconds,0",
+            out EnemyAiSettings custom, out _), "遠距離敵の間合いと射撃テンポをCSVから読む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/enemy_ai");
+        Require(asset != null && EnemyAiSettings.TryParse(asset.text, out _, out _), "同梱の敵AIのCSVも読み込める");
+        foreach (string invalid in new[] { "RangedApproachDistance,3", "RangedRetreatDistance,7", "RangedSpacingHysteresis,2",
+            "RangedMoveSpeed,0", "RangedLaneTolerance,NaN", "RangedEdgeMargin,-1", "RangedWindupSeconds,0",
+            "RangedAttackIntervalSeconds,Infinity", "RangedApproachDistance,21", "RangedRecoverySeconds,-1",
+            "RangedRecoverySeconds,NaN", "RangedRecoverySeconds,Infinity", "RangedRecoverySeconds,10.1" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\n" + invalid, out EnemyAiSettings fallback, out _)
+                && fallback.RangedApproachDistance == EnemyAiSettings.CreateDefault().RangedApproachDistance,
+                "不正な射撃設定や逆転した間合いは敵AI全体を既定値へ戻す");
+        }
+        Require(EnemyAiSettings.TryParse("key,value\nRangedSpacingHysteresis,0\nRangedAttackIntervalSeconds,0", out _, out _),
+            "切替幅と攻撃間隔は0も指定できる");
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Fighter ranged = factory.CreateFighter("Test ranged spacing", Vector3.zero, false, 1, isRanged: true);
+        Vector3 originalPlayerPosition = game.Target.transform.position;
+        EnemyAiSettings original = EnemyAiSettings.Current;
+        PropertyInfo current = typeof(EnemyAiSettings).GetProperty("Current");
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+        var existingBullets = new System.Collections.Generic.HashSet<EnemyProjectile>(UnityEngine.Object.FindObjectsByType<EnemyProjectile>());
+        var menu = game.GetComponent<OptionsMenu>();
+        int originalBlockedFrame = (int)GetPrivateField(menu, "_blockedFrame");
+        var caster = (SpellFighter)game.Target;
+        float originalSpellRemaining = (float)GetPrivateField(caster, "_spellEffectRemaining");
+        object originalSpellOwner = GetPrivateField(game, "_spellEffectOwner");
+        object originalCoordinator = GetPrivateField(game, "_enemyAttacks");
+        // このケースは個体の思考を検証します。全体の射撃間隔は別の複数体ケースで確認します。
+        SetPrivateField(game, "_enemyAttacks", new EnemyAttackCoordinator(custom));
+        Vector3 ReadMovement() => (Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, false });
+        try
+        {
+            current.SetValue(null, custom);
+            Require((float)typeof(RangedFighter).GetProperty("EnemyMovementSpeed", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(ranged) == custom.RangedMoveSpeed, "遠距離敵は独自のCSV移動速度を使う");
+            foreach (float side in new[] { -1f, 1f })
+            {
+                game.Target.transform.position = Vector3.zero;
+                SetPrivateField(ranged, "_attackCooldown", 10f);
+                SetPrivateField(ranged, "_windupRemaining", 0f);
+                SetPrivateField(ranged, "_attackRemaining", 0f);
+                ranged.transform.position = Vector3.right * side * 6.2f;
+                Require(ReadMovement().x * side < 0 && !ranged.IsWindingUp, "左右とも射程外ならプレイヤーへ接近する");
+                ranged.transform.position = Vector3.right * side * 5.8f;
+                Require(ReadMovement().x * side < 0, "接近開始距離を少し内側へ越えても接近を継続する");
+                ranged.transform.position = Vector3.right * side * 5.5f;
+                Require(ReadMovement() == Vector3.zero, "接近終了距離で足を止める");
+                ranged.transform.position = Vector3.right * side * 5.8f;
+                Require(ReadMovement() == Vector3.zero, "少し離れても接近をやり直さない");
+                ranged.transform.position = Vector3.right * side * 1.8f;
+                Require(ReadMovement().x * side > 0, "近づかれたら左右とも後退する");
+                ranged.transform.position = Vector3.right * side * 2.2f;
+                Require(ReadMovement().x * side > 0, "後退開始距離を越えても余裕ができるまで後退する");
+                ranged.transform.position = Vector3.right * side * 2.5f;
+                Require(ReadMovement() == Vector3.zero, "後退終了距離で足を止める");
+                ranged.transform.position = Vector3.right * side * 2.2f;
+                Require(ReadMovement() == Vector3.zero, "少し接近されても後退をやり直さない");
+                ranged.transform.position = new Vector3(side * 4, 0, 0.6f);
+                Require(ReadMovement().z < 0 && !ranged.IsWindingUp, "奥行きの許容幅外では射撃せず射線を合わせる");
+                ranged.transform.position = new Vector3(side * 4, 0, 0.1f);
+                Require(ReadMovement() == Vector3.zero, "奥行きがCSVの許容幅内なら足を止める");
+                game.Target.transform.position = Vector3.right * side * 20;
+                ranged.transform.position = Vector3.right * side * (BrawlerBalance.StageHalfWidth - custom.RangedEdgeMargin);
+                SetPrivateField(ranged, "_attackCooldown", 0f);
+                Require(ReadMovement() == Vector3.zero && ranged.IsWindingUp
+                    && (float)GetPrivateField(ranged, "_windupRemaining") == custom.RangedWindupSeconds,
+                    "端では後退を止め、CSVの予告時間で射撃を準備する");
+                float facing = ranged.Facing;
+                game.Target.transform.position = new Vector3(-side * 20, 0, 2);
+                Require((Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, true }) == Vector3.zero
+                    && ranged.Facing == facing, "予告中に対象が動いても射撃方向と立ち位置を固定する");
+                windup.Invoke(ranged, new object[] { custom.RangedWindupSeconds / 2 });
+                Require(ranged.IsWindingUp, "射撃予告を途中で省略しない");
+                windup.Invoke(ranged, new object[] { custom.RangedWindupSeconds });
+                Require(!ranged.IsWindingUp && (float)GetPrivateField(ranged, "_attackCooldown") == custom.RangedAttackIntervalSeconds,
+                    "攻撃動作の開始時にCSVの攻撃間隔を設定する");
+                int before = UnityEngine.Object.FindObjectsByType<EnemyProjectile>().Length;
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                Require(UnityEngine.Object.FindObjectsByType<EnemyProjectile>().Length == before + 1,
+                    "射撃動作から弾を一度だけ発射する");
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds,
+                    "弾を発射した瞬間からCSVの射撃後の隙を開始する");
+                var marker = ranged.GetComponentInChildren<EnemyAttackWarning>();
+                marker.Refresh();
+                Require(marker.IsShowingOpening, "射撃後も共通の緑色の反撃マーカーを表示する");
+                game.Target.transform.position = Vector3.zero;
+                Require(ReadMovement() == Vector3.zero && ranged.Facing == facing, "隙の間は対象が遠ざかっても追跡や振り向きを止める");
+                game.Target.transform.position = ranged.transform.position + new Vector3(-side, 0, 1);
+                Require(ReadMovement() == Vector3.zero && !ranged.IsWindingUp, "接近されても後退・奥行き合わせ・再射撃を止める");
+                timers.Invoke(ranged, new object[] { 0f });
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "ゲーム時間0では射撃後の隙を減らさない");
+                menu.Open();
+                typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ranged, null);
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "メニュー中は射撃後の隙を保持する");
+                menu.Close();
+                SetPrivateField(menu, "_blockedFrame", -1);
+                SetPrivateField(caster, "_spellEffectRemaining", 1f);
+                SetPrivateField(game, "_spellEffectOwner", caster);
+                typeof(Fighter).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(ranged, null);
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds, "魔法の敵停止中も射撃後の隙を保持する");
+                SetPrivateField(caster, "_spellEffectRemaining", originalSpellRemaining);
+                SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+                timers.Invoke(ranged, new object[] { custom.RangedRecoverySeconds / 2 });
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                Require(ranged.OpeningSecondsRemaining == custom.RangedRecoverySeconds / 2 && ReadMovement() == Vector3.zero,
+                    "射撃後の隙を経過させ、攻撃表示の更新では隙を再設定しない");
+                timers.Invoke(ranged, new object[] { custom.RangedRecoverySeconds / 2 });
+                marker.Refresh();
+                game.Target.transform.position = Vector3.zero;
+                Require(ranged.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening && ReadMovement().x * side < 0,
+                    "隙が終われば攻撃間隔が残っていても追跡と位置調整を再開する");
+                game.Target.transform.position = Vector3.right * side * 20;
+                timers.Invoke(ranged, new object[] { custom.RangedAttackIntervalSeconds - custom.RangedRecoverySeconds - 0.25f });
+                ReadMovement();
+                Require(!ranged.IsWindingUp, "攻撃間隔の途中では再射撃しない");
+                timers.Invoke(ranged, new object[] { 0.25f });
+                ReadMovement();
+                Require(ranged.IsWindingUp, "攻撃間隔を経過すると次の射撃予告を始める");
+            }
+            Require(EnemyAiSettings.TryParse("key,value\nRangedRecoverySeconds,4\nRangedAttackIntervalSeconds,0",
+                out EnemyAiSettings longRecovery, out _), "攻撃間隔より長い隙もCSVで指定できる");
+            current.SetValue(null, longRecovery);
+            SetPrivateField(ranged, "_windupRemaining", 0f);
+            SetPrivateField(ranged, "_attackCooldown", 0f);
+            typeof(RangedFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(ranged, new object[] { BrawlerBalance.EnemyProjectileDamage });
+            Require(ranged.OpeningSecondsRemaining == 4 && ReadMovement() == Vector3.zero && !ranged.IsWindingUp,
+                "攻撃間隔0でも射撃後の隙が残る間は移動・再射撃できない");
+            timers.Invoke(ranged, new object[] { 5f });
+            Require(ranged.OpeningSecondsRemaining == 0 && ReadMovement() != Vector3.zero,
+                "大きな経過時間でも隙を0で終え、位置調整を再開する");
+            Require(EnemyAiSettings.TryParse("key,value\nRangedRecoverySeconds,0", out EnemyAiSettings noRecovery, out _),
+                "射撃後の隙は0も指定できる");
+            current.SetValue(null, noRecovery);
+            typeof(RangedFighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(ranged, new object[] { BrawlerBalance.EnemyProjectileDamage });
+            Require(ranged.OpeningSecondsRemaining == 0, "0指定なら発射しても追加の隙を作らない");
+        }
+        finally
+        {
+            current.SetValue(null, original);
+            SetPrivateField(game, "_enemyAttacks", originalCoordinator);
+            SetPrivateField(caster, "_spellEffectRemaining", originalSpellRemaining);
+            SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
+            menu.Close();
+            SetPrivateField(menu, "_blockedFrame", originalBlockedFrame);
+            game.Target.transform.position = originalPlayerPosition;
+            foreach (EnemyProjectile bullet in UnityEngine.Object.FindObjectsByType<EnemyProjectile>())
+            {
+                if (!existingBullets.Contains(bullet))
+                {
+                    UnityEngine.Object.DestroyImmediate(bullet.gameObject);
+                }
+            }
+            UnityEngine.Object.DestroyImmediate(ranged.gameObject);
+        }
+    }
+
+    // 複数体の本番AIから要求し、射撃予告の間隔・待ち順・離脱を確認します。
+    private static void ValidateRangedCoordination(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds,1.25", out EnemyAiSettings settings, out _)
+            && settings.RangedAttackStartIntervalSeconds == 1.25f, "射撃予告の最小間隔をCSVから読む");
+        foreach (string invalid in new[] { "-1", "NaN", "Infinity", "10.1" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds," + invalid, out _, out _),
+                "射撃予告の間隔は有限の0～10秒だけを許可する");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 originalPosition = game.Target.transform.position;
+        object originalCoordinator = GetPrivateField(game, "_enemyAttacks");
+        var first = (RangedFighter)factory.CreateFighter("Test ranged order first", Vector3.right * 4, false, 1, isRanged: true);
+        var second = (RangedFighter)factory.CreateFighter("Test ranged order second", Vector3.left * 4, false, 1, isRanged: true);
+        var third = (RangedFighter)factory.CreateFighter("Test ranged order third", Vector3.right * 6, false, 1, isRanged: true);
+        Fighter melee = factory.CreateFighter("Test independent melee", Vector3.right * 0.5f, false, 1);
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        void Think(RangedFighter fighter) => movement.Invoke(fighter, new object[] { Vector3.zero, false });
+        var order = new EnemyAttackCoordinator(settings);
+        try
+        {
+            game.Target.transform.position = Vector3.zero;
+            SetPrivateField(game, "_enemyAttacks", order);
+            Think(first);
+            Think(second);
+            Think(third);
+            Require(first.IsWindingUp && !second.IsWindingUp && !third.IsWindingUp,
+                "同じ更新で射撃可能になっても最初の1体だけ予告を始める");
+            Require(order.TryRequest(melee), "射撃の待ち時間は近接敵の攻撃を止めない");
+            order.Advance(0);
+            order.Advance(-1);
+            order.Advance(0.75f);
+            Think(second);
+            Require(!second.IsWindingUp, "時間0や負数では間隔を進めず、指定時刻前は次の射撃を開始しない");
+            order.Advance(0.5f);
+            Think(second);
+            Require(second.IsWindingUp, "CSVの最小間隔に到達すると次の敵が予告を始める");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            Think(first);
+            order.Advance(1.25f);
+            Think(first);
+            Require(!first.IsWindingUp, "更新順の早い敵が待っている敵より先に割り込まない");
+            Think(third);
+            Require(third.IsWindingUp, "射撃可能になった順に予告を許可する");
+            SetPrivateField(first, "_stunRemaining", 1f);
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            order.Advance(1.25f);
+            Think(second);
+            Require(second.IsWindingUp, "被弾硬直に入った先頭を除いて次の敵へ進む");
+            SetPrivateField(first, "_stunRemaining", 0f);
+            Think(first);
+            UnityEngine.Object.DestroyImmediate(first.gameObject);
+            SetPrivateField(third, "_windupRemaining", 0f);
+            Think(third);
+            Require(!third.IsWindingUp, "待機敵の破棄で確保済みの間隔を短縮しない");
+            order.Advance(1.25f);
+            Think(third);
+            Require(third.IsWindingUp, "破棄済みの待機敵で射撃順を詰まらせない");
+            order.Reset();
+            SetPrivateField(second, "_windupRemaining", 0f);
+            SetPrivateField(third, "_windupRemaining", 0f);
+            Think(second);
+            Think(third);
+            third.transform.position += Vector3.forward;
+            SetPrivateField(second, "_windupRemaining", 0f);
+            order.Advance(1.25f);
+            Think(second);
+            Require(second.IsWindingUp, "射線から外れた待機敵を除いて次の敵へ進む");
+            third.transform.position = Vector3.right * 10;
+            Require(!order.TryRequestRanged(third), "射程外からは射撃の順番を要求しない");
+            third.transform.position = Vector3.right * 6;
+            foreach (string state in new[] { "_spawnWaitRemaining", "_stunRemaining", "_downRemaining",
+                "_enemyRecoveryRemaining", "_attackCooldown", "_windupRemaining", "_attackRemaining" })
+            {
+                SetPrivateField(third, state, 1f);
+                Require(!order.TryRequestRanged(third), "出現待機・被弾・転倒・攻撃・隙・攻撃間隔中は射撃の待ち列に入れない");
+                SetPrivateField(third, state, 0f);
+            }
+            order.Reset();
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            Require(second.IsWindingUp, "ウェーブ開始のリセットで射撃間隔と待ち列も初期化する");
+            Require(EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds,0", out EnemyAiSettings disabled, out _),
+                "射撃予告の間隔は0も指定できる");
+            SetPrivateField(game, "_enemyAttacks", new EnemyAttackCoordinator(disabled));
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            Think(third);
+            Require(second.IsWindingUp && third.IsWindingUp, "0秒なら異なる敵が同じ更新で射撃予告を開始できる");
+        }
+        finally
+        {
+            SetPrivateField(game, "_enemyAttacks", originalCoordinator);
+            game.Target.transform.position = originalPosition;
+            foreach (Fighter fighter in new Fighter[] { first, second, third, melee })
+            {
+                if (fighter != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+                }
+            }
+        }
+    }
+
+    // 生きた敵の状態とCSV設定を使い、同時数・間隔・待ち順・離脱を検証します。
+    private static void ValidateEnemyCoordination(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nMaxSimultaneousAttackers,2\nAttackStartIntervalSeconds,0",
+            out EnemyAiSettings parallel, out _) && parallel.MaxSimultaneousAttackers == 2
+            && parallel.MeleeRecoverySeconds == EnemyAiSettings.CreateDefault().MeleeRecoverySeconds,
+            "敵AIのCSVは部分指定を読み、省略値を既定値で補う");
+        foreach (string invalid in new[] { "", "key,value", "key,value\nMaxSimultaneousAttackers,1.5",
+            "key,value\nMaxSimultaneousAttackers,0", "key,value\nAttackStartIntervalSeconds,NaN",
+            "key,value\nAttackStartIntervalSeconds,Infinity", "key,value\nMeleeRecoverySeconds,-1",
+            "key,value\nUnknown,1", "key,value\nMeleeWindupSeconds,1\nMeleeWindupSeconds,2",
+            "key,value\nWaitingMoveSpeed,-1", "key,value\nWaitingDepthOffset,NaN",
+            "key,value\nWaitingEngagementDistance,1", "key,value\nWaitingDistance,6\nWaitingEngagementDistance,5",
+            "key,value\nSeparationDistance,-1", "key,value\nSeparationStrength,NaN" })
+        {
+            Require(!EnemyAiSettings.TryParse(invalid, out EnemyAiSettings fallback, out string error)
+                && fallback.MaxSimultaneousAttackers == EnemyAiSettings.CreateDefault().MaxSimultaneousAttackers
+                && !string.IsNullOrEmpty(error), "不正な敵AI設定は全体を既定値へ戻す");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 near = game.Target.transform.position + Vector3.right * (BrawlerBalance.MeleeStopDistance / 2);
+        Fighter first = factory.CreateFighter("Test attack order first", near, false, 1);
+        Fighter second = factory.CreateFighter("Test attack order second", near, false, 1);
+        Fighter heavyAttacker = factory.CreateFighter("Test attack order heavy", near, false, 1, isHeavy: true);
+        Fighter rangedAttacker = factory.CreateFighter("Test excluded ranged", near, false, 1, isRanged: true);
+        Fighter bossAttacker = factory.CreateFighter("Test excluded boss", near, false, 1, isBoss: true);
+        MethodInfo windup = typeof(Fighter).GetMethod("BeginAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        try
+        {
+            var settings = EnemyAiSettings.CreateDefault();
+            ValidateEnemySeparation(first, second, rangedAttacker, bossAttacker, settings);
+            var order = new EnemyAttackCoordinator(settings);
+            Require(order.TryRequest(first), "最初の近接敵に攻撃を許可する");
+            windup.Invoke(first, new object[] { settings.MeleeWindupSeconds });
+            Require(!order.TryRequest(second), "予告中の敵がいる場合は次の敵を待たせる");
+            Require(!order.TryRequest(heavyAttacker), "次の順番以外の敵も待機させる");
+            Vector3 waitingVelocity = order.GetWaitingVelocity(heavyAttacker, 0.1f);
+            Require(waitingVelocity.x > 0 && waitingVelocity.z != 0
+                && waitingVelocity.magnitude <= settings.WaitingMoveSpeed + 0.001f,
+                "攻撃待ちの敵は距離と奥行きをずらし、CSVの速度以内で移動する");
+            Require(order.GetWaitingVelocity(heavyAttacker, 0) == Vector3.zero,
+                "時間停止中は待機移動を進めない");
+            for (int step = 0; step < 100; step++)
+            {
+                heavyAttacker.transform.position += order.GetWaitingVelocity(heavyAttacker, 0.1f) * 0.1f;
+            }
+            Require(!heavyAttacker.IsWithinMeleeAttackRange && heavyAttacker.CanWaitForMeleeAttack
+                && order.GetWaitingVelocity(heavyAttacker, 0.1f) == Vector3.zero,
+                "待機位置へ到着すれば止まり、攻撃範囲外でも参加距離内なら順番を保持する");
+            // 後続の攻撃順検証と分けるため、一度遠ざけて待ち列から外します。
+            heavyAttacker.transform.position += Vector3.right * BrawlerBalance.StageHalfWidth;
+            Require(!order.TryRequest(second), "遠ざかった待機敵を除いても、攻撃中の上限は維持する");
+            heavyAttacker.transform.position = near;
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(!order.TryRequest(second), "開始間隔を過ぎても同時攻撃上限を守る");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            Require(!order.TryRequest(first) && order.TryRequest(second), "更新順でなく先に待った敵を優先する");
+            windup.Invoke(second, new object[] { settings.MeleeWindupSeconds });
+            UnityEngine.Object.DestroyImmediate(second.gameObject);
+            order.Advance(0);
+            Require(!order.TryRequest(first), "攻撃者が破棄されても開始間隔は飛ばさない");
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(order.TryRequest(first), "破棄された攻撃者は同時数から除外する");
+            windup.Invoke(first, new object[] { settings.MeleeWindupSeconds });
+            Require(!order.TryRequest(heavyAttacker), "重装敵も同じ待ち列へ参加する");
+            heavyAttacker.transform.position += Vector3.right * BrawlerBalance.StageHalfWidth;
+            SetPrivateField(first, "_windupRemaining", 0f);
+            order.Advance(settings.AttackStartIntervalSeconds);
+            Require(order.TryRequest(first), "間合い外へ離れた待機敵で順番を詰まらせない");
+            Require(!order.TryRequest(rangedAttacker) && !order.TryRequest(bossAttacker), "遠距離敵とボスは共通の攻撃枠に入れない");
+            order.Reset();
+            Require(order.TryRequest(first), "ウェーブ切り替え時は開始間隔と待ち列をリセットする");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            heavyAttacker.transform.position = near;
+            var multiple = new EnemyAttackCoordinator(parallel);
+            Require(multiple.TryRequest(first), "CSVで変更した同時数でも先頭を許可する");
+            windup.Invoke(first, new object[] { parallel.MeleeWindupSeconds });
+            Require(multiple.TryRequest(heavyAttacker), "CSVで同時数2・間隔0を指定すると2体目を許可する");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            order.Reset();
+            first.transform.position = game.Target.transform.position + Vector3.right * settings.WaitingDistance;
+            Require(!order.TryRequest(first) && order.IsFirstWaiting(first) && !first.IsWithinMeleeAttackRange,
+                "先頭でも攻撃範囲外では攻撃を開始せず、接近の順番を維持する");
+            Require(!order.TryRequest(heavyAttacker), "接近中の先頭を他の待機敵が追い越さない");
+            first.transform.position = near;
+            Require(order.TryRequest(first), "先頭が攻撃範囲へ戻ったら攻撃開始を許可する");
+            Require(EnemyAiSettings.TryParse("key,value\nWaitingDistance,3\nWaitingDepthOffset,1.2\nWaitingMoveSpeed,0",
+                out EnemyAiSettings waitingSettings, out _) && waitingSettings.WaitingDistance == 3
+                && waitingSettings.WaitingDepthOffset == 1.2f && waitingSettings.WaitingMoveSpeed == 0,
+                "CSVで待機距離・奥行き・移動速度0を調整できる");
+        }
+        finally
+        {
+            foreach (Fighter fighter in new[] { first, second, heavyAttacker, rangedAttacker, bossAttacker })
+            {
+                if (fighter != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+                }
+            }
+        }
+    }
+
+    private static void ValidateEnemySeparation(Fighter first, Fighter second, Fighter ranged, Fighter boss, EnemyAiSettings settings)
+    {
+        Vector3 firstPosition = first.transform.position;
+        Vector3 secondPosition = second.transform.position;
+        var neighbors = new[] { first, second };
+        var spacing = new EnemyAttackCoordinator(settings);
+        try
+        {
+            second.transform.position = firstPosition + Vector3.right * (settings.SeparationDistance / 2);
+            Vector3 avoidance = spacing.GetSeparationVelocity(first, neighbors, 0.1f);
+            Require(avoidance.x < 0 && avoidance.magnitude <= settings.SeparationStrength,
+                "近すぎる敵から離れる方向を、CSVの最大速度以内で返す");
+            Require(spacing.GetSeparationVelocity(first, neighbors, 0) == Vector3.zero,
+                "時間停止中は重なり回避も進めない");
+            second.transform.position = firstPosition;
+            Vector3 firstAvoidance = spacing.GetSeparationVelocity(first, neighbors, 0.1f);
+            Vector3 secondAvoidance = spacing.GetSeparationVelocity(second, neighbors, 0.1f);
+            Require(firstAvoidance != Vector3.zero && Vector3.Dot(firstAvoidance, secondAvoidance) < 0,
+                "完全に同じ位置でも互いに逆方向へ離れ、乱数による方向の揺れを起こさない");
+            Require(spacing.GetSeparationVelocity(first, neighbors, 5f).magnitude * 5f <= settings.SeparationDistance / 2 + 0.00001f,
+                "低FPSでも一度に離れすぎない距離に制限する");
+            foreach (string state in new[] { "_windupRemaining", "_attackRemaining", "_enemyRecoveryRemaining", "_stunRemaining", "_downRemaining" })
+            {
+                SetPrivateField(first, state, 1f);
+                Require(spacing.GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                    "予告・攻撃・反撃の隙・被弾・転倒中は回避移動を加えない");
+                SetPrivateField(first, state, 0f);
+            }
+            Require(spacing.GetSeparationVelocity(ranged, neighbors, 0.1f) == Vector3.zero
+                && spacing.GetSeparationVelocity(boss, neighbors, 0.1f) == Vector3.zero,
+                "遠距離敵とボスには近接敵用の移動補助を適用しない");
+            second.transform.position = firstPosition + Vector3.right * (settings.SeparationDistance * 2);
+            Require(spacing.GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                "十分に離れた敵に対しては回避を加えない");
+            second.transform.position = firstPosition;
+            Require(EnemyAiSettings.TryParse("key,value\nSeparationStrength,0", out EnemyAiSettings disabled, out _)
+                && new EnemyAttackCoordinator(disabled).GetSeparationVelocity(first, neighbors, 0.1f) == Vector3.zero,
+                "CSVの強さ0で重なり回避だけを無効にできる");
+        }
+        finally
+        {
+            first.transform.position = firstPosition;
+            second.transform.position = secondPosition;
+        }
     }
 
     // エディター更新のdeltaTimeに依存せず、魔法の各段階の境界を検証します。

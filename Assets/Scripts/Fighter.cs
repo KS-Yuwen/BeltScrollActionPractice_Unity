@@ -18,11 +18,48 @@ public class Fighter : Combatant
     // 予兆の配色と反撃の隙は派生クラスが宣言し、表示側は具体的な職業・敵種別を判定しません。
     public virtual Color WarningStartColor => Color.yellow;
     public virtual Color WarningEndColor => Color.red;
-    public virtual float OpeningSecondsRemaining => 0f;
+    public virtual float OpeningSecondsRemaining => !IsPlayer && Health > 0 ? _enemyRecoveryRemaining : 0f;
     // 効果音も派生クラスで選び、予兆・攻撃開始の再生タイミングは共通化します。
     protected virtual BrawlerSound EnemyWarningSound => BrawlerSound.EnemyWarning;
     protected virtual BrawlerSound EnemySwingSound => BrawlerSound.EnemySwing;
     public virtual BrawlerSound EnemyMissSound => BrawlerSound.EnemyMiss;
+    // 遠距離型・ボスは独自の思考を使い、この待ち列から除外します。
+    public virtual bool UsesCoordinatedMeleeAttacks => !IsPlayer;
+    // 移動・待機中だけ位置を調整します。反撃の隙や被弾状態を回避移動で短縮しません。
+    public bool CanAdjustEnemySpacing => UsesCoordinatedMeleeAttacks && Health > 0 && _stunRemaining <= 0
+        && !IsWaitingAfterSpawn
+        && !IsDowned && !IsEnemyAttackActive && OpeningSecondsRemaining <= 0 && _game != null
+        && !_game.IsRunFinished && !IsPausedBySpellEffect && !OptionsMenu.BlocksGameplay;
+    public bool IsEnemyAttackActive => !IsPlayer && Health > 0 && (IsWindingUp || _attackRemaining > 0);
+    private bool _isRepositioningForMeleeAttack;
+    public Vector3 EnemyTargetPosition => _game.Target.transform.position;
+    public bool IsWithinMeleeAttackRange
+    {
+        get
+        {
+            Vector3 delta = EnemyTargetPosition - transform.position;
+            return Mathf.Abs(delta.x) <= BrawlerBalance.MeleeStopDistance
+                && Mathf.Abs(delta.z) <= BrawlerBalance.MeleeLaneTolerance;
+        }
+    }
+    // 近接・射撃のどちらも、出現待機・被弾・攻撃中・攻撃後の隙には順番を要求しません。
+    protected bool CanRequestEnemyAttack => !IsPlayer && Health > 0 && _game != null && !_game.IsRunFinished
+        && _game.Target != null && _game.Target.Health > 0 && _stunRemaining <= 0 && !IsDowned
+        && !IsEnemyAttackActive && CanStartEnemyAttack;
+    public bool CanWaitForMeleeAttack
+    {
+        get
+        {
+            if (!UsesCoordinatedMeleeAttacks || !CanRequestEnemyAttack)
+            {
+                return false;
+            }
+            Vector3 delta = _game.Target.transform.position - transform.position;
+            // 待機のために攻撃範囲から離れても、参加距離内なら順番を保持します。
+            return Mathf.Abs(delta.x) <= EnemyAiSettings.Current.WaitingEngagementDistance
+                && Mathf.Abs(delta.z) <= BrawlerBalance.StageHalfDepth * 2;
+        }
+    }
     private BeltBrawler _game;
     // 敵ごとに独立した残像を保持します。計算はプレイヤーと同じ表示専用クラスを共用します。
     private readonly HealthBarFeedback _enemyHealthBarFeedback = new HealthBarFeedback();
@@ -39,6 +76,11 @@ public class Fighter : Combatant
     // _stunRemaining = 被ダメージによる硬直の残り秒数、_lastAttackTime = 前回攻撃を開始した時刻。
     // _walkPhase = 足を振るための位相。_lastAttackTime の初期値は最初の攻撃を 1 段目にするための値です。
     private float _attackRemaining;
+    // 攻撃間隔とは別に、攻撃を出した後の移動・再予告を止める時間です。
+    private float _enemyRecoveryRemaining;
+    private float _spawnWaitRemaining;
+    public bool IsWaitingAfterSpawn => !IsPlayer && Health > 0 && _spawnWaitRemaining > 0;
+    protected virtual float EnemySpawnWaitSeconds => EnemyAiSettings.Current.MeleeSpawnWaitSeconds;
     private float _attackCooldown;
     private float _stunRemaining;
     private float _hammerStunRemaining;
@@ -336,7 +378,9 @@ public class Fighter : Combatant
     public bool IsSpellEffectActive => _game != null && _game.IsSpellEffectActive;
     public bool IsPausedBySpellEffect => !IsPlayer && IsSpellEffectActive;
 
-    protected bool CanStartEnemyAttack => _attackCooldown <= 0;
+    protected bool CanStartEnemyAttack => !IsWaitingAfterSpawn && _attackCooldown <= 0 && _enemyRecoveryRemaining <= 0;
+
+    protected virtual float EnemyRecoverySeconds => BrawlerBalance.MeleeRecoverySeconds;
 
     protected virtual float EnemyAttackInterval => BrawlerBalance.MeleeAttackIntervalSeconds;
 
@@ -433,6 +477,19 @@ public class Fighter : Combatant
         InitializeInventory();
     }
 
+    // 管理役が出現予約を実体化した直後に呼びます。予約中に待機時間を消費しません。
+    // 共通クラスで停止し、各派生クラスはCSVのどの秒数を使うかだけを選びます。
+    internal void BeginSpawnWait()
+    {
+        if (IsPlayer || Health <= 0)
+        {
+            return;
+        }
+        _spawnWaitRemaining = EnemySpawnWaitSeconds;
+        // その場で待つ間も出現時のプレイヤー側を向き、待機中に追跡はしません。
+        Facing = Game.Target.transform.position.x >= transform.position.x ? 1 : -1;
+    }
+
     protected virtual void InitializeInventory()
     {
         Inventory.Clear();
@@ -466,6 +523,7 @@ public class Fighter : Combatant
         bool wasWindingUp = UpdateAttackWindup(deltaTime);
         ApplyKnockback(deltaTime);
         Vector3 movement = GetMovement(input, wasWindingUp);
+        movement = AddEnemySeparation(movement, deltaTime);
         Move(movement, deltaTime);
         if (_isRunning)
         {
@@ -483,8 +541,12 @@ public class Fighter : Combatant
     // 残り時間は経過秒数で減らし、フレームレートが違っても同じ時間になるようにします。
     private void UpdateTimers(float deltaTime)
     {
+        // メニュー・魔法演出の停止判定を通過したゲーム時間だけを数えます。
+        // 被弾しても再設定せず、無敵や攻撃後の回復時間には流用しません。
+        _spawnWaitRemaining = Mathf.Max(0, _spawnWaitRemaining - Mathf.Max(0, deltaTime));
         _guardReleaseRemaining = Mathf.Max(0, _guardReleaseRemaining - deltaTime);
         _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
+        _enemyRecoveryRemaining = Mathf.Max(0, _enemyRecoveryRemaining - deltaTime);
         _attackCooldown -= deltaTime;
         _stunRemaining -= deltaTime;
         if (_stunRemaining <= 0)
@@ -799,6 +861,11 @@ public class Fighter : Combatant
     // プレイヤー入力か敵 AI のどちらかから、そのフレームの通常移動方向を決めます。
     private Vector3 GetMovement(Vector3 input, bool wasWindingUp)
     {
+        // 空振り・ガード・命中のどの場合も反撃の時間を作ります。向きもこの間は維持します。
+        if (!IsPlayer && (IsWaitingAfterSpawn || _enemyRecoveryRemaining > 0))
+        {
+            return Vector3.zero;
+        }
         if (IsSliding)
         {
             return Vector3.zero;
@@ -866,17 +933,25 @@ public class Fighter : Combatant
     // 近接型の標準 AI。遠距離型はこの判断だけを上書きし、硬直・転倒・演出は共用します。
     protected virtual Vector3 GetEnemyMovement()
     {
-        Vector3 delta = _game.Target.transform.position - transform.position;
+        _isRepositioningForMeleeAttack = false;
+        Vector3 delta = EnemyTargetPosition - transform.position;
         Facing = delta.x >= 0 ? 1 : -1;
-        if (Mathf.Abs(delta.x) > BrawlerBalance.MeleeStopDistance || Mathf.Abs(delta.z) > BrawlerBalance.MeleeLaneTolerance)
+        if (CanWaitForMeleeAttack)
         {
-            return delta.normalized;
+            if (Game.TryRequestMeleeAttack(this))
+            {
+                BeginAttackWindup(EnemyWindupDuration);
+                return Vector3.zero;
+            }
+            if (!Game.IsFirstWaitingMeleeAttack(this))
+            {
+                // 自分の番までは別の位置で待ちます。移動速度はCSVのUnity単位/秒を使います。
+                _isRepositioningForMeleeAttack = true;
+                return Game.GetMeleeWaitingVelocity(this, Time.deltaTime) / EnemyMovementSpeed;
+            }
         }
-        if (CanStartEnemyAttack)
-        {
-            BeginAttackWindup(EnemyWindupDuration);
-        }
-        return Vector3.zero;
+        // 先頭の敵だけが攻撃可能な間合いへ近づきます。範囲外からは予告を開始しません。
+        return IsWithinMeleeAttackRange ? Vector3.zero : delta.normalized;
     }
 
     protected void BeginAttackWindup(float duration)
@@ -893,6 +968,18 @@ public class Fighter : Combatant
     protected virtual void DealAttackDamage(int damage)
     {
         _game.Hit(this, damage);
+        BeginEnemyRecovery();
+    }
+
+    // 命中処理と分け、弾を発射する派生クラスも同じ移動停止・隙表示・被弾解除を使います。
+    // 攻撃間隔とは別の時間なので、どちらかが残る間は次の攻撃を始められません。
+    protected void BeginEnemyRecovery()
+    {
+        // ガード反撃で既に被弾した場合は、反撃の隙より被ダメージ硬直を優先します。
+        if (!IsPlayer && Health > 0 && _stunRemaining <= 0)
+        {
+            _enemyRecoveryRemaining = EnemyRecoverySeconds;
+        }
     }
 
     private float GetInputFacing(Vector3 input)
@@ -900,12 +987,29 @@ public class Fighter : Combatant
         return Mathf.Abs(input.x) > BrawlerBalance.PlayerFacingInputThreshold ? Mathf.Sign(input.x) : Facing;
     }
 
+    private Vector3 AddEnemySeparation(Vector3 movement, float deltaTime)
+    {
+        if (!CanAdjustEnemySpacing)
+        {
+            return movement;
+        }
+        Vector3 avoidance = Game.GetEnemySeparationVelocity(this, deltaTime) / EnemyMovementSpeed;
+        if (avoidance == Vector3.zero)
+        {
+            return movement;
+        }
+        // 退くときもプレイヤーへの向きを保ち、回避の合成で追跡速度・待機速度を上げすぎません。
+        _isRepositioningForMeleeAttack = true;
+        float maxMovement = Mathf.Max(movement.magnitude, EnemyAiSettings.Current.SeparationStrength / EnemyMovementSpeed);
+        return Vector3.ClampMagnitude(movement + avoidance, maxMovement);
+    }
+
     private void Move(Vector3 movement, float deltaTime)
     {
         // 奥行きだけの移動では向きを維持し、左右に動いた場合だけ向きを変更します。
         float facingThreshold = IsPlayer ? BrawlerBalance.PlayerFacingInputThreshold : BrawlerBalance.FacingInputThreshold;
         // 空中では攻撃中も移動可能ですが、攻撃の向きは開始時のまま固定します。
-        if (_attackRemaining <= 0 && Mathf.Abs(movement.x) > facingThreshold)
+        if (_attackRemaining <= 0 && !_isRepositioningForMeleeAttack && Mathf.Abs(movement.x) > facingThreshold)
         {
             Facing = Mathf.Sign(movement.x);
         }
@@ -1621,7 +1725,8 @@ public class Fighter : Combatant
             _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
         }
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
-        // 被ダメージによって進行中の攻撃を中断します。
+        // 被ダメージによって攻撃と反撃待ちの表示を中断し、通常の硬直・転倒へ移ります。
+        _enemyRecoveryRemaining = 0;
         _attackRemaining = 0;
         _isCrouching = false;
         _canBackstepFromJump = false;

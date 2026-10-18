@@ -4,40 +4,94 @@ using UnityEngine;
 // 予告中に向きと奥行きを固定するため、プレイヤーは奥行き移動で射線から逃げられます。
 public sealed class RangedFighter : Fighter
 {
+    protected override float EnemySpawnWaitSeconds => EnemyAiSettings.Current.RangedSpawnWaitSeconds;
+    public override bool UsesCoordinatedMeleeAttacks => false;
     // 弾の発射位置・飛距離・衝突半径から射線表示を求めます。
     public override float WarningRangeStart => BrawlerBalance.EnemyProjectileLaunchOffset;
     public override float WarningRangeEnd => WarningRangeStart
         + BrawlerBalance.EnemyProjectileSpeed * BrawlerBalance.EnemyProjectileLifetimeSeconds;
     public override float WarningLaneHalfWidth => BrawlerBalance.EnemyProjectileHitRadius;
 
-    protected override float EnemyAttackInterval => 2;
+    private bool _isApproaching;
+    private bool _isRetreating;
+    protected override float EnemyMovementSpeed => EnemyAiSettings.Current.RangedMoveSpeed;
+    protected override float EnemyWindupDuration => EnemyAiSettings.Current.RangedWindupSeconds;
+    protected override float EnemyAttackInterval => EnemyAiSettings.Current.RangedAttackIntervalSeconds;
+    protected override float EnemyRecoverySeconds => EnemyAiSettings.Current.RangedRecoverySeconds;
+
+    // 待っている間に射程や射線から外れた相手を、管理役が待ち列から除くための状態です。
+    public bool CanWaitForRangedAttack
+    {
+        get
+        {
+            if (!CanRequestEnemyAttack || OptionsMenu.BlocksGameplay || IsPausedBySpellEffect)
+            {
+                return false;
+            }
+            EnemyAiSettings settings = EnemyAiSettings.Current;
+            Vector3 delta = EnemyTargetPosition - transform.position;
+            float distance = Mathf.Abs(delta.x);
+            float retreatDirection = delta.x >= 0 ? -1 : 1;
+            bool canRetreat = transform.position.x * retreatDirection < BrawlerBalance.StageHalfWidth - settings.RangedEdgeMargin;
+            float approachLimit = settings.RangedApproachDistance - (_isApproaching ? settings.RangedSpacingHysteresis : 0);
+            float retreatLimit = settings.RangedRetreatDistance + (_isRetreating ? settings.RangedSpacingHysteresis : 0);
+            return distance <= approachLimit && (!canRetreat || distance >= retreatLimit)
+                && Mathf.Abs(delta.z) <= settings.RangedLaneTolerance;
+        }
+    }
 
     protected override Vector3 GetEnemyMovement()
     {
-        Vector3 delta = Game.Target.transform.position - transform.position;
+        EnemyAiSettings settings = EnemyAiSettings.Current;
+        Vector3 target = Game.Target.transform.position;
+        Vector3 delta = target - transform.position;
         Facing = delta.x >= 0 ? 1 : -1;
         float horizontalDistance = Mathf.Abs(delta.x);
-        if (horizontalDistance > 7)
+        float approachStop = settings.RangedApproachDistance - settings.RangedSpacingHysteresis;
+        float retreatStop = settings.RangedRetreatDistance + settings.RangedSpacingHysteresis;
+
+        // 接近開始と終了で別の距離を使い、境界付近の小さな移動で足を止め続けないようにします。
+        _isApproaching = horizontalDistance > settings.RangedApproachDistance
+            || (_isApproaching && horizontalDistance > approachStop);
+        if (_isApproaching)
         {
-            return delta.normalized;
+            _isRetreating = false;
+            target.x -= Facing * approachStop;
+            return GetMovementToward(target);
         }
 
-        // 接近されたら退きます。ただしステージ端では逃げ続けず、その場で攻撃します。
         float retreatDirection = -Facing;
-        bool canRetreat = transform.position.x * retreatDirection < 21.5f;
-        if (horizontalDistance < 3 && canRetreat)
+        float edge = BrawlerBalance.StageHalfWidth - settings.RangedEdgeMargin;
+        bool canRetreat = transform.position.x * retreatDirection < edge;
+        _isRetreating = canRetreat && (horizontalDistance < settings.RangedRetreatDistance
+            || (_isRetreating && horizontalDistance < retreatStop));
+        if (_isRetreating)
         {
-            return new Vector3(retreatDirection, 0, 0);
+            // 後退も少し余裕ができるまで続けます。床の端へ達したら射撃へ切り替えます。
+            Vector3 retreatTarget = transform.position;
+            retreatTarget.x = Mathf.Clamp(retreatTarget.x + retreatDirection * (retreatStop - horizontalDistance), -edge, edge);
+            return GetMovementToward(retreatTarget);
         }
-        if (Mathf.Abs(delta.z) > 0.4f)
+        if (Mathf.Abs(delta.z) > settings.RangedLaneTolerance)
         {
-            return new Vector3(0, 0, Mathf.Sign(delta.z));
+            target.x = transform.position.x;
+            return GetMovementToward(target);
         }
-        if (CanStartEnemyAttack)
+        if (CanStartEnemyAttack && Game.TryRequestRangedAttack(this))
         {
-            BeginAttackWindup(0.8f);
+            // ここから先の向き・射線固定や中断処理はFighterと共用します。
+            BeginAttackWindup(EnemyWindupDuration);
         }
         return Vector3.zero;
+    }
+
+    // 思考が返す移動の強さを制限し、低FPSでも間合いや端の余白を通り過ぎにくくします。
+    private Vector3 GetMovementToward(Vector3 target)
+    {
+        Vector3 delta = target - transform.position;
+        delta.y = 0;
+        float travel = EnemyMovementSpeed * Time.deltaTime;
+        return delta.normalized * (travel > 0 ? Mathf.Min(1, delta.magnitude / travel) : 1);
     }
 
     protected override void DealAttackDamage(int damage)
@@ -50,5 +104,7 @@ public sealed class RangedFighter : Fighter
         // 判定は移動区間と対象の距離で行います。物理コライダーは使いません。
         Destroy(projectileObject.GetComponent<Collider>());
         projectileObject.AddComponent<EnemyProjectile>().Initialize(Game.Target, Facing, Game);
+        // 命中を待たず、発射時から足を止めます。弾はこの後も独立して飛び続けます。
+        BeginEnemyRecovery();
     }
 }
