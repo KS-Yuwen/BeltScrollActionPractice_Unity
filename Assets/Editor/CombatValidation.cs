@@ -13,6 +13,7 @@ public static class CombatValidation
         + "1,Melee,7,0,0\n"
         + "2,Melee,7,-1,0\n2,Undead,-8,0,0\n2,Ranged,9,1,0\n2,Heavy,-10,-1,1\n"
         + "3,Melee,7,0,0\n4,Melee,7,0,0\n5,Boss,7,0,0\n";
+    private const string WaveIntervalTestCsv = "wave,clearDelaySeconds\n1,0\n2,3\n3,0.75\n4,4\n";
     private static double s_deadline;
     private static double s_readyAt;
 
@@ -85,6 +86,7 @@ public static class CombatValidation
             }
             var player = game.Target;
             ValidateWaveSpawnSettings();
+            ValidateWaveIntervals(game);
             // 既存の戦闘ケースは出現待機が終わった状態で実行します。待機自体は専用ケースで検証します。
             foreach (Fighter initialEnemy in UnityEngine.Object.FindObjectsByType<Fighter>())
             {
@@ -1211,7 +1213,8 @@ public static class CombatValidation
             waveProgress.Invoke(game, new object[] { 0f });
             Require(banner.Text == string.Empty, "消えたクリア通知を同じウェーブで再表示しない");
             int waveBeforeBanner = (int)GetPrivateField(game, "_wave");
-            waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+            var intervals = (WaveIntervalSettings)GetPrivateField(game, "_waveIntervals");
+            waveProgress.Invoke(game, new object[] { intervals.GetClearDelaySeconds(waveBeforeBanner) + 0.1f });
             Require(banner.Text == "WAVE " + (waveBeforeBanner + 1) && bannerPending.Count > 0,
                 "次の出現予告と同時にウェーブ番号を表示");
             waveProgress.Invoke(game, new object[] { 0f });
@@ -2031,7 +2034,20 @@ public static class CombatValidation
         SetPrivateField(game, "_wave", BrawlerBalance.StageWaveCount - 1);
         SetPrivateField(game, "_nextWaveElapsed", 0f);
         player.TakeDamage(BrawlerBalance.BossPreparationHealingAmount, 1);
-        waveProgress.Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 0.1f });
+        object originalIntervals = GetPrivateField(game, "_waveIntervals");
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv, out WaveIntervalSettings bossIntervals, out _),
+            "ボス準備前の待ち時間もCSVで指定できる");
+        try
+        {
+            SetPrivateField(game, "_waveIntervals", bossIntervals);
+            waveProgress.Invoke(game, new object[] { 3f });
+            Require(!game.IsPreparingBoss && pending.Count == 0, "第4ウェーブの待ち時間が終わる前は準備に入らない");
+            waveProgress.Invoke(game, new object[] { 1f });
+        }
+        finally
+        {
+            SetPrivateField(game, "_waveIntervals", originalIntervals);
+        }
         Require(game.IsPreparingBoss && !game.IsRunFinished && pending.Count == 0
             && (int)GetPrivateField(game, "_wave") == BrawlerBalance.StageWaveCount - 1
             && player.Health == player.MaxHealth, "第4ウェーブ後は回復して準備に入り、ボスを自動予約しない");
@@ -2270,6 +2286,86 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    // 実際の進行メソッドを専用の管理役で呼び、元のステージ進行や敵一覧を変更せず検証します。
+    private static void ValidateWaveIntervals(BeltBrawler game)
+    {
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv, out WaveIntervalSettings custom, out _)
+            && custom.GetClearDelaySeconds(1) == 0 && custom.GetClearDelaySeconds(2) == 3
+            && custom.GetClearDelaySeconds(3) == 0.75f && custom.GetClearDelaySeconds(4) == 4,
+            "ウェーブごとの全滅後の待ち時間をCSVから読む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/wave_intervals");
+        Require(asset != null && WaveIntervalSettings.TryParse(asset.text, out _, out _), "同梱のウェーブ間隔CSVも読み込める");
+        foreach (string invalid in new[] { "", "wave,clearDelaySeconds", WaveIntervalTestCsv.Replace("1,0", "0,0"),
+            WaveIntervalTestCsv.Replace("1,0", "5,0"), WaveIntervalTestCsv.Replace("1,0", "1.5,0"),
+            WaveIntervalTestCsv.Replace("1,0", "1,-1"), WaveIntervalTestCsv.Replace("1,0", "1,NaN"),
+            WaveIntervalTestCsv.Replace("1,0", "1,Infinity"), WaveIntervalTestCsv.Replace("1,0", "1,30.1"),
+            WaveIntervalTestCsv.Replace("3,0.75\n", ""), WaveIntervalTestCsv + "1,2\n",
+            WaveIntervalTestCsv.Replace("clearDelaySeconds", "delay"), WaveIntervalTestCsv.Replace("1,0", "1,0,0") })
+        {
+            Require(!WaveIntervalSettings.TryParse(invalid, out WaveIntervalSettings fallback, out string error)
+                && fallback.GetClearDelaySeconds(1) == BrawlerBalance.NextWaveDelaySeconds
+                && fallback.GetClearDelaySeconds(4) == BrawlerBalance.NextWaveDelaySeconds && error.Length > 0,
+                "不正・欠落・重複した間隔CSVは全区間を既定値へ戻す");
+        }
+        Require(WaveIntervalSettings.TryParse(WaveIntervalTestCsv.Replace("1,0", "1,30"), out _, out _),
+            "上限30秒も読み込める");
+        var fixture = new GameObject("Test wave intervals");
+        var progression = fixture.AddComponent<BeltBrawler>();
+        progression.enabled = false;
+        try
+        {
+            SetPrivateField(progression, "_player", game.Target);
+            SetPrivateField(progression, "_audio", GetPrivateField(game, "_audio"));
+            SetPrivateField(progression, "_waveSpawns", WaveSpawnSettings.Current);
+            SetPrivateField(progression, "_waveIntervals", custom);
+            SetPrivateField(progression, "_enemyAttacks", new EnemyAttackCoordinator(EnemyAiSettings.Current));
+            SetPrivateField(progression, "_wave", 1);
+            var enemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(progression, "_enemies");
+            var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(progression, "_pendingSpawnPositions");
+            var entries = (System.Collections.Generic.List<WaveSpawnSettings.Entry>)GetPrivateField(progression, "_pendingSpawnEntries");
+            MethodInfo advance = typeof(BeltBrawler).GetMethod("UpdateWaveProgress", BindingFlags.Instance | BindingFlags.NonPublic);
+            // 死亡フェード中も管理一覧には残ります。一覧が空になるまで計測しません。
+            enemies.Add(game.Target);
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 1 && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "敵が残っていれば待ち時間を計測しない");
+            enemies.Clear();
+            pending.Add(Vector3.zero);
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 1 && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "増援予約だけが残っている場合も待ち時間を計測しない");
+            pending.Clear();
+            advance.Invoke(progression, new object[] { 0f });
+            Require((int)GetPrivateField(progression, "_wave") == 2 && pending.Count > 0,
+                "0秒設定では全滅判定時に次のウェーブの予告を始める");
+            pending.Clear();
+            entries.Clear();
+            advance.Invoke(progression, new object[] { 1f });
+            advance.Invoke(progression, new object[] { 0f });
+            advance.Invoke(progression, new object[] { -1f });
+            Require((float)GetPrivateField(progression, "_nextWaveElapsed") == 1,
+                "ゲーム時間0では間隔を減らさず、負数でも巻き戻さない");
+            advance.Invoke(progression, new object[] { 1.75f });
+            Require((int)GetPrivateField(progression, "_wave") == 2, "設定の3秒より前は次の予告を始めない");
+            advance.Invoke(progression, new object[] { 0.25f });
+            Require((int)GetPrivateField(progression, "_wave") == 3 && pending.Count > 0
+                && (float)GetPrivateField(progression, "_nextWaveElapsed") == 0,
+                "設定の3秒に到達すると一度だけ次へ進み、経過時間をリセットする");
+            advance.Invoke(progression, new object[] { 10f });
+            Require((int)GetPrivateField(progression, "_wave") == 3, "次の出現待ちがある間はウェーブを飛ばさない");
+            pending.Clear();
+            entries.Clear();
+            advance.Invoke(progression, new object[] { 0.5f });
+            Require((int)GetPrivateField(progression, "_wave") == 3, "第3ウェーブには独自の0.75秒を使う");
+            advance.Invoke(progression, new object[] { 0.25f });
+            Require((int)GetPrivateField(progression, "_wave") == 4, "ウェーブ番号に対応した間隔で進む");
+        }
+        finally
+        {
+            UnityEngine.Object.DestroyImmediate(fixture);
+        }
     }
 
     private static void ValidateWaveSpawnSettings()

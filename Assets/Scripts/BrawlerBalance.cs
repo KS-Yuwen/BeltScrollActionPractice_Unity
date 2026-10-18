@@ -101,7 +101,9 @@ public static class BrawlerBalance
     public const float EnemyHealthBarHeight = 10f;
     public const float EnemyHealthBarWorldHeight = 2.3f;
     // ウェーブ進行と中央の通知。既存の待ち時間を維持し、表示はその間に収めます。
+    // CSVを読み込めない場合の既定値と、入力できる待ち時間の上限です。
     public const float NextWaveDelaySeconds = 2f;
+    public const float MaxWaveClearDelaySeconds = 30f;
     public const float SpawnWarningSeconds = 1.5f;
     public const float SpawnNoticeLeadSeconds = 1.5f;
     public const float SpawnNoticeWidth = 310f;

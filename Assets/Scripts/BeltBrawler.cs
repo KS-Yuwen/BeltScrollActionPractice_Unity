@@ -53,7 +53,7 @@ public sealed class BeltBrawler : MonoBehaviour
     public int ResultWave { get; private set; }
     public int ResultScore { get; private set; }
     public int ResultDefeatedEnemies { get; private set; }
-    // 全滅後、次の出現までに経過した秒数。
+    // 全滅後、次のウェーブ予告（ボス前は準備区間）を始めるまでに経過した秒数。
     private float _nextWaveElapsed;
     private readonly WaveBanner _waveBanner = new WaveBanner();
     private bool _waveClearAnnounced;
@@ -66,6 +66,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
     private WaveSpawnSettings _waveSpawns;
+    private WaveIntervalSettings _waveIntervals;
     private readonly List<WaveSpawnSettings.Entry> _pendingSpawnEntries = new List<WaveSpawnSettings.Entry>();
     private float _spawnElapsed;
     private readonly HashSet<WaveSpawnSettings.Entry> _notifiedSpawns = new HashSet<WaveSpawnSettings.Entry>();
@@ -123,6 +124,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private void Start()
     {
         _waveSpawns = WaveSpawnSettings.Current;
+        _waveIntervals = WaveIntervalSettings.Current;
         _enemyAttacks = new EnemyAttackCoordinator(EnemyAiSettings.Current);
         _audio = gameObject.AddComponent<BrawlerAudio>();
         _optionsMenu = gameObject.AddComponent<OptionsMenu>();
@@ -150,6 +152,7 @@ public sealed class BeltBrawler : MonoBehaviour
             return;
         }
         _wave++;
+        _nextWaveElapsed = 0;
         _waveClearAnnounced = false;
         _waveBanner.ShowStart(_wave);
         // 全滅のご褒美として少量回復し、次の戦闘にも挑みやすくします。
@@ -329,9 +332,10 @@ public sealed class BeltBrawler : MonoBehaviour
                 _waveClearAnnounced = true;
                 _waveBanner.ShowClear();
             }
-            // deltaTime は前フレームからの経過秒数。FPS に依存せず 2 秒を計測できます。
-            _nextWaveElapsed += deltaTime;
-            if (_nextWaveElapsed > BrawlerBalance.NextWaveDelaySeconds)
+            // 敵の消滅・全増援の出現が終わった後だけ、ゲーム時間でウェーブごとの間隔を計測します。
+            // メニュー中はUpdate自体を止め、ヒットストップ中はdeltaTimeが0になるため進みません。
+            _nextWaveElapsed += Mathf.Max(0, deltaTime);
+            if (_nextWaveElapsed >= _waveIntervals.GetClearDelaySeconds(_wave))
             {
                 _nextWaveElapsed = 0;
                 if (_wave == BrawlerBalance.StageWaveCount - 1)
