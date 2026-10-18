@@ -21,13 +21,19 @@ public enum BrawlerSound
     SpellHeal,
     SpellProtection,
     SpellAttackBoost,
-    SpellMissile
+    SpellMissile,
+    SpawnNotice
 }
 
 // 試作用の短い効果音を起動時に生成し、同じ AudioClip を繰り返し再生します。
 public sealed class BrawlerAudio : MonoBehaviour
 {
     private const int SampleRate = 44100;
+    // 増援は高めの二音で知らせ、敵の攻撃予兆の音と聞き分けられるようにします。
+    private const float SpawnNoticeDuration = 0.22f;
+    private const float SpawnNoticeNoteSplit = 0.5f;
+    private const float SpawnNoticeFirstFrequency = 880f;
+    private const float SpawnNoticeSecondFrequency = 1174f;
     // 音作りの調整値。ボスは低い音域にし、複数の通常敵がいる場面でも聞き分けられます。
     private const float WarningDuration = 0.16f;
     private const float SwingDuration = 0.12f;
@@ -94,6 +100,10 @@ public sealed class BrawlerAudio : MonoBehaviour
 
     public void Play(BrawlerSound sound)
     {
+        if (sound == BrawlerSound.SpawnNotice && !AudioOptions.SpawnNoticeSoundEnabled)
+        {
+            return;
+        }
         // 範囲攻撃で同じ音が同時に重なることを抑えます。異なる種類の音は重ねて再生できます。
         float now = Time.unscaledTime;
         if (_lastPlayedAt.TryGetValue(sound, out float lastTime) && now - lastTime < 0.03f)
@@ -111,6 +121,7 @@ public sealed class BrawlerAudio : MonoBehaviour
             || sound == BrawlerSound.EnemyMiss || sound == BrawlerSound.BossMiss;
         float duration = sound switch
         {
+            BrawlerSound.SpawnNotice => SpawnNoticeDuration,
             BrawlerSound.SpellCast => SpellCastDuration,
             BrawlerSound.SpellInterrupted => SpellInterruptedDuration,
             BrawlerSound.SpellHeal => SpellHealDuration,
@@ -140,6 +151,7 @@ public sealed class BrawlerAudio : MonoBehaviour
             // 予兆は上昇する合図、振りと空振りは短い風切り音として作ります。
             frequency = sound switch
             {
+                BrawlerSound.SpawnNotice => progress < SpawnNoticeNoteSplit ? SpawnNoticeFirstFrequency : SpawnNoticeSecondFrequency,
                 BrawlerSound.SpellCast => Mathf.Lerp(SpellCastStartFrequency, SpellCastEndFrequency, progress),
                 BrawlerSound.SpellInterrupted => Mathf.Lerp(SpellInterruptedStartFrequency, SpellInterruptedEndFrequency, progress),
                 BrawlerSound.SpellHeal => Mathf.Lerp(SpellHealStartFrequency, SpellHealEndFrequency, progress),

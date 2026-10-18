@@ -68,6 +68,7 @@ public sealed class BeltBrawler : MonoBehaviour
     private WaveSpawnSettings _waveSpawns;
     private readonly List<WaveSpawnSettings.Entry> _pendingSpawnEntries = new List<WaveSpawnSettings.Entry>();
     private float _spawnElapsed;
+    private readonly HashSet<WaveSpawnSettings.Entry> _notifiedSpawns = new HashSet<WaveSpawnSettings.Entry>();
     public int PendingSpawnCount => _pendingSpawnPositions.Count;
 
     // 表示のために別のタイマーを持たず、実際の出現予定から直前の予約だけを返します。
@@ -158,6 +159,7 @@ public sealed class BeltBrawler : MonoBehaviour
         }
         _pendingSpawnPositions.Clear();
         _pendingSpawnEntries.Clear();
+        _notifiedSpawns.Clear();
         _spawnElapsed = 0;
         _spawnWarningRemaining = float.MaxValue;
         foreach (WaveSpawnSettings.Entry entry in _waveSpawns.GetWave(_wave))
@@ -166,6 +168,26 @@ public sealed class BeltBrawler : MonoBehaviour
             // 全員分を開始時に予約し、出現待ちの間にプレイヤーが動いても追いかけません。
             _pendingSpawnPositions.Add(entry.ResolvePosition(_player.transform.position));
             _spawnWarningRemaining = Mathf.Min(_spawnWarningRemaining, BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds);
+        }
+        UpdateSpawnNoticeSounds();
+    }
+
+    // HUDと同じ残り時間を参照します。同じフレームに始まる予告は一つの音にまとめます。
+    private void UpdateSpawnNoticeSounds()
+    {
+        bool shouldPlay = false;
+        for (int i = 0; i < _pendingSpawnEntries.Count; i++)
+        {
+            if (TryGetSpawnNotice(i, out _, out _, out _) && _notifiedSpawns.Add(_pendingSpawnEntries[i]))
+            {
+                shouldPlay = true;
+            }
+        }
+        // オフの間も通知済みにします。設定変更や停止からの復帰で同じ予告を鳴らし直しません。
+        // 低FPSで予告期間を通り過ぎた敵も、出現後に遅れて通知しません。
+        if (shouldPlay)
+        {
+            PlaySound(BrawlerSound.SpawnNotice);
         }
     }
 
@@ -176,6 +198,7 @@ public sealed class BeltBrawler : MonoBehaviour
             return;
         }
         _spawnElapsed += Mathf.Max(0, deltaTime);
+        UpdateSpawnNoticeSounds();
         _spawnWarningRemaining = float.MaxValue;
         for (int i = 0; i < _pendingSpawnPositions.Count;)
         {
@@ -394,6 +417,7 @@ public sealed class BeltBrawler : MonoBehaviour
         // 敗北時の出現予約も破棄し、リザルトの背後で次の敵が出ないようにします。
         _pendingSpawnPositions.Clear();
         _pendingSpawnEntries.Clear();
+        _notifiedSpawns.Clear();
         _spawnWarningRemaining = 0;
     }
 

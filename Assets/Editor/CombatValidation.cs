@@ -268,6 +268,8 @@ public static class CombatValidation
             typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
             var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
             Require(pending.Exists(p => p.x < 0) && pending.Exists(p => p.x > 0), "第2ウェーブは左右に出現を予約");
+            var notifiedSpawns = (System.Collections.Generic.HashSet<WaveSpawnSettings.Entry>)GetPrivateField(game, "_notifiedSpawns");
+            Require(notifiedSpawns.Count == 3, "同時に予告する3体を開始時に通知済みにする");
             Vector3 reservedPosition = pending[0];
             Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind firstNoticeKind, out Vector3 noticePosition, out _)
                 && firstNoticeKind == WaveSpawnSettings.EnemyKind.Melee && noticePosition == reservedPosition,
@@ -277,6 +279,7 @@ public static class CombatValidation
             MethodInfo updateWarning = typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic);
             updateWarning.Invoke(game, new object[] { 0.5f });
             Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn, "予告中には出現しない");
+            Require(notifiedSpawns.Count == 3, "予告表示中の更新では同じ通知を繰り返さない");
             player.transform.position = Vector3.left * 5;
             updateWarning.Invoke(game, new object[] { 1.1f });
             Require(pending.Count == 1 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 3,
@@ -290,6 +293,7 @@ public static class CombatValidation
             scheduledEnemies.AddRange(savedEnemies);
             updateWarning.Invoke(game, new object[] { 0f });
             Require(pending.Count == 1, "時間停止中は遅延出現を進めない");
+            Require(notifiedSpawns.Count == 4, "遅延増援の予告開始時にだけ通知を追加し、時間停止では繰り返さない");
             Vector3 delayedPosition = pending[0];
             Require(game.TryGetSpawnNotice(0, out WaveSpawnSettings.EnemyKind delayedKind, out Vector3 delayedNoticePosition, out float delayedRemaining)
                 && delayedKind == WaveSpawnSettings.EnemyKind.Heavy && delayedNoticePosition == delayedPosition

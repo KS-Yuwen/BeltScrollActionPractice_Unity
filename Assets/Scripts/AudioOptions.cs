@@ -5,6 +5,25 @@ using UnityEngine;
 public static class AudioOptions
 {
     private const string SoundEffectsVolumeKey = "Audio.SoundEffectsVolume";
+    private const string SpawnNoticeSoundKey = "Audio.SpawnNoticeSoundEnabled";
+    private const int EnabledValue = 1;
+    private const int DisabledValue = 0;
+
+    // 増援の通知音だけを切り替えます。他の効果音や予告表示には影響しません。
+    public static bool SpawnNoticeSoundEnabled
+    {
+        get => PlayerPrefs.GetInt(SpawnNoticeSoundKey, EnabledValue) == EnabledValue;
+        set
+        {
+            if (value == SpawnNoticeSoundEnabled)
+            {
+                return;
+            }
+            PlayerPrefs.SetInt(SpawnNoticeSoundKey, value ? EnabledValue : DisabledValue);
+            PlayerPrefs.Save();
+        }
+    }
+
     public static event Action<float> SoundEffectsVolumeChanged;
 
     // 0は消音、1は従来の最大音量。新規設定でも以前と同じ音の大きさで始めます。

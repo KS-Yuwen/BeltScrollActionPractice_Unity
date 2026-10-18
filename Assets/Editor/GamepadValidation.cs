@@ -1597,6 +1597,7 @@ public static class GamepadValidation
         bool originalLow = DisplayOptions.ShowLowSpellUsesWarning;
         bool originalDepleted = DisplayOptions.ShowSpellDepletedNotice;
         bool originalShake = DisplayOptions.CameraShakeEnabled;
+        bool originalSpawnNotice = AudioOptions.SpawnNoticeSoundEnabled;
         float originalVolume = AudioOptions.SoundEffectsVolume;
         AudioSource audioSource = game.GetComponent<AudioSource>();
         float originalScale = Time.timeScale;
@@ -1666,6 +1667,26 @@ public static class GamepadValidation
             updateCamera.Invoke(game, null);
             Require((float)shake.GetValue(game) == 0 && camera.transform.position == stablePosition,
                 "オフにすると進行中の揺れを捨て、カメラを基準位置で安定させる");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsSpawnNoticeSoundRow, "増援の通知音の項目へ移動する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(AudioOptions.SpawnNoticeSoundEnabled != originalSpawnNotice, "Enterで増援の通知音を独立に切り替える");
+            // 再生履歴で通知音だけの抑制を確認します。音量0による消音とは別の設定です。
+            var audio = game.GetComponent<BrawlerAudio>();
+            var playedSounds = (System.Collections.Generic.Dictionary<BrawlerSound, float>)typeof(BrawlerAudio)
+                .GetField("_lastPlayedAt", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(audio);
+            playedSounds.Remove(BrawlerSound.SpawnNotice);
+            AudioOptions.SpawnNoticeSoundEnabled = false;
+            audio.Play(BrawlerSound.SpawnNotice);
+            Require(!playedSounds.ContainsKey(BrawlerSound.SpawnNotice), "通知音オフでは再生しない");
+            AudioOptions.SpawnNoticeSoundEnabled = true;
+            audio.Play(BrawlerSound.SpawnNotice);
+            Require(playedSounds.ContainsKey(BrawlerSound.SpawnNotice), "通知音オンでは再生できる");
+            AudioOptions.SpawnNoticeSoundEnabled = false;
             float attackBefore = ReadPlayerTimer(player, "_attackRemaining");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
             InputSystem.Update();
@@ -1699,6 +1720,12 @@ public static class GamepadValidation
             SendState(pad, new GamepadState().WithButton(GamepadButton.South));
             update.Invoke(menu, null);
             Require(DisplayOptions.CameraShakeEnabled, "パッドAで画面の揺れをオンにできる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsSpawnNoticeSoundRow, "パッドでも増援の通知音の項目へ移動できる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            update.Invoke(menu, null);
+            Require(AudioOptions.SpawnNoticeSoundEnabled, "パッドAで増援の通知音をオンにできる");
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             update.Invoke(menu, null);
             Require(!menu.IsOpen && Time.timeScale == 1, "パッドBで閉じ、速度を復元する");
@@ -1716,6 +1743,7 @@ public static class GamepadValidation
             DisplayOptions.ShowSpellDepletedNotice = originalDepleted;
             AudioOptions.SoundEffectsVolume = originalVolume;
             DisplayOptions.CameraShakeEnabled = originalShake;
+            AudioOptions.SpawnNoticeSoundEnabled = originalSpawnNotice;
             InputSystem.RemoveDevice(keyboard);
             InputSystem.RemoveDevice(pad);
         }
