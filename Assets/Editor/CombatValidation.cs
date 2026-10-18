@@ -65,6 +65,14 @@ public static class CombatValidation
             {
                 return;
             }
+            // 戦闘ルールの検証は初期編成が揃った状態で行います。増援の調整時間には依存させません。
+            // 段階出現そのものは後述の専用ケースで確認し、ここでは生成後のStartも待ちます。
+            var initialPending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
+            if (initialPending.Count > 0)
+            {
+                typeof(BeltBrawler).GetMethod("UpdateSpawnWarning", BindingFlags.Instance | BindingFlags.NonPublic)
+                    .Invoke(game, new object[] { BrawlerBalance.SpawnWarningSeconds + BrawlerBalance.MaxSpawnDelaySeconds });
+            }
             // Start だけでなく通常の Update も走らせ、初期化後の例外を検出します。
             if (s_readyAt == 0)
             {
