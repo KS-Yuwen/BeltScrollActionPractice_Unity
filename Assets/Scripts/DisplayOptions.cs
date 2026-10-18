@@ -6,6 +6,7 @@ public static class DisplayOptions
 {
     private const string LowSpellUsesKey = "Display.ShowLowSpellUsesWarning";
     private const string DepletedSpellKey = "Display.ShowSpellDepletedNotice";
+    private const string CameraShakeKey = "Display.CameraShakeEnabled";
     private const int EnabledValue = 1;
     private const int DisabledValue = 0;
 
@@ -20,6 +21,13 @@ public static class DisplayOptions
     {
         get => PlayerPrefs.GetInt(DepletedSpellKey, EnabledValue) == EnabledValue;
         set => Save(DepletedSpellKey, value);
+    }
+
+    // 初期値は従来通りオンです。戦闘の命中判定やヒットストップには影響させません。
+    public static bool CameraShakeEnabled
+    {
+        get => PlayerPrefs.GetInt(CameraShakeKey, EnabledValue) == EnabledValue;
+        set => Save(CameraShakeKey, value);
     }
 
     private static void Save(string key, bool enabled)

@@ -1596,6 +1596,7 @@ public static class GamepadValidation
         MethodInfo update = typeof(OptionsMenu).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
         bool originalLow = DisplayOptions.ShowLowSpellUsesWarning;
         bool originalDepleted = DisplayOptions.ShowSpellDepletedNotice;
+        bool originalShake = DisplayOptions.CameraShakeEnabled;
         float originalVolume = AudioOptions.SoundEffectsVolume;
         AudioSource audioSource = game.GetComponent<AudioSource>();
         float originalScale = Time.timeScale;
@@ -1647,6 +1648,24 @@ public static class GamepadValidation
             AudioOptions.SoundEffectsVolume = 2;
             Require(AudioOptions.SoundEffectsVolume == 1 && Mathf.Approximately(audioSource.volume, BrawlerBalance.SoundEffectsBaseVolume),
                 "100%以上は従来の最大音量に制限する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsCameraShakeRow, "画面の揺れの項目へ移動する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.Enter));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(DisplayOptions.CameraShakeEnabled != originalShake, "Enterで画面の揺れを切り替える");
+            DisplayOptions.CameraShakeEnabled = false;
+            FieldInfo shake = typeof(BeltBrawler).GetField("_cameraShakeRemaining", BindingFlags.Instance | BindingFlags.NonPublic);
+            MethodInfo updateCamera = typeof(BeltBrawler).GetMethod("LateUpdate", BindingFlags.Instance | BindingFlags.NonPublic);
+            var camera = (Camera)typeof(BeltBrawler).GetField("_camera", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(game);
+            shake.SetValue(game, BrawlerBalance.CameraShakeSeconds);
+            updateCamera.Invoke(game, null);
+            Vector3 stablePosition = camera.transform.position;
+            updateCamera.Invoke(game, null);
+            Require((float)shake.GetValue(game) == 0 && camera.transform.position == stablePosition,
+                "オフにすると進行中の揺れを捨て、カメラを基準位置で安定させる");
             float attackBefore = ReadPlayerTimer(player, "_attackRemaining");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
             InputSystem.Update();
@@ -1674,6 +1693,12 @@ public static class GamepadValidation
             update.Invoke(menu, null);
             Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 1 - BrawlerBalance.SoundEffectsVolumeStep),
                 "パッド十字キーの左右で音量を調整する");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsCameraShakeRow, "パッドでも画面の揺れの項目へ移動できる");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.South));
+            update.Invoke(menu, null);
+            Require(DisplayOptions.CameraShakeEnabled, "パッドAで画面の揺れをオンにできる");
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             update.Invoke(menu, null);
             Require(!menu.IsOpen && Time.timeScale == 1, "パッドBで閉じ、速度を復元する");
@@ -1690,6 +1715,7 @@ public static class GamepadValidation
             DisplayOptions.ShowLowSpellUsesWarning = originalLow;
             DisplayOptions.ShowSpellDepletedNotice = originalDepleted;
             AudioOptions.SoundEffectsVolume = originalVolume;
+            DisplayOptions.CameraShakeEnabled = originalShake;
             InputSystem.RemoveDevice(keyboard);
             InputSystem.RemoveDevice(pad);
         }

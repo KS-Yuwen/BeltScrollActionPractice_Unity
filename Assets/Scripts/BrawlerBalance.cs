@@ -61,12 +61,13 @@ public static class BrawlerBalance
     public const float SoundEffectsVolumeStep = 0.1f;
     public const int OptionsVolumeRow = 2;
     public const int OptionsVolumePercent = 100;
-    public const int OptionsRowCount = 4;
+    public const int OptionsCameraShakeRow = 3;
+    public const int OptionsRowCount = 5;
     public const float OptionsVolumeButtonWidth = 44f;
     public const int OptionsFontSize = 18;
     public const float OptionsInputThreshold = 0.5f;
     public const float OptionsWidth = 560f;
-    public const float OptionsHeight = 334f;
+    public const float OptionsHeight = 388f;
     public const float OptionsMargin = 20f;
     public const float OptionsTitleHeight = 50f;
     public const float OptionsRowHeight = 54f;

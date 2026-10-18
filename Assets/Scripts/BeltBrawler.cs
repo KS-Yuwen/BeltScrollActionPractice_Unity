@@ -368,7 +368,12 @@ public sealed class BeltBrawler : MonoBehaviour
         _camera.transform.LookAt(focus);
         // 一瞬だけカメラをずらし、攻撃が命中した重さを表現します。
         // 毎フレーム基準位置から計算するため、揺れが積み重なって位置がずれることはありません。
-        if (_cameraShakeRemaining > 0)
+        // オフにしたら残り時間も破棄し、再度オンにしても古い命中の揺れを再生しません。
+        if (!DisplayOptions.CameraShakeEnabled)
+        {
+            _cameraShakeRemaining = 0;
+        }
+        if (DisplayOptions.CameraShakeEnabled && !OptionsMenu.BlocksGameplay && _cameraShakeRemaining > 0)
         {
             _camera.transform.position += Random.insideUnitSphere * _cameraShakeRemaining * BrawlerBalance.CameraShakeStrength;
         }
@@ -455,7 +460,7 @@ public sealed class BeltBrawler : MonoBehaviour
                 BeginHitStop(isStrongHit ? BrawlerBalance.StrongHitStopSeconds : BrawlerBalance.NormalHitStopSeconds);
             }
         }
-        _cameraShakeRemaining = BrawlerBalance.CameraShakeSeconds;
+        _cameraShakeRemaining = DisplayOptions.CameraShakeEnabled ? BrawlerBalance.CameraShakeSeconds : 0;
         if (victim.IsPlayer)
         {
             _hitChain = 0;

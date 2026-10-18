@@ -124,6 +124,9 @@ public sealed class OptionsMenu : MonoBehaviour
             case BrawlerBalance.OptionsVolumeRow:
                 PreviewVolume();
                 break;
+            case BrawlerBalance.OptionsCameraShakeRow:
+                DisplayOptions.CameraShakeEnabled = !DisplayOptions.CameraShakeEnabled;
+                break;
             default:
                 Close();
                 break;
@@ -171,7 +174,9 @@ public sealed class OptionsMenu : MonoBehaviour
                 continue;
             }
             string label = i == 0 ? "残り回数の強調：" + (DisplayOptions.ShowLowSpellUsesWarning ? "ON" : "OFF")
-                : i == 1 ? "使い切り表示：" + (DisplayOptions.ShowSpellDepletedNotice ? "ON" : "OFF") : "ゲームに戻る";
+                : i == 1 ? "使い切り表示：" + (DisplayOptions.ShowSpellDepletedNotice ? "ON" : "OFF")
+                : i == BrawlerBalance.OptionsCameraShakeRow ? "画面の揺れ：" + (DisplayOptions.CameraShakeEnabled ? "ON" : "OFF")
+                : "ゲームに戻る";
             GUI.color = i == SelectedOption ? Color.yellow : Color.white;
             if (GUI.Button(new Rect(BrawlerBalance.OptionsMargin, BrawlerBalance.OptionsTitleHeight + i * BrawlerBalance.OptionsRowHeight,
                 BrawlerBalance.OptionsWidth - BrawlerBalance.OptionsMargin * 2, BrawlerBalance.OptionsButtonHeight),
