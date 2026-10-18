@@ -14,6 +14,14 @@ public sealed class EnemyAiSettings
         { nameof(RangedSpawnWaitSeconds), (0.8f, 0, 5, false) },
         { nameof(HeavySpawnWaitSeconds), (1f, 0, 5, false) },
         { nameof(BossSpawnWaitSeconds), (1.2f, 0, 5, false) },
+        { nameof(RangedApproachDistance), (7f, 0.5f, 20, false) },
+        { nameof(RangedRetreatDistance), (3f, 0, 10, false) },
+        { nameof(RangedSpacingHysteresis), (0.5f, 0, 3, false) },
+        { nameof(RangedLaneTolerance), (0.4f, 0.05f, 3, false) },
+        { nameof(RangedEdgeMargin), (0.5f, 0.05f, 3, false) },
+        { nameof(RangedMoveSpeed), (2.2f, 0.1f, 5, false) },
+        { nameof(RangedWindupSeconds), (0.8f, 0.05f, 5, false) },
+        { nameof(RangedAttackIntervalSeconds), (2f, 0, 10, false) },
         { nameof(MaxSimultaneousAttackers), (1, 1, 8, true) },
         { nameof(AttackStartIntervalSeconds), (0.75f, 0, 10, false) },
         { nameof(MeleeWindupSeconds), (0.55f, 0.05f, 5, false) },
@@ -40,6 +48,16 @@ public sealed class EnemyAiSettings
     public float RangedSpawnWaitSeconds => _values[nameof(RangedSpawnWaitSeconds)];
     public float HeavySpawnWaitSeconds => _values[nameof(HeavySpawnWaitSeconds)];
     public float BossSpawnWaitSeconds => _values[nameof(BossSpawnWaitSeconds)];
+
+    // 遠距離敵の間合い・射線合わせ・射撃テンポ。境目の幅もCSVで調整します。
+    public float RangedApproachDistance => _values[nameof(RangedApproachDistance)];
+    public float RangedRetreatDistance => _values[nameof(RangedRetreatDistance)];
+    public float RangedSpacingHysteresis => _values[nameof(RangedSpacingHysteresis)];
+    public float RangedLaneTolerance => _values[nameof(RangedLaneTolerance)];
+    public float RangedEdgeMargin => _values[nameof(RangedEdgeMargin)];
+    public float RangedMoveSpeed => _values[nameof(RangedMoveSpeed)];
+    public float RangedWindupSeconds => _values[nameof(RangedWindupSeconds)];
+    public float RangedAttackIntervalSeconds => _values[nameof(RangedAttackIntervalSeconds)];
 
     public int MaxSimultaneousAttackers => (int)_values[nameof(MaxSimultaneousAttackers)];
     public float AttackStartIntervalSeconds => _values[nameof(AttackStartIntervalSeconds)];
@@ -147,6 +165,13 @@ public sealed class EnemyAiSettings
             || values[nameof(WaitingEngagementDistance)] < values[nameof(MeleeStopDistance)])
         {
             error = "待機への参加距離は待機距離・接近停止距離以上にしてください。";
+            return false;
+        }
+        // 接近終了の距離と後退終了の距離が逆転すると、射撃できずに往復してしまいます。
+        if (values[nameof(RangedRetreatDistance)] + values[nameof(RangedSpacingHysteresis)]
+            >= values[nameof(RangedApproachDistance)] - values[nameof(RangedSpacingHysteresis)])
+        {
+            error = "遠距離敵の後退距離＋切替幅は、接近距離－切替幅より小さくしてください。";
             return false;
         }
         // 省略した項目は既定値のまま。一行も失敗していない場合だけ全体を採用します。

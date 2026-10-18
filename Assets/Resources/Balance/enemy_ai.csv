@@ -35,3 +35,16 @@ WaitingEngagementDistance,5
 SeparationDistance,0.75
 # 回避の最大速度（Unity単位/秒、0～3）。0で無効
 SeparationStrength,0.6
+# 遠距離敵の接近開始距離（0.5～20）・後退開始距離（0～10）。Unity単位
+RangedApproachDistance,7
+RangedRetreatDistance,3
+# 移動を止めるまでの距離の余裕（0～3）。後退距離＋幅 < 接近距離－幅を守る
+RangedSpacingHysteresis,0.5
+# 射撃前に合わせる奥行きの許容幅（0.05～3）と、後退時に端へ残す余白（0.05～3）
+RangedLaneTolerance,0.4
+RangedEdgeMargin,0.5
+# 遠距離敵の移動速度（Unity単位/秒、0.1～5）
+RangedMoveSpeed,2.2
+# 射撃予告の秒数（0.05～5）と、攻撃動作開始から次の予告開始までの間隔（0～10秒）
+RangedWindupSeconds,0.8
+RangedAttackIntervalSeconds,2

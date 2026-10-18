@@ -93,6 +93,7 @@ public static class CombatValidation
                 SetPrivateField(initialEnemy, "_spawnWaitRemaining", 0f);
             }
             ValidateEnemySpawnWait(game);
+            ValidateRangedEnemyAi(game);
             ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
@@ -2495,6 +2496,111 @@ public static class CombatValidation
                 UnityEngine.Object.DestroyImmediate(enemy.gameObject);
             }
             UnityEngine.Object.DestroyImmediate(caster.gameObject);
+        }
+    }
+
+    // 左右からの接近・後退・端での射撃を、既定値と異なるCSV設定で検証します。
+    private static void ValidateRangedEnemyAi(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nRangedApproachDistance,6\nRangedRetreatDistance,2\n"
+            + "RangedSpacingHysteresis,0.5\nRangedLaneTolerance,0.2\nRangedEdgeMargin,1\n"
+            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3",
+            out EnemyAiSettings custom, out _), "遠距離敵の間合いと射撃テンポをCSVから読む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/enemy_ai");
+        Require(asset != null && EnemyAiSettings.TryParse(asset.text, out _, out _), "同梱の敵AIのCSVも読み込める");
+        foreach (string invalid in new[] { "RangedApproachDistance,3", "RangedRetreatDistance,7", "RangedSpacingHysteresis,2",
+            "RangedMoveSpeed,0", "RangedLaneTolerance,NaN", "RangedEdgeMargin,-1", "RangedWindupSeconds,0",
+            "RangedAttackIntervalSeconds,Infinity", "RangedApproachDistance,21" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\n" + invalid, out EnemyAiSettings fallback, out _)
+                && fallback.RangedApproachDistance == EnemyAiSettings.CreateDefault().RangedApproachDistance,
+                "不正な射撃設定や逆転した間合いは敵AI全体を既定値へ戻す");
+        }
+        Require(EnemyAiSettings.TryParse("key,value\nRangedSpacingHysteresis,0\nRangedAttackIntervalSeconds,0", out _, out _),
+            "切替幅と攻撃間隔は0も指定できる");
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Fighter ranged = factory.CreateFighter("Test ranged spacing", Vector3.zero, false, 1, isRanged: true);
+        Vector3 originalPlayerPosition = game.Target.transform.position;
+        EnemyAiSettings original = EnemyAiSettings.Current;
+        PropertyInfo current = typeof(EnemyAiSettings).GetProperty("Current");
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo windup = typeof(Fighter).GetMethod("UpdateAttackWindup", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo animate = typeof(Fighter).GetMethod("UpdateAttackAnimation", BindingFlags.Instance | BindingFlags.NonPublic);
+        MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+        var existingBullets = new System.Collections.Generic.HashSet<EnemyProjectile>(UnityEngine.Object.FindObjectsByType<EnemyProjectile>());
+        Vector3 ReadMovement() => (Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, false });
+        try
+        {
+            current.SetValue(null, custom);
+            Require((float)typeof(RangedFighter).GetProperty("EnemyMovementSpeed", BindingFlags.Instance | BindingFlags.NonPublic)
+                .GetValue(ranged) == custom.RangedMoveSpeed, "遠距離敵は独自のCSV移動速度を使う");
+            foreach (float side in new[] { -1f, 1f })
+            {
+                game.Target.transform.position = Vector3.zero;
+                SetPrivateField(ranged, "_attackCooldown", 10f);
+                SetPrivateField(ranged, "_windupRemaining", 0f);
+                SetPrivateField(ranged, "_attackRemaining", 0f);
+                ranged.transform.position = Vector3.right * side * 6.2f;
+                Require(ReadMovement().x * side < 0 && !ranged.IsWindingUp, "左右とも射程外ならプレイヤーへ接近する");
+                ranged.transform.position = Vector3.right * side * 5.8f;
+                Require(ReadMovement().x * side < 0, "接近開始距離を少し内側へ越えても接近を継続する");
+                ranged.transform.position = Vector3.right * side * 5.5f;
+                Require(ReadMovement() == Vector3.zero, "接近終了距離で足を止める");
+                ranged.transform.position = Vector3.right * side * 5.8f;
+                Require(ReadMovement() == Vector3.zero, "少し離れても接近をやり直さない");
+                ranged.transform.position = Vector3.right * side * 1.8f;
+                Require(ReadMovement().x * side > 0, "近づかれたら左右とも後退する");
+                ranged.transform.position = Vector3.right * side * 2.2f;
+                Require(ReadMovement().x * side > 0, "後退開始距離を越えても余裕ができるまで後退する");
+                ranged.transform.position = Vector3.right * side * 2.5f;
+                Require(ReadMovement() == Vector3.zero, "後退終了距離で足を止める");
+                ranged.transform.position = Vector3.right * side * 2.2f;
+                Require(ReadMovement() == Vector3.zero, "少し接近されても後退をやり直さない");
+                ranged.transform.position = new Vector3(side * 4, 0, 0.6f);
+                Require(ReadMovement().z < 0 && !ranged.IsWindingUp, "奥行きの許容幅外では射撃せず射線を合わせる");
+                ranged.transform.position = new Vector3(side * 4, 0, 0.1f);
+                Require(ReadMovement() == Vector3.zero, "奥行きがCSVの許容幅内なら足を止める");
+                game.Target.transform.position = Vector3.right * side * 20;
+                ranged.transform.position = Vector3.right * side * (BrawlerBalance.StageHalfWidth - custom.RangedEdgeMargin);
+                SetPrivateField(ranged, "_attackCooldown", 0f);
+                Require(ReadMovement() == Vector3.zero && ranged.IsWindingUp
+                    && (float)GetPrivateField(ranged, "_windupRemaining") == custom.RangedWindupSeconds,
+                    "端では後退を止め、CSVの予告時間で射撃を準備する");
+                float facing = ranged.Facing;
+                game.Target.transform.position = new Vector3(-side * 20, 0, 2);
+                Require((Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, true }) == Vector3.zero
+                    && ranged.Facing == facing, "予告中に対象が動いても射撃方向と立ち位置を固定する");
+                windup.Invoke(ranged, new object[] { custom.RangedWindupSeconds / 2 });
+                Require(ranged.IsWindingUp, "射撃予告を途中で省略しない");
+                windup.Invoke(ranged, new object[] { custom.RangedWindupSeconds });
+                Require(!ranged.IsWindingUp && (float)GetPrivateField(ranged, "_attackCooldown") == custom.RangedAttackIntervalSeconds,
+                    "攻撃動作の開始時にCSVの攻撃間隔を設定する");
+                int before = UnityEngine.Object.FindObjectsByType<EnemyProjectile>().Length;
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                animate.Invoke(ranged, new object[] { BrawlerBalance.AttackSeconds });
+                Require(UnityEngine.Object.FindObjectsByType<EnemyProjectile>().Length == before + 1,
+                    "射撃動作から弾を一度だけ発射する");
+                game.Target.transform.position = Vector3.right * side * 20;
+                timers.Invoke(ranged, new object[] { 2.75f });
+                ReadMovement();
+                Require(!ranged.IsWindingUp, "攻撃間隔の途中では再射撃しない");
+                timers.Invoke(ranged, new object[] { 0.25f });
+                ReadMovement();
+                Require(ranged.IsWindingUp, "攻撃間隔を経過すると次の射撃予告を始める");
+            }
+        }
+        finally
+        {
+            current.SetValue(null, original);
+            game.Target.transform.position = originalPlayerPosition;
+            foreach (EnemyProjectile bullet in UnityEngine.Object.FindObjectsByType<EnemyProjectile>())
+            {
+                if (!existingBullets.Contains(bullet))
+                {
+                    UnityEngine.Object.DestroyImmediate(bullet.gameObject);
+                }
+            }
+            UnityEngine.Object.DestroyImmediate(ranged.gameObject);
         }
     }
 
