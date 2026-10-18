@@ -27,6 +27,9 @@ public static class BrawlerBalance
     public const float CameraShakeStrength = 0.7f;
     public const float CameraFollowHalfWidth = 16;
     public const float SpawnBaseDistance = 7;
+    public const int DefaultSpawnLaneCount = 3;
+    public const float DefaultSpawnLaneSpacing = 1.5f;
+    public const float MaxSpawnDelaySeconds = 30f;
     public const float SpawnMinimumDistance = 4;
     public const float SpawnLaneHalfWidth = 2.5f;
     public const float HitImpactHeight = 1.2f;

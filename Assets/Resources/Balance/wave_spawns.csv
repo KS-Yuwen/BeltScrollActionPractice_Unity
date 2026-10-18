@@ -1,0 +1,22 @@
+wave,enemy,offsetX,laneZ,delaySeconds
+# 1行につき敵1体。offsetXは予約時のプレイヤーからの左右距離、laneZは床上の絶対奥行き
+# delaySecondsは共通の出現予告1.5秒に追加する遅延（0～30秒）。同じ値なら同時出現
+1,Melee,7,-1.5,0
+1,Undead,8,0,0
+1,Ranged,9,1.5,0
+2,Melee,7,-1.5,0
+2,Undead,-8,0,0
+2,Ranged,9,1.5,0
+2,Heavy,-10,-1.5,0
+3,Melee,7,-1.5,0
+3,Undead,-8,0,0
+3,Ranged,9,1.5,0
+3,Heavy,-10,-1.5,0
+3,Melee,11,0,0
+4,Melee,7,-1.5,0
+4,Undead,-8,0,0
+4,Ranged,9,1.5,0
+4,Heavy,-10,-1.5,0
+4,Melee,11,0,0
+4,Ranged,-12,1.5,0
+5,Boss,7,-1.5,0

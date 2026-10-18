@@ -65,6 +65,9 @@ public sealed class BeltBrawler : MonoBehaviour
     // 予告開始時の位置を固定し、プレイヤーが動いても出現位置を追従させません。
     private readonly List<Vector3> _pendingSpawnPositions = new List<Vector3>();
     private float _spawnWarningRemaining;
+    private WaveSpawnSettings _waveSpawns;
+    private readonly List<WaveSpawnSettings.Entry> _pendingSpawnEntries = new List<WaveSpawnSettings.Entry>();
+    private float _spawnElapsed;
     private float _hitStopRemaining;
     private float _timeScaleBeforeHitStop = 1;
     private bool _bossDefeatStarted;
@@ -95,6 +98,7 @@ public sealed class BeltBrawler : MonoBehaviour
     // シーンには管理役だけを配置し、実際のステージは実行時に作っています。
     private void Start()
     {
+        _waveSpawns = WaveSpawnSettings.Current;
         _enemyAttacks = new EnemyAttackCoordinator(EnemyAiSettings.Current);
         _audio = gameObject.AddComponent<BrawlerAudio>();
         _optionsMenu = gameObject.AddComponent<OptionsMenu>();
@@ -113,8 +117,7 @@ public sealed class BeltBrawler : MonoBehaviour
         return _factory.CreateFighter(label, position, isPlayer, _wave, isRanged, isHeavy, isUndead);
     }
 
-    // 敵の人数はウェーブごとに増えますが、最大 7 体で止めます。
-    // 第1ウェーブは右側、第2ウェーブ以降は左右交互に出現位置を予約します。
+    // CSVに定義した編成を予約します。全5ウェーブ、最後は既存のボス準備を経て開始します。
     private void SpawnWave()
     {
         _enemyAttacks.Reset();
@@ -130,25 +133,17 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             _player.RestoreHealth(BrawlerBalance.WaveHealingAmount);
         }
-        int enemyCount = _wave == BrawlerBalance.StageWaveCount ? BrawlerBalance.BossWaveEnemyCount
-            : Mathf.Min(BrawlerBalance.WaveBaseEnemyCount + _wave, BrawlerBalance.WaveMaxEnemyCount);
-        for (int i = 0; i < enemyCount; i++)
+        _pendingSpawnPositions.Clear();
+        _pendingSpawnEntries.Clear();
+        _spawnElapsed = 0;
+        _spawnWarningRemaining = float.MaxValue;
+        foreach (WaveSpawnSettings.Entry entry in _waveSpawns.GetWave(_wave))
         {
-            _pendingSpawnPositions.Add(CalculateSpawnPosition(_player.transform.position, i, _wave));
+            _pendingSpawnEntries.Add(entry);
+            // 全員分を開始時に予約し、出現待ちの間にプレイヤーが動いても追いかけません。
+            _pendingSpawnPositions.Add(entry.ResolvePosition(_player.transform.position));
+            _spawnWarningRemaining = Mathf.Min(_spawnWarningRemaining, BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds);
         }
-        _spawnWarningRemaining = BrawlerBalance.SpawnWarningSeconds;
-    }
-
-    private static Vector3 CalculateSpawnPosition(Vector3 playerPosition, int index, int wave)
-    {
-        float side = wave >= BrawlerBalance.MixedEnemiesStartWave && index % 2 == 1 ? -1 : 1;
-        float x = Mathf.Clamp(playerPosition.x + side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
-        // 端では反対側に回し、プレイヤーのすぐ上に突然出現することを防ぎます。
-        if (Mathf.Abs(x - playerPosition.x) < BrawlerBalance.SpawnMinimumDistance)
-        {
-            x = Mathf.Clamp(playerPosition.x - side * (BrawlerBalance.SpawnBaseDistance + index), -BrawlerBalance.StageHalfWidth, BrawlerBalance.StageHalfWidth);
-        }
-        return new Vector3(x, 0, Random.Range(-BrawlerBalance.SpawnLaneHalfWidth, BrawlerBalance.SpawnLaneHalfWidth));
     }
 
     private void UpdateSpawnWarning(float deltaTime)
@@ -157,28 +152,32 @@ public sealed class BeltBrawler : MonoBehaviour
         {
             return;
         }
-        _spawnWarningRemaining = Mathf.Max(0, _spawnWarningRemaining - deltaTime);
-        if (_spawnWarningRemaining > 0)
+        _spawnElapsed += Mathf.Max(0, deltaTime);
+        _spawnWarningRemaining = float.MaxValue;
+        for (int i = 0; i < _pendingSpawnPositions.Count;)
         {
-            return;
-        }
-        for (int i = 0; i < _pendingSpawnPositions.Count; i++)
-        {
-            if (_wave == BrawlerBalance.StageWaveCount)
+            WaveSpawnSettings.Entry entry = _pendingSpawnEntries[i];
+            float remaining = BrawlerBalance.SpawnWarningSeconds + entry.DelaySeconds - _spawnElapsed;
+            if (remaining > 0)
             {
-                _enemies.Add(_factory.CreateFighter("Warden Boss", _pendingSpawnPositions[i], false, _wave,
-                    isBoss: true));
+                _spawnWarningRemaining = Mathf.Min(_spawnWarningRemaining, remaining);
+                i++;
                 continue;
             }
-            // 3 体に 1 体を遠距離型にして、近接型の背後から射線を作る混成戦にします。
-            bool isRanged = i % BrawlerBalance.RangedSpawnInterval == BrawlerBalance.RangedSpawnOffset;
-            // 第2ウェーブ以降、4体目を重装型にします。人数と遠距離型の比率は維持します。
-            bool isHeavy = _wave >= BrawlerBalance.MixedEnemiesStartWave && i == BrawlerBalance.HeavySpawnIndex;
-            bool isUndead = i == BrawlerBalance.UndeadSpawnIndex;
-            _enemies.Add(CreateFighter(isHeavy ? "Heavy Enemy" : isRanged ? "Ranged Enemy" : isUndead ? "Undead Enemy" : "Melee Enemy",
-                _pendingSpawnPositions[i], false, isRanged, isHeavy, isUndead));
+            WaveSpawnSettings.EnemyKind kind = entry.Kind;
+            _enemies.Add(_factory.CreateFighter(kind == WaveSpawnSettings.EnemyKind.Boss ? "Warden Boss" : kind + " Enemy", _pendingSpawnPositions[i], false, _wave,
+                isRanged: kind == WaveSpawnSettings.EnemyKind.Ranged,
+                isHeavy: kind == WaveSpawnSettings.EnemyKind.Heavy,
+                isUndead: kind == WaveSpawnSettings.EnemyKind.Undead,
+                isBoss: kind == WaveSpawnSettings.EnemyKind.Boss));
+            // 生成済みの行だけ取り除き、低FPSで複数の時刻をまたいでも各行を一度だけ生成します。
+            _pendingSpawnEntries.RemoveAt(i);
+            _pendingSpawnPositions.RemoveAt(i);
         }
-        _pendingSpawnPositions.Clear();
+        if (_pendingSpawnPositions.Count == 0)
+        {
+            _spawnWarningRemaining = 0;
+        }
     }
 
     // Update は毎フレーム呼ばれます。ここでは戦闘全体の進行を管理します。
@@ -371,6 +370,8 @@ public sealed class BeltBrawler : MonoBehaviour
         _waveBanner.Clear();
         // 敗北時の出現予約も破棄し、リザルトの背後で次の敵が出ないようにします。
         _pendingSpawnPositions.Clear();
+        _pendingSpawnEntries.Clear();
+        _spawnWarningRemaining = 0;
     }
 
     // 全キャラクターの Update の後にカメラを動かし、そのフレームの最新位置を追います。

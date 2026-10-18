@@ -9,6 +9,10 @@ using UnityEngine;
 // シーンの保存は行わず、Play モード中のオブジェクトだけを変更します。
 public static class CombatValidation
 {
+    private const string WaveSpawnTestCsv = "wave,enemy,offsetX,laneZ,delaySeconds\n"
+        + "1,Melee,7,0,0\n"
+        + "2,Melee,7,-1,0\n2,Undead,-8,0,0\n2,Ranged,9,1,0\n2,Heavy,-10,-1,1\n"
+        + "3,Melee,7,0,0\n4,Melee,7,0,0\n5,Boss,7,0,0\n";
     private static double s_deadline;
     private static double s_readyAt;
 
@@ -72,6 +76,7 @@ public static class CombatValidation
                 return;
             }
             var player = game.Target;
+            ValidateWaveSpawnSettings();
             ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
@@ -247,7 +252,10 @@ public static class CombatValidation
             Require(cleric.SelectedAction == BrawlerDefines.UsableAction.AttackBoost, "3枠目に初期の攻撃強化が残る");
             cleric.SelectNextAction();
 
-            // 第2ウェーブを予約し、予告中に敵が出ず、予告位置から出現することを確認します。
+            // 第2ウェーブで3体を同時、重装敵だけを1秒遅らせ、予告位置と生成時刻を検証します。
+            var originalWaves = (WaveSpawnSettings)GetPrivateField(game, "_waveSpawns");
+            Require(WaveSpawnSettings.TryParse(WaveSpawnTestCsv, out WaveSpawnSettings staggeredWaves, out _), "検証用の段階出現編成を読む");
+            SetPrivateField(game, "_waveSpawns", staggeredWaves);
             player.transform.position = Vector3.zero;
             typeof(BeltBrawler).GetMethod("SpawnWave", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(game, null);
             var pending = (System.Collections.Generic.List<Vector3>)GetPrivateField(game, "_pendingSpawnPositions");
@@ -259,14 +267,28 @@ public static class CombatValidation
             Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn, "予告中には出現しない");
             player.transform.position = Vector3.left * 5;
             updateWarning.Invoke(game, new object[] { 1.1f });
-            Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4,
-                "予告終了で4体を一度だけ生成");
+            Require(pending.Count == 1 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 3,
+                "最初の予告終了で3体を生成し、遅延指定の重装敵だけを予約に残す");
+            var scheduledEnemies = (System.Collections.Generic.List<Fighter>)GetPrivateField(game, "_enemies");
+            var savedEnemies = new System.Collections.Generic.List<Fighter>(scheduledEnemies);
+            scheduledEnemies.Clear();
+            typeof(BeltBrawler).GetMethod("UpdateWaveProgress", BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(game, new object[] { BrawlerBalance.NextWaveDelaySeconds + 1 });
+            Require((int)GetPrivateField(game, "_wave") == 2, "生存敵が0でも出現待ちが残る間は次のウェーブに進まない");
+            scheduledEnemies.AddRange(savedEnemies);
+            updateWarning.Invoke(game, new object[] { 0f });
+            Require(pending.Count == 1, "時間停止中は遅延出現を進めない");
+            Vector3 delayedPosition = pending[0];
+            updateWarning.Invoke(game, new object[] { 1f });
+            Require(pending.Count == 0 && UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4
+                && Array.Exists(UnityEngine.Object.FindObjectsByType<HeavyFighter>(), f => f.transform.position == delayedPosition),
+                "遅延後はCSVの種類と予約位置で重装敵を一度だけ生成する");
             Require(Array.Exists(UnityEngine.Object.FindObjectsByType<Fighter>(), f => !f.IsPlayer && f.transform.position == reservedPosition),
                 "移動後も予約した位置に出現");
             updateWarning.Invoke(game, new object[] { 2f });
             Require(UnityEngine.Object.FindObjectsByType<Fighter>().Length == beforeSpawn + 4, "予告終了後は重複生成しない");
-            MethodInfo calculatePosition = typeof(BeltBrawler).GetMethod("CalculateSpawnPosition", BindingFlags.Static | BindingFlags.NonPublic);
-            Vector3 edgeSpawn = (Vector3)calculatePosition.Invoke(null, new object[] { Vector3.right * 22, 0, 2 });
+            SetPrivateField(game, "_waveSpawns", originalWaves);
+            Vector3 edgeSpawn = WaveSpawnSettings.Current.GetWave(2)[0].ResolvePosition(Vector3.right * BrawlerBalance.StageHalfWidth);
             Require(edgeSpawn.x <= 18 && edgeSpawn.x >= -22, "ステージ端で近すぎる出現を避ける");
 
             // 実時間で停止が解除され、複数命中やリスタートで停止が残らないことを検証します。
@@ -2214,6 +2236,31 @@ public static class CombatValidation
         Require(!fighter.IsCounterAttacking && !fighter.IsAirAttacking && !fighter.IsHeavyStriking,
             "通常攻撃へ切替後は特殊技の種類を解除");
         UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+    }
+
+    private static void ValidateWaveSpawnSettings()
+    {
+        Require(WaveSpawnSettings.TryParse(WaveSpawnTestCsv, out WaveSpawnSettings settings, out _)
+            && settings.GetWave(2).Count == 4 && settings.GetWave(2)[3].Kind == WaveSpawnSettings.EnemyKind.Heavy
+            && settings.GetWave(2)[3].DelaySeconds == 1, "編成CSVから敵種別・出現順・遅延を読み込む");
+        TextAsset asset = Resources.Load<TextAsset>("Balance/wave_spawns");
+        Require(asset != null && WaveSpawnSettings.TryParse(asset.text, out _, out _), "同梱のウェーブCSVも読み込める");
+        foreach (string invalid in new[] { "", "wave,enemy,offsetX,laneZ,delaySeconds",
+            WaveSpawnTestCsv.Replace("1,Melee", "1,Unknown"), WaveSpawnTestCsv.Replace("1,Melee", "1,999"),
+            WaveSpawnTestCsv.Replace("1,Melee", "1,Boss"), WaveSpawnTestCsv.Replace("5,Boss", "5,Melee"),
+            WaveSpawnTestCsv.Replace("3,Melee,7,0,0\n", ""), WaveSpawnTestCsv + "1,Melee,7,0,0\n",
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,0,0,0"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,7,4,0"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,7,0,-1"),
+            WaveSpawnTestCsv.Replace("1,Melee,7,0,0", "1,Melee,NaN,0,0") })
+        {
+            Require(!WaveSpawnSettings.TryParse(invalid, out WaveSpawnSettings fallback, out string error)
+                && fallback.GetWave(1).Count == WaveSpawnSettings.CreateDefault().GetWave(1).Count
+                && !string.IsNullOrEmpty(error), "不正な編成CSVは一部だけ適用せず全体を既定値へ戻す");
+        }
+        Vector3 position = settings.GetWave(2)[3].ResolvePosition(Vector3.right * BrawlerBalance.StageHalfWidth);
+        Require(Mathf.Abs(position.x) <= BrawlerBalance.StageHalfWidth && position.z == -1,
+            "CSVの奥行きを保持し、左右位置は床の範囲内に置く");
     }
 
     // 生きた敵の状態とCSV設定を使い、同時数・間隔・待ち順・離脱を検証します。
