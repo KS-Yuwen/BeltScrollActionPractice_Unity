@@ -76,13 +76,20 @@ public sealed class BrawlerAudio : MonoBehaviour
         _source = gameObject.AddComponent<AudioSource>();
         _source.playOnAwake = false;
         _source.spatialBlend = 0;
-        _source.volume = 0.35f;
+        ApplySoundEffectsVolume(AudioOptions.SoundEffectsVolume);
+        AudioOptions.SoundEffectsVolumeChanged += ApplySoundEffectsVolume;
         // 音声はゲーム時間の停止に影響されません。リスナーの一時停止にも依存させません。
         _source.ignoreListenerPause = true;
         foreach (BrawlerSound sound in System.Enum.GetValues(typeof(BrawlerSound)))
         {
             _clips.Add(sound, CreateClip(sound));
         }
+    }
+
+    private void ApplySoundEffectsVolume(float volume)
+    {
+        // 設定の100%を従来の音量へ対応させ、最大値にしても以前より大音量にしません。
+        _source.volume = BrawlerBalance.SoundEffectsBaseVolume * volume;
     }
 
     public void Play(BrawlerSound sound)
@@ -178,6 +185,8 @@ public sealed class BrawlerAudio : MonoBehaviour
 
     private void OnDestroy()
     {
+        // staticイベントから購読を解除し、シーンの再開始で古い再生役を残さないようにします。
+        AudioOptions.SoundEffectsVolumeChanged -= ApplySoundEffectsVolume;
         // 実行時に生成した音声データは、リスタート時に解放します。
         foreach (AudioClip clip in _clips.Values)
         {

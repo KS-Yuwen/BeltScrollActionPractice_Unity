@@ -1596,6 +1596,8 @@ public static class GamepadValidation
         MethodInfo update = typeof(OptionsMenu).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic);
         bool originalLow = DisplayOptions.ShowLowSpellUsesWarning;
         bool originalDepleted = DisplayOptions.ShowSpellDepletedNotice;
+        float originalVolume = AudioOptions.SoundEffectsVolume;
+        AudioSource audioSource = game.GetComponent<AudioSource>();
         float originalScale = Time.timeScale;
         Keyboard keyboard = InputSystem.AddDevice<Keyboard>();
         Gamepad pad = InputSystem.AddDevice<Gamepad>();
@@ -1624,6 +1626,27 @@ public static class GamepadValidation
             InputSystem.Update();
             update.Invoke(menu, null);
             Require(DisplayOptions.ShowSpellDepletedNotice != originalDepleted, "使い切り表示を独立に切り替える");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.DownArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsVolumeRow, "効果音の音量項目を選択する");
+            AudioOptions.SoundEffectsVolume = 0.5f;
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.RightArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 0.5f + BrawlerBalance.SoundEffectsVolumeStep)
+                && Mathf.Approximately(audioSource.volume, AudioOptions.SoundEffectsVolume * BrawlerBalance.SoundEffectsBaseVolume),
+                "左右キーで音量を調整し、再生役へ即時反映する");
+            InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.RightArrow));
+            InputSystem.Update();
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 0.5f + BrawlerBalance.SoundEffectsVolumeStep),
+                "方向キー保持で音量が勝手に変わり続けない");
+            AudioOptions.SoundEffectsVolume = -1;
+            Require(AudioOptions.SoundEffectsVolume == 0 && audioSource.volume == 0, "0%以下は消音に制限する");
+            AudioOptions.SoundEffectsVolume = 2;
+            Require(AudioOptions.SoundEffectsVolume == 1 && Mathf.Approximately(audioSource.volume, BrawlerBalance.SoundEffectsBaseVolume),
+                "100%以上は従来の最大音量に制限する");
             float attackBefore = ReadPlayerTimer(player, "_attackRemaining");
             InputSystem.QueueStateEvent(keyboard, new KeyboardState(Key.J));
             InputSystem.Update();
@@ -1642,6 +1665,15 @@ public static class GamepadValidation
             SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
             update.Invoke(menu, null);
             Require(menu.SelectedOption == 1, "パッド十字キーで項目を選択する");
+            SendState(pad, new GamepadState());
+            update.Invoke(menu, null);
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadDown));
+            update.Invoke(menu, null);
+            Require(menu.SelectedOption == BrawlerBalance.OptionsVolumeRow, "パッドでも音量項目を選択する");
+            SendState(pad, new GamepadState().WithButton(GamepadButton.DpadLeft));
+            update.Invoke(menu, null);
+            Require(Mathf.Approximately(AudioOptions.SoundEffectsVolume, 1 - BrawlerBalance.SoundEffectsVolumeStep),
+                "パッド十字キーの左右で音量を調整する");
             SendState(pad, new GamepadState().WithButton(GamepadButton.East));
             update.Invoke(menu, null);
             Require(!menu.IsOpen && Time.timeScale == 1, "パッドBで閉じ、速度を復元する");
@@ -1657,6 +1689,7 @@ public static class GamepadValidation
             Time.timeScale = originalScale;
             DisplayOptions.ShowLowSpellUsesWarning = originalLow;
             DisplayOptions.ShowSpellDepletedNotice = originalDepleted;
+            AudioOptions.SoundEffectsVolume = originalVolume;
             InputSystem.RemoveDevice(keyboard);
             InputSystem.RemoveDevice(pad);
         }

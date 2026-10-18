@@ -8,6 +8,7 @@ public sealed class OptionsMenu : MonoBehaviour
     private float _previousTimeScale;
     private int _blockedFrame = -1;
     private int _previousVertical;
+    private int _previousHorizontal;
     private GUIStyle _labelStyle;
     private GUIStyle _buttonStyle;
     public bool IsOpen { get; private set; }
@@ -41,6 +42,12 @@ public sealed class OptionsMenu : MonoBehaviour
             SelectedOption = (SelectedOption - vertical + BrawlerBalance.OptionsRowCount) % BrawlerBalance.OptionsRowCount;
         }
         _previousVertical = vertical;
+        int horizontal = ReadHorizontal();
+        if (SelectedOption == BrawlerBalance.OptionsVolumeRow && horizontal != 0 && horizontal != _previousHorizontal)
+        {
+            AdjustVolume(horizontal);
+        }
+        _previousHorizontal = horizontal;
         if (BrawlerInput.WasOptionsConfirmPressed())
         {
             ActivateSelected();
@@ -52,6 +59,29 @@ public sealed class OptionsMenu : MonoBehaviour
         float vertical = BrawlerInput.ReadMovement().z;
         return vertical > BrawlerBalance.OptionsInputThreshold ? 1
             : vertical < -BrawlerBalance.OptionsInputThreshold ? -1 : 0;
+    }
+
+    private static int ReadHorizontal()
+    {
+        float horizontal = BrawlerInput.ReadMovement().x;
+        return horizontal > BrawlerBalance.OptionsInputThreshold ? 1
+            : horizontal < -BrawlerBalance.OptionsInputThreshold ? -1 : 0;
+    }
+
+    private void AdjustVolume(int direction)
+    {
+        float before = AudioOptions.SoundEffectsVolume;
+        AudioOptions.SoundEffectsVolume = before + direction * BrawlerBalance.SoundEffectsVolumeStep;
+        if (!Mathf.Approximately(before, AudioOptions.SoundEffectsVolume))
+        {
+            PreviewVolume();
+        }
+    }
+
+    private void PreviewVolume()
+    {
+        // 一時停止中も短い取得音で変更後の音量を確認できます。消音時は当然鳴りません。
+        GetComponent<BrawlerAudio>().Play(BrawlerSound.Pickup);
     }
 
     public void Open()
@@ -66,6 +96,7 @@ public sealed class OptionsMenu : MonoBehaviour
         IsOpen = true;
         SelectedOption = 0;
         _previousVertical = ReadVertical();
+        _previousHorizontal = ReadHorizontal();
         _blockedFrame = Time.frameCount;
     }
 
@@ -89,6 +120,9 @@ public sealed class OptionsMenu : MonoBehaviour
                 break;
             case 1:
                 DisplayOptions.ShowSpellDepletedNotice = !DisplayOptions.ShowSpellDepletedNotice;
+                break;
+            case BrawlerBalance.OptionsVolumeRow:
+                PreviewVolume();
                 break;
             default:
                 Close();
@@ -128,9 +162,14 @@ public sealed class OptionsMenu : MonoBehaviour
         GUI.color = new Color(0.06f, 0.09f, 0.14f, 1);
         GUI.DrawTexture(new Rect(0, 0, BrawlerBalance.OptionsWidth, BrawlerBalance.OptionsHeight), Texture2D.whiteTexture);
         GUI.color = Color.white;
-        GUI.Label(new Rect(0, 0, BrawlerBalance.OptionsWidth, BrawlerBalance.OptionsTitleHeight), "表示オプション", _labelStyle);
+        GUI.Label(new Rect(0, 0, BrawlerBalance.OptionsWidth, BrawlerBalance.OptionsTitleHeight), "オプション", _labelStyle);
         for (int i = 0; i < BrawlerBalance.OptionsRowCount; i++)
         {
+            if (i == BrawlerBalance.OptionsVolumeRow)
+            {
+                DrawVolumeRow(i);
+                continue;
+            }
             string label = i == 0 ? "残り回数の強調：" + (DisplayOptions.ShowLowSpellUsesWarning ? "ON" : "OFF")
                 : i == 1 ? "使い切り表示：" + (DisplayOptions.ShowSpellDepletedNotice ? "ON" : "OFF") : "ゲームに戻る";
             GUI.color = i == SelectedOption ? Color.yellow : Color.white;
@@ -144,9 +183,32 @@ public sealed class OptionsMenu : MonoBehaviour
         }
         GUI.color = Color.white;
         GUI.Label(new Rect(0, BrawlerBalance.OptionsTitleHeight + BrawlerBalance.OptionsRowCount * BrawlerBalance.OptionsRowHeight,
-            BrawlerBalance.OptionsWidth, BrawlerBalance.OptionsHintHeight), "上下：選択　Enter / A：決定　Esc / B / R3：閉じる", _labelStyle);
+            BrawlerBalance.OptionsWidth, BrawlerBalance.OptionsHintHeight), "上下：選択　左右：音量　Enter / A：決定・試聴\nEsc / B / R3：閉じる", _labelStyle);
         GUI.matrix = previousMatrix;
         GUI.color = previousColor;
+    }
+
+    private void DrawVolumeRow(int row)
+    {
+        bool selected = SelectedOption == row;
+        float y = BrawlerBalance.OptionsTitleHeight + row * BrawlerBalance.OptionsRowHeight;
+        float buttonWidth = BrawlerBalance.OptionsVolumeButtonWidth;
+        float width = BrawlerBalance.OptionsWidth - BrawlerBalance.OptionsMargin * 2;
+        GUI.color = selected ? Color.yellow : Color.white;
+        if (GUI.Button(new Rect(BrawlerBalance.OptionsMargin, y, buttonWidth, BrawlerBalance.OptionsButtonHeight), "−", _buttonStyle))
+        {
+            SelectedOption = row;
+            AdjustVolume(-1);
+        }
+        GUI.Label(new Rect(BrawlerBalance.OptionsMargin + buttonWidth, y, width - buttonWidth * 2,
+            BrawlerBalance.OptionsButtonHeight), (selected ? "> " : "") + "効果音の音量："
+            + Mathf.RoundToInt(AudioOptions.SoundEffectsVolume * BrawlerBalance.OptionsVolumePercent) + "%", _labelStyle);
+        if (GUI.Button(new Rect(BrawlerBalance.OptionsMargin + width - buttonWidth, y, buttonWidth,
+            BrawlerBalance.OptionsButtonHeight), "+", _buttonStyle))
+        {
+            SelectedOption = row;
+            AdjustVolume(1);
+        }
     }
 
     private void OnDisable()
