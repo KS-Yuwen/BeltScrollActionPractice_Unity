@@ -42,13 +42,15 @@ public class Fighter : Combatant
                 && Mathf.Abs(delta.z) <= BrawlerBalance.MeleeLaneTolerance;
         }
     }
+    // 近接・射撃のどちらも、出現待機・被弾・攻撃中・攻撃後の隙には順番を要求しません。
+    protected bool CanRequestEnemyAttack => !IsPlayer && Health > 0 && _game != null && !_game.IsRunFinished
+        && _game.Target != null && _game.Target.Health > 0 && _stunRemaining <= 0 && !IsDowned
+        && !IsEnemyAttackActive && CanStartEnemyAttack;
     public bool CanWaitForMeleeAttack
     {
         get
         {
-            if (!UsesCoordinatedMeleeAttacks || Health <= 0 || _game == null || _game.IsRunFinished
-                || _game.Target == null || _game.Target.Health <= 0 || _stunRemaining > 0 || IsDowned
-                || IsEnemyAttackActive || !CanStartEnemyAttack)
+            if (!UsesCoordinatedMeleeAttacks || !CanRequestEnemyAttack)
             {
                 return false;
             }

@@ -94,6 +94,7 @@ public static class CombatValidation
             }
             ValidateEnemySpawnWait(game);
             ValidateRangedEnemyAi(game);
+            ValidateRangedCoordination(game);
             ValidateEnemyCoordination(game);
             GamepadValidation.RunChecks(player);
 
@@ -2505,7 +2506,7 @@ public static class CombatValidation
     {
         Require(EnemyAiSettings.TryParse("key,value\nRangedApproachDistance,6\nRangedRetreatDistance,2\n"
             + "RangedSpacingHysteresis,0.5\nRangedLaneTolerance,0.2\nRangedEdgeMargin,1\n"
-            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3\nRangedRecoverySeconds,1.25",
+            + "RangedMoveSpeed,1.6\nRangedWindupSeconds,1.1\nRangedAttackIntervalSeconds,3\nRangedRecoverySeconds,1.25\nRangedAttackStartIntervalSeconds,0",
             out EnemyAiSettings custom, out _), "遠距離敵の間合いと射撃テンポをCSVから読む");
         TextAsset asset = Resources.Load<TextAsset>("Balance/enemy_ai");
         Require(asset != null && EnemyAiSettings.TryParse(asset.text, out _, out _), "同梱の敵AIのCSVも読み込める");
@@ -2535,6 +2536,9 @@ public static class CombatValidation
         var caster = (SpellFighter)game.Target;
         float originalSpellRemaining = (float)GetPrivateField(caster, "_spellEffectRemaining");
         object originalSpellOwner = GetPrivateField(game, "_spellEffectOwner");
+        object originalCoordinator = GetPrivateField(game, "_enemyAttacks");
+        // このケースは個体の思考を検証します。全体の射撃間隔は別の複数体ケースで確認します。
+        SetPrivateField(game, "_enemyAttacks", new EnemyAttackCoordinator(custom));
         Vector3 ReadMovement() => (Vector3)movement.Invoke(ranged, new object[] { Vector3.zero, false });
         try
         {
@@ -2648,6 +2652,7 @@ public static class CombatValidation
         finally
         {
             current.SetValue(null, original);
+            SetPrivateField(game, "_enemyAttacks", originalCoordinator);
             SetPrivateField(caster, "_spellEffectRemaining", originalSpellRemaining);
             SetPrivateField(game, "_spellEffectOwner", originalSpellOwner);
             menu.Close();
@@ -2661,6 +2666,112 @@ public static class CombatValidation
                 }
             }
             UnityEngine.Object.DestroyImmediate(ranged.gameObject);
+        }
+    }
+
+    // 複数体の本番AIから要求し、射撃予告の間隔・待ち順・離脱を確認します。
+    private static void ValidateRangedCoordination(BeltBrawler game)
+    {
+        Require(EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds,1.25", out EnemyAiSettings settings, out _)
+            && settings.RangedAttackStartIntervalSeconds == 1.25f, "射撃予告の最小間隔をCSVから読む");
+        foreach (string invalid in new[] { "-1", "NaN", "Infinity", "10.1" })
+        {
+            Require(!EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds," + invalid, out _, out _),
+                "射撃予告の間隔は有限の0～10秒だけを許可する");
+        }
+        var factory = (BrawlerSceneFactory)GetPrivateField(game, "_factory");
+        Vector3 originalPosition = game.Target.transform.position;
+        object originalCoordinator = GetPrivateField(game, "_enemyAttacks");
+        var first = (RangedFighter)factory.CreateFighter("Test ranged order first", Vector3.right * 4, false, 1, isRanged: true);
+        var second = (RangedFighter)factory.CreateFighter("Test ranged order second", Vector3.left * 4, false, 1, isRanged: true);
+        var third = (RangedFighter)factory.CreateFighter("Test ranged order third", Vector3.right * 6, false, 1, isRanged: true);
+        Fighter melee = factory.CreateFighter("Test independent melee", Vector3.right * 0.5f, false, 1);
+        MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+        void Think(RangedFighter fighter) => movement.Invoke(fighter, new object[] { Vector3.zero, false });
+        var order = new EnemyAttackCoordinator(settings);
+        try
+        {
+            game.Target.transform.position = Vector3.zero;
+            SetPrivateField(game, "_enemyAttacks", order);
+            Think(first);
+            Think(second);
+            Think(third);
+            Require(first.IsWindingUp && !second.IsWindingUp && !third.IsWindingUp,
+                "同じ更新で射撃可能になっても最初の1体だけ予告を始める");
+            Require(order.TryRequest(melee), "射撃の待ち時間は近接敵の攻撃を止めない");
+            order.Advance(0);
+            order.Advance(-1);
+            order.Advance(0.75f);
+            Think(second);
+            Require(!second.IsWindingUp, "時間0や負数では間隔を進めず、指定時刻前は次の射撃を開始しない");
+            order.Advance(0.5f);
+            Think(second);
+            Require(second.IsWindingUp, "CSVの最小間隔に到達すると次の敵が予告を始める");
+            SetPrivateField(first, "_windupRemaining", 0f);
+            Think(first);
+            order.Advance(1.25f);
+            Think(first);
+            Require(!first.IsWindingUp, "更新順の早い敵が待っている敵より先に割り込まない");
+            Think(third);
+            Require(third.IsWindingUp, "射撃可能になった順に予告を許可する");
+            SetPrivateField(first, "_stunRemaining", 1f);
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            order.Advance(1.25f);
+            Think(second);
+            Require(second.IsWindingUp, "被弾硬直に入った先頭を除いて次の敵へ進む");
+            SetPrivateField(first, "_stunRemaining", 0f);
+            Think(first);
+            UnityEngine.Object.DestroyImmediate(first.gameObject);
+            SetPrivateField(third, "_windupRemaining", 0f);
+            Think(third);
+            Require(!third.IsWindingUp, "待機敵の破棄で確保済みの間隔を短縮しない");
+            order.Advance(1.25f);
+            Think(third);
+            Require(third.IsWindingUp, "破棄済みの待機敵で射撃順を詰まらせない");
+            order.Reset();
+            SetPrivateField(second, "_windupRemaining", 0f);
+            SetPrivateField(third, "_windupRemaining", 0f);
+            Think(second);
+            Think(third);
+            third.transform.position += Vector3.forward;
+            SetPrivateField(second, "_windupRemaining", 0f);
+            order.Advance(1.25f);
+            Think(second);
+            Require(second.IsWindingUp, "射線から外れた待機敵を除いて次の敵へ進む");
+            third.transform.position = Vector3.right * 10;
+            Require(!order.TryRequestRanged(third), "射程外からは射撃の順番を要求しない");
+            third.transform.position = Vector3.right * 6;
+            foreach (string state in new[] { "_spawnWaitRemaining", "_stunRemaining", "_downRemaining",
+                "_enemyRecoveryRemaining", "_attackCooldown", "_windupRemaining", "_attackRemaining" })
+            {
+                SetPrivateField(third, state, 1f);
+                Require(!order.TryRequestRanged(third), "出現待機・被弾・転倒・攻撃・隙・攻撃間隔中は射撃の待ち列に入れない");
+                SetPrivateField(third, state, 0f);
+            }
+            order.Reset();
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            Require(second.IsWindingUp, "ウェーブ開始のリセットで射撃間隔と待ち列も初期化する");
+            Require(EnemyAiSettings.TryParse("key,value\nRangedAttackStartIntervalSeconds,0", out EnemyAiSettings disabled, out _),
+                "射撃予告の間隔は0も指定できる");
+            SetPrivateField(game, "_enemyAttacks", new EnemyAttackCoordinator(disabled));
+            SetPrivateField(second, "_windupRemaining", 0f);
+            Think(second);
+            Think(third);
+            Require(second.IsWindingUp && third.IsWindingUp, "0秒なら異なる敵が同じ更新で射撃予告を開始できる");
+        }
+        finally
+        {
+            SetPrivateField(game, "_enemyAttacks", originalCoordinator);
+            game.Target.transform.position = originalPosition;
+            foreach (Fighter fighter in new Fighter[] { first, second, third, melee })
+            {
+                if (fighter != null)
+                {
+                    UnityEngine.Object.DestroyImmediate(fighter.gameObject);
+                }
+            }
         }
     }
 

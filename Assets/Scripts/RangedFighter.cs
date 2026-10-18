@@ -19,6 +19,27 @@ public sealed class RangedFighter : Fighter
     protected override float EnemyAttackInterval => EnemyAiSettings.Current.RangedAttackIntervalSeconds;
     protected override float EnemyRecoverySeconds => EnemyAiSettings.Current.RangedRecoverySeconds;
 
+    // 待っている間に射程や射線から外れた相手を、管理役が待ち列から除くための状態です。
+    public bool CanWaitForRangedAttack
+    {
+        get
+        {
+            if (!CanRequestEnemyAttack || OptionsMenu.BlocksGameplay || IsPausedBySpellEffect)
+            {
+                return false;
+            }
+            EnemyAiSettings settings = EnemyAiSettings.Current;
+            Vector3 delta = EnemyTargetPosition - transform.position;
+            float distance = Mathf.Abs(delta.x);
+            float retreatDirection = delta.x >= 0 ? -1 : 1;
+            bool canRetreat = transform.position.x * retreatDirection < BrawlerBalance.StageHalfWidth - settings.RangedEdgeMargin;
+            float approachLimit = settings.RangedApproachDistance - (_isApproaching ? settings.RangedSpacingHysteresis : 0);
+            float retreatLimit = settings.RangedRetreatDistance + (_isRetreating ? settings.RangedSpacingHysteresis : 0);
+            return distance <= approachLimit && (!canRetreat || distance >= retreatLimit)
+                && Mathf.Abs(delta.z) <= settings.RangedLaneTolerance;
+        }
+    }
+
     protected override Vector3 GetEnemyMovement()
     {
         EnemyAiSettings settings = EnemyAiSettings.Current;
@@ -56,7 +77,7 @@ public sealed class RangedFighter : Fighter
             target.x = transform.position.x;
             return GetMovementToward(target);
         }
-        if (CanStartEnemyAttack)
+        if (CanStartEnemyAttack && Game.TryRequestRangedAttack(this))
         {
             // ここから先の向き・射線固定や中断処理はFighterと共用します。
             BeginAttackWindup(EnemyWindupDuration);

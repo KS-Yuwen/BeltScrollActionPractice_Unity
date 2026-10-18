@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-// 通常の近接敵の攻撃順を管理します。敵の移動・命中・被弾の処理はFighterへ任せます。
+// 近接と射撃の攻撃順を別々に管理します。敵の移動・命中・被弾の処理はFighterへ任せます。
 public sealed class EnemyAttackCoordinator
 {
     private readonly EnemyAiSettings _settings;
@@ -23,6 +23,8 @@ public sealed class EnemyAttackCoordinator
     private readonly List<WaitingEntry> _waiting = new List<WaitingEntry>();
     private readonly List<Fighter> _active = new List<Fighter>();
     private float _startDelayRemaining;
+    private readonly List<RangedFighter> _rangedWaiting = new List<RangedFighter>();
+    private float _rangedStartDelayRemaining;
 
     public EnemyAttackCoordinator(EnemyAiSettings settings)
     {
@@ -32,6 +34,7 @@ public sealed class EnemyAttackCoordinator
     public void Advance(float deltaTime)
     {
         _startDelayRemaining = Mathf.Max(0, _startDelayRemaining - Mathf.Max(0, deltaTime));
+        _rangedStartDelayRemaining = Mathf.Max(0, _rangedStartDelayRemaining - Mathf.Max(0, deltaTime));
     }
 
     public bool TryRequest(Fighter fighter)
@@ -63,6 +66,28 @@ public sealed class EnemyAttackCoordinator
         _waiting.RemoveAt(0);
         _active.Add(fighter);
         _startDelayRemaining = _settings.AttackStartIntervalSeconds;
+        return true;
+    }
+
+    // 射撃予告を開始した時点で間隔を確保します。弾の命中・空振りで次の開始を早めません。
+    public bool TryRequestRanged(RangedFighter fighter)
+    {
+        _rangedWaiting.RemoveAll(waiting => waiting == null || !waiting.CanWaitForRangedAttack);
+        if (fighter == null || !fighter.CanWaitForRangedAttack)
+        {
+            return false;
+        }
+        if (!_rangedWaiting.Contains(fighter))
+        {
+            _rangedWaiting.Add(fighter);
+        }
+        // 更新順の早い敵が再び割り込まず、射撃可能になった順に開始します。
+        if (_rangedWaiting[0] != fighter || _rangedStartDelayRemaining > 0)
+        {
+            return false;
+        }
+        _rangedWaiting.RemoveAt(0);
+        _rangedStartDelayRemaining = _settings.RangedAttackStartIntervalSeconds;
         return true;
     }
 
@@ -150,5 +175,7 @@ public sealed class EnemyAttackCoordinator
         _waiting.Clear();
         _active.Clear();
         _startDelayRemaining = 0;
+        _rangedWaiting.Clear();
+        _rangedStartDelayRemaining = 0;
     }
 }

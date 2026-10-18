@@ -50,3 +50,5 @@ RangedWindupSeconds,0.8
 RangedAttackIntervalSeconds,2
 # 弾の発射直後に移動・再射撃を止める隙（秒、0～10）。0でこの隙だけを無効にする
 RangedRecoverySeconds,0.8
+# 遠距離敵全体の射撃予告開始の最小間隔（秒、0～10）。0で開始タイミングの制限を解除
+RangedAttackStartIntervalSeconds,1
