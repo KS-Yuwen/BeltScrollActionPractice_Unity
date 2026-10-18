@@ -18,7 +18,7 @@ public class Fighter : Combatant
     // 予兆の配色と反撃の隙は派生クラスが宣言し、表示側は具体的な職業・敵種別を判定しません。
     public virtual Color WarningStartColor => Color.yellow;
     public virtual Color WarningEndColor => Color.red;
-    public virtual float OpeningSecondsRemaining => 0f;
+    public virtual float OpeningSecondsRemaining => !IsPlayer && Health > 0 ? _enemyRecoveryRemaining : 0f;
     // 効果音も派生クラスで選び、予兆・攻撃開始の再生タイミングは共通化します。
     protected virtual BrawlerSound EnemyWarningSound => BrawlerSound.EnemyWarning;
     protected virtual BrawlerSound EnemySwingSound => BrawlerSound.EnemySwing;
@@ -39,6 +39,8 @@ public class Fighter : Combatant
     // _stunRemaining = 被ダメージによる硬直の残り秒数、_lastAttackTime = 前回攻撃を開始した時刻。
     // _walkPhase = 足を振るための位相。_lastAttackTime の初期値は最初の攻撃を 1 段目にするための値です。
     private float _attackRemaining;
+    // 攻撃間隔とは別に、攻撃を出した後の移動・再予告を止める時間です。
+    private float _enemyRecoveryRemaining;
     private float _attackCooldown;
     private float _stunRemaining;
     private float _hammerStunRemaining;
@@ -336,7 +338,9 @@ public class Fighter : Combatant
     public bool IsSpellEffectActive => _game != null && _game.IsSpellEffectActive;
     public bool IsPausedBySpellEffect => !IsPlayer && IsSpellEffectActive;
 
-    protected bool CanStartEnemyAttack => _attackCooldown <= 0;
+    protected bool CanStartEnemyAttack => _attackCooldown <= 0 && _enemyRecoveryRemaining <= 0;
+
+    protected virtual float EnemyRecoverySeconds => BrawlerBalance.MeleeRecoverySeconds;
 
     protected virtual float EnemyAttackInterval => BrawlerBalance.MeleeAttackIntervalSeconds;
 
@@ -485,6 +489,7 @@ public class Fighter : Combatant
     {
         _guardReleaseRemaining = Mathf.Max(0, _guardReleaseRemaining - deltaTime);
         _itemRecoveryRemaining = Mathf.Max(0, _itemRecoveryRemaining - deltaTime);
+        _enemyRecoveryRemaining = Mathf.Max(0, _enemyRecoveryRemaining - deltaTime);
         _attackCooldown -= deltaTime;
         _stunRemaining -= deltaTime;
         if (_stunRemaining <= 0)
@@ -799,6 +804,11 @@ public class Fighter : Combatant
     // プレイヤー入力か敵 AI のどちらかから、そのフレームの通常移動方向を決めます。
     private Vector3 GetMovement(Vector3 input, bool wasWindingUp)
     {
+        // 空振り・ガード・命中のどの場合も反撃の時間を作ります。向きもこの間は維持します。
+        if (!IsPlayer && _enemyRecoveryRemaining > 0)
+        {
+            return Vector3.zero;
+        }
         if (IsSliding)
         {
             return Vector3.zero;
@@ -893,6 +903,11 @@ public class Fighter : Combatant
     protected virtual void DealAttackDamage(int damage)
     {
         _game.Hit(this, damage);
+        // ガード反撃で既に被弾した場合は、反撃の隙より被ダメージ硬直を優先します。
+        if (!IsPlayer && Health > 0 && _stunRemaining <= 0)
+        {
+            _enemyRecoveryRemaining = EnemyRecoverySeconds;
+        }
     }
 
     private float GetInputFacing(Vector3 input)
@@ -1621,7 +1636,8 @@ public class Fighter : Combatant
             _enemyHealthBarFeedback.Refresh(Health, MaxHealth, 0);
         }
         _stunRemaining = isGroundHit ? Mathf.Max(_stunRemaining, _downRemaining) : BrawlerBalance.StunSeconds;
-        // 被ダメージによって進行中の攻撃を中断します。
+        // 被ダメージによって攻撃と反撃待ちの表示を中断し、通常の硬直・転倒へ移ります。
+        _enemyRecoveryRemaining = 0;
         _attackRemaining = 0;
         _isCrouching = false;
         _canBackstepFromJump = false;

@@ -108,6 +108,9 @@ public static class BrawlerBalance
     public const float SelectionHudMargin = 24f;
     public const float SelectionCardWidth = 154f;
     public const float SelectionCardHeight = 92f;
+    // 敵の攻撃発生後に反撃できる隙。攻撃間隔・被弾硬直とは独立した試作値です。
+    public const float MeleeRecoverySeconds = 0.65f;
+    public const float HeavyRecoverySeconds = 0.85f;
     public const float SelectionCardGap = 8f;
     public const float SelectionCardPadding = 8f;
     public const float SelectionBorderWidth = 3f;

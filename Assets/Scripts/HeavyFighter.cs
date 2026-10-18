@@ -5,6 +5,8 @@ public class HeavyFighter : Fighter
     public override int HammerHitLimit => BrawlerBalance.LargeEnemyHammerHitLimit;
     public override float HammerBodyRadius => BrawlerBalance.LargeEnemyHammerBodyRadius;
 
+    protected override float EnemyRecoverySeconds => BrawlerBalance.HeavyRecoverySeconds;
+
     protected override float EnemyMovementSpeed => BrawlerBalance.HeavySpeed;
 
     protected override float EnemyWindupDuration => BrawlerBalance.HeavyWindupSeconds;

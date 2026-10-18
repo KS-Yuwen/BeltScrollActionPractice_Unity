@@ -853,6 +853,43 @@ public static class CombatValidation
             HitImpact effectToAdvance = counterEffects[counterEffects.Length - 1];
             effectToAdvance.Advance(BrawlerBalance.CounterImpactSeconds);
             Require(effectToAdvance.transform.localScale == Vector3.zero, "ヒットストップ中も実時間で専用演出が終了");
+            // 通常敵も攻撃を空振りした後に止まり、反撃できる隙を表示します。
+            foreach (bool heavyOpening in new[] { false, true })
+            {
+                Fighter openingEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[]
+                    { "Test melee opening", player.transform.position + Vector3.right * 10, false, false, heavyOpening, false });
+                try
+                {
+                    MethodInfo strike = typeof(Fighter).GetMethod("DealAttackDamage", BindingFlags.Instance | BindingFlags.NonPublic);
+                    MethodInfo movement = typeof(Fighter).GetMethod("GetMovement", BindingFlags.Instance | BindingFlags.NonPublic);
+                    MethodInfo timers = typeof(Fighter).GetMethod("UpdateTimers", BindingFlags.Instance | BindingFlags.NonPublic);
+                    EnemyAttackWarning marker = openingEnemy.GetComponentInChildren<EnemyAttackWarning>();
+                    int playerHealth = player.Health;
+                    strike.Invoke(openingEnemy, new object[] { BrawlerBalance.MeleeDamage });
+                    float duration = heavyOpening ? BrawlerBalance.HeavyRecoverySeconds : BrawlerBalance.MeleeRecoverySeconds;
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == duration && player.Health == playerHealth
+                        && marker.IsShowingOpening, "空振りでも通常・重装敵の専用の隙を開始し、緑の枠を表示する");
+                    float facingBefore = openingEnemy.Facing;
+                    Require((Vector3)movement.Invoke(openingEnemy, new object[] { Vector3.zero, false }) == Vector3.zero
+                        && openingEnemy.Facing == facingBefore, "隙の間は移動・振り向きを止める");
+                    timers.Invoke(openingEnemy, new object[] { 0f });
+                    Require(openingEnemy.OpeningSecondsRemaining == duration, "時間停止中は反撃の隙も進めない");
+                    timers.Invoke(openingEnemy, new object[] { duration });
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening,
+                        "隙の時間が終われば表示を解除する");
+                    strike.Invoke(openingEnemy, new object[] { BrawlerBalance.MeleeDamage });
+                    openingEnemy.TakeDamage(1, 1);
+                    marker.Refresh();
+                    Require(openingEnemy.OpeningSecondsRemaining == 0 && !marker.IsShowingOpening,
+                        "隙への反撃を受けると既存の被弾状態へ移り、隙の表示は解除する");
+                }
+                finally
+                {
+                    UnityEngine.Object.DestroyImmediate(openingEnemy.gameObject);
+                }
+            }
             // 予告開始・進行・攻撃開始・中断・死亡に表示が追従することを確認します。
             Fighter warningEnemy = (Fighter)createTurnEnemy.Invoke(game, new object[] { "Test warning", Vector3.right * 10, false, false, false, false });
             EnemyAttackWarning warning = warningEnemy.GetComponentInChildren<EnemyAttackWarning>();
